@@ -1,122 +1,174 @@
 'use strict';
 
-/* ===== CORS 許可オリジン ===== */
-const ALLOWED = [
-  'https://tdtd.la-kofu.workers.dev',   // 本番（Worker 本体）
-  'https://kimura-jane.github.io',      // GitHub Pages（動作確認用ミラー）
-  'capacitor://localhost',              // iOS WebView
-  'http://localhost',                   // Android WebView
+/* ============================================================
+   つだつダイエット部 / worker/lib.js
+   共通ユーティリティ・バリデーション・CORS・日付
+   ============================================================ */
+
+/* ---------- 定数 ---------- */
+export const INACTIVE_DAYS = 14;   // 最後の記録から14日経過で「休止中」
+export const NICK_MAX   = 12;      // ニックネーム
+export const NAME_MAX   = 24;      // グループ名
+export const REASON_MAX = 200;     // 通報理由（ニックネームとは別枠）
+export const CODE_LEN   = 8;
+
+// Crockford Base32：I L O U を含まない32文字。
+// 「見間違い補正」はしない（U→V のような別コードへの化けを防ぐ）
+export const CODE_ALPHABET = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
+
+export const ALLOWED = [
+  'https://tdtd.la-kofu.workers.dev',
+  'https://kimura-jane.github.io',
+  'capacitor://localhost',
+  'ionic://localhost',
+  'http://localhost',
+  'http://localhost:8788',
 ];
-const FALLBACK = ALLOWED[0];
 
-export function pickOrigin(request) {
-  const o = request.headers.get('Origin') || '';
-  return ALLOWED.includes(o) ? o : FALLBACK;
-}
-
-export function corsHeaders(allowOrigin) {
-  return {
-    'access-control-allow-origin': allowOrigin,
+/* ---------- CORS / レスポンス ---------- */
+export function corsHeaders(req) {
+  const origin = req.headers.get('origin') || '';
+  const h = {
     'access-control-allow-methods': 'GET,POST,PATCH,DELETE,OPTIONS',
     'access-control-allow-headers': 'content-type,x-device-id',
     'access-control-max-age': '86400',
-    'vary': 'Origin',
+    'vary': 'origin',
   };
+  if (ALLOWED.includes(origin)) h['access-control-allow-origin'] = origin;
+  return h;
 }
 
-export function json(obj, status, allowOrigin) {
+export function preflight(req) {
+  return new Response(null, { status: 204, headers: corsHeaders(req) });
+}
+
+export function json(req, obj, status = 200) {
   return new Response(JSON.stringify(obj), {
     status,
     headers: {
-      ...corsHeaders(allowOrigin),
       'content-type': 'application/json; charset=utf-8',
       'cache-control': 'no-store',
+      ...corsHeaders(req),
     },
   });
 }
 
-/* ===== JST 日付 ===== */
+export function bad(req, error, status = 400) {
+  return json(req, { ok: false, error }, status);
+}
+
+export function notFound(req) {
+  return json(req, { ok: false, error: 'not_found' }, 404);
+}
+
+/* ---------- 日付（JST固定） ---------- */
 const JST = new Intl.DateTimeFormat('en-CA', {
-  timeZone: 'Asia/Tokyo', year: 'numeric', month: '2-digit', day: '2-digit'
+  timeZone: 'Asia/Tokyo', year: 'numeric', month: '2-digit', day: '2-digit',
 });
 
-export function todayYmdJST(d = new Date()) {
+function partsToYmd(d) {
   const p = JST.formatToParts(d);
-  const g = t => p.find(x => x.type === t)?.value;
-  const [y, m, day] = [g('year'), g('month'), g('day')];
-  if (!y || !m || !day) throw new Error('Failed to format JST date');
-  return `${y}-${m}-${day}`;
+  const g = (t) => p.find((x) => x.type === t).value;
+  return `${g('year')}-${g('month')}-${g('day')}`;
 }
 
-export function isValidYmd(s) {
+export function todayYmdJST() {
+  return partsToYmd(new Date());
+}
+
+export function isYmd(s) {
   if (typeof s !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(s)) return false;
-  const t = Date.parse(s + 'T00:00:00+09:00');
-  if (!Number.isFinite(t)) return false;
-  return todayYmdJST(new Date(t)) === s;   // 2026-02-30 のような値を弾く
+  return !Number.isNaN(Date.parse(s + 'T00:00:00+09:00'));
 }
 
-export const nowIso = () => new Date().toISOString();
+export function ymdToDay(ymd) {
+  return Math.round(Date.parse(ymd + 'T00:00:00+09:00') / 86400000);
+}
 
-/* ===== グループコード（Crockford's Base32／O I L U を除く32文字） ===== */
-const B32 = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
+export function dayToYmd(day) {
+  return partsToYmd(new Date(day * 86400000));
+}
 
-export function randomCode(len) {
-  const buf = crypto.getRandomValues(new Uint8Array(len));
-  let s = '';
-  for (const b of buf) s += B32[b % 32];
+/* ---------- 数値 ---------- */
+export function round1(v) {
+  return Math.round(v * 10) / 10;
+}
+
+export function normKg(raw) {
+  const v = typeof raw === 'number' ? raw : parseFloat(String(raw));
+  if (!Number.isFinite(v)) return null;
+  const r = round1(v);
+  if (r < 20 || r > 300) return null;
+  return r;
+}
+
+/* ---------- 文字列 ---------- */
+function stripCtrl(s) {
+  return String(s).replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, '');
+}
+
+export function normNickname(raw) {
+  if (raw === null || raw === undefined) return null;
+  const s = stripCtrl(raw).replace(/\s+/g, ' ').trim();
+  if (!s) return null;
+  return [...s].slice(0, NICK_MAX).join('');
+}
+
+export function normGroupName(raw) {
+  if (raw === null || raw === undefined) return null;
+  const s = stripCtrl(raw).replace(/\s+/g, ' ').trim();
+  if (!s) return null;
+  return [...s].slice(0, NAME_MAX).join('');
+}
+
+/* 通報理由は最大200文字。改行は残す（ニックネーム用関数を通さない） */
+export function normReason(raw) {
+  if (raw === null || raw === undefined) return null;
+  const s = stripCtrl(raw).replace(/[ \t]+/g, ' ').replace(/\n{3,}/g, '\n\n').trim();
+  if (!s) return null;
+  return [...s].slice(0, REASON_MAX).join('');
+}
+
+/* ---------- 参加コード ----------
+   大小文字・ハイフン・空白・全角だけを正規化する。
+   O→0 / I→1 / U→V のような「推測変換」はしない。
+   英数字以外や英数字でも辞書外の文字が入っていたら不正コードとして弾く。 */
+export function normalizeCode(raw) {
+  if (typeof raw !== 'string') return null;
+  const s = raw
+    .normalize('NFKC')                                  // 全角英数→半角
+    .replace(/[\s\u3000_\-\u2010-\u2015\u2212\uff0d]/g, '') // 空白・各種ハイフン・アンダースコア
+    .toUpperCase();
+  if (s.length !== CODE_LEN) return null;
+  for (const ch of s) if (!CODE_ALPHABET.includes(ch)) return null;
   return s;
 }
 
-export function normalizeCode(raw) {
-  if (typeof raw !== 'string') return null;
-  const s = raw.toUpperCase().replace(/[^0-9A-Z]/g, '')
-    .replace(/O/g, '0').replace(/[IL]/g, '1').replace(/U/g, 'V');
-  return /^[0-9A-HJKMNP-TV-Z]{8}$/.test(s) ? s : null;
+export function fmtCode(code) {
+  if (typeof code !== 'string' || code.length !== CODE_LEN) return code || '';
+  return code.slice(0, 4) + '-' + code.slice(4);
 }
 
-/* ===== 入力の検証・正規化 ===== */
-export function normKg(v) {
-  const n = typeof v === 'number' ? v : parseFloat(v);
-  if (!Number.isFinite(n)) return null;
-  const r = Math.round(n * 10) / 10;
-  return (r >= 20 && r <= 300) ? r : null;
+/* ---------- ID生成（モジュロ偏りなし：32 | 256） ---------- */
+export function genId(len) {
+  const b = new Uint8Array(len);
+  crypto.getRandomValues(b);
+  let s = '';
+  for (const n of b) s += CODE_ALPHABET[n & 31];
+  return s;
 }
 
-export function normNickname(v) {
-  if (typeof v !== 'string') return null;
-  const s = v.replace(/[\u0000-\u001f\u007f\u200b-\u200f\u2028\u2029\ufeff]/g, '')
-             .replace(/\s+/g, ' ').trim();
-  if (!s) return null;
-  const arr = [...s];
-  return arr.length > 12 ? arr.slice(0, 12).join('') : s;
+export function genCode() {
+  return genId(CODE_LEN);
 }
 
-/* ===== 認証（x-device-id ヘッダー） ===== */
-export async function auth(request, env) {
-  const id = request.headers.get('x-device-id') || '';
-  if (!/^dev_[0-9a-fA-F-]{36}$/.test(id)) return { error: 'bad_device_id', status: 401 };
-  const row = await env.DB.prepare('SELECT * FROM devices WHERE device_id = ?')
-    .bind(id).first();
-  if (!row) return { error: 'not_registered', status: 404 };
-  if (row.banned) return { error: 'banned', status: 403 };
-  return { me: row };
-}
-
-/* ===== レート制限（period は 10 か 60 のみ） ===== */
+/* ---------- レートリミット（未バインドなら常に許可） ---------- */
 export async function rateOk(env, key) {
-  if (!env.JOIN_LIMITER) return true;
-  const { success } = await env.JOIN_LIMITER.limit({ key });
-  return success;
-}
-
-/* ===== 公開用の自分情報（device_id は絶対に返さない） ===== */
-export function pubMe(r) {
-  return {
-    member_id: r.member_id,
-    nickname: r.nickname,
-    icon_ver: r.icon_ver,
-    group_id: r.group_id,
-    goal_weight: r.goal_weight,
-    notify: { on: !!r.notify_on, days: r.notify_days, hour: r.notify_hour },
-  };
+  if (!env || !env.JOIN_LIMITER || typeof env.JOIN_LIMITER.limit !== 'function') return true;
+  try {
+    const { success } = await env.JOIN_LIMITER.limit({ key: String(key) });
+    return !!success;
+  } catch {
+    return true;
+  }
 }

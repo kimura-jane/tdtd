@@ -9,7 +9,7 @@ directory = "."
 [[d1_databases]]
 binding = "DB"
 database_name = "tdtd"
-database_id = "ここに実際のIDを貼る"
+database_id = "01ace57a-e539-4f86-ad22-e04cd4b07971"
 
 [[ratelimits]]
 name = "JOIN_LIMITER"

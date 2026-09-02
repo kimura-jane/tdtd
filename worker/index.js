@@ -12,11 +12,40 @@ import {
    つだつダイエット部 / worker/index.js
    ============================================================ */
 
+/* ---------- アイコン設定 ---------- */
+const ICON_MAX_BYTES = 300 * 1024;   // クライアントで256px/JPEG化した後の上限
+const ICON_PREFIX = 'icon/';         // R2キー: icon/{member_id}.jpg
+const ICON_PUBLIC = '/i/';           // 公開GETパス: /i/{member_id}.jpg
+
+function iconKey(memberId) {
+  return ICON_PREFIX + memberId + '.jpg';
+}
+
+// member_id は genId(10) 由来（CODE_ALPHABET の大文字英数）。念のため幅を持たせる
+function isMemberId(s) {
+  return typeof s === 'string' && /^[0-9A-Z]{6,32}$/.test(s);
+}
+
 export default {
   async fetch(req, env) {
     if (req.method === 'OPTIONS') return preflight(req);
 
     const url = new URL(req.url);
+
+    /* アイコン取得は <img> から呼ばれるため x-device-id を付けられない。
+       認証なしの公開ルートとして /api/ の手前で処理する。
+       member_id は32文字アルファベットの10桁で推測できないため実害はない。 */
+    if (url.pathname.startsWith(ICON_PUBLIC)) {
+      if (req.method !== 'GET' && req.method !== 'HEAD') {
+        return new Response('method_not_allowed', { status: 405 });
+      }
+      try {
+        return await getIcon(req, env, url);
+      } catch (e) {
+        return new Response('icon_error', { status: 500 });
+      }
+    }
+
     if (!url.pathname.startsWith('/api/')) {
       if (env.ASSETS && typeof env.ASSETS.fetch === 'function') return env.ASSETS.fetch(req);
       return notFound(req);
@@ -29,6 +58,78 @@ export default {
     }
   },
 };
+
+/* ============================================================
+   アイコン（GET は公開 / POST・DELETE は本人のみ）
+   ============================================================ */
+async function getIcon(req, env, url) {
+  const raw = decodeURIComponent(url.pathname.slice(ICON_PUBLIC.length));
+  const mid = raw.replace(/\.jpe?g$/i, '').toUpperCase();
+  if (!isMemberId(mid)) return new Response('bad_member_id', { status: 400 });
+  if (!env.ICONS) return new Response('no_bucket', { status: 503 });
+
+  const obj = await env.ICONS.get(iconKey(mid));
+  if (!obj) return new Response('not_found', { status: 404 });
+
+  const h = new Headers();
+  obj.writeHttpMetadata(h);
+  h.set('content-type', 'image/jpeg');
+  h.set('etag', obj.httpEtag);
+  // URL に ?v={icon_ver} が付く運用なので長期キャッシュで問題ない
+  h.set('cache-control', 'public, max-age=31536000, immutable');
+  h.set('access-control-allow-origin', '*');
+
+  if (req.method === 'HEAD') return new Response(null, { status: 200, headers: h });
+  return new Response(obj.body, { status: 200, headers: h });
+}
+
+async function putIcon(req, env, dev) {
+  if (!env.ICONS) return bad(req, 'no_bucket', 503);
+  if (!await rateOk(env, 'icon:' + dev.device_id)) return bad(req, 'rate_limited', 429);
+
+  const len = Number(req.headers.get('content-length') || 0);
+  if (len && len > ICON_MAX_BYTES) return bad(req, 'icon_too_large', 413);
+
+  const buf = await req.arrayBuffer();
+  if (buf.byteLength === 0) return bad(req, 'icon_empty');
+  if (buf.byteLength > ICON_MAX_BYTES) return bad(req, 'icon_too_large', 413);
+
+  // JPEG のマジックバイトだけ検査する。画像処理はクライアント側（Worker の CPU 時間を使わない）
+  const b = new Uint8Array(buf);
+  if (!(b.length > 3 && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff)) {
+    return bad(req, 'not_jpeg');
+  }
+
+  await env.ICONS.put(iconKey(dev.member_id), buf, {
+    httpMetadata: { contentType: 'image/jpeg' },
+  });
+
+  const ver = Number(dev.icon_ver || 0) + 1;
+  await env.DB.prepare('UPDATE devices SET icon_ver=? WHERE device_id=?')
+    .bind(ver, dev.device_id).run();
+
+  return json(req, {
+    ok: true,
+    icon_ver: ver,
+    icon_url: ICON_PUBLIC + dev.member_id + '.jpg?v=' + ver,
+    bytes: buf.byteLength,
+  });
+}
+
+async function deleteIcon(req, env, dev) {
+  if (!env.ICONS) return bad(req, 'no_bucket', 503);
+  await env.ICONS.delete(iconKey(dev.member_id));
+  // icon_ver=0 は「未設定」。クライアントはデフォルトアイコンを出す
+  await env.DB.prepare('UPDATE devices SET icon_ver=0 WHERE device_id=?').bind(dev.device_id).run();
+  return json(req, { ok: true, icon_ver: 0 });
+}
+
+// R2 削除は失敗しても本処理を止めない（孤児オブジェクトは⑦の管理画面で掃除）
+async function tryDeleteIconObject(env, memberId) {
+  try {
+    if (env.ICONS && memberId) await env.ICONS.delete(iconKey(memberId));
+  } catch (e) { /* noop */ }
+}
 
 /* ---------- 小物 ---------- */
 async function readBody(req) {
@@ -45,10 +146,12 @@ function num(v) {
 }
 
 function publicMe(dev) {
+  const ver = Number(dev.icon_ver || 0);
   return {
     member_id: dev.member_id,
     nickname: dev.nickname || null,
-    icon_ver: Number(dev.icon_ver || 0),
+    icon_ver: ver,
+    icon_url: ver > 0 ? ICON_PUBLIC + dev.member_id + '.jpg?v=' + ver : null,
     goal_weight: dev.goal_weight === null || dev.goal_weight === undefined ? null : Number(dev.goal_weight),
     notify_on: Number(dev.notify_on || 0) === 1,
     notify_days: Number(dev.notify_days || 3),
@@ -56,6 +159,13 @@ function publicMe(dev) {
     in_group: !!dev.group_id,
     joined_at: dev.joined_at || null,
   };
+}
+
+// 一覧系で使う共通のアイコンURL生成（icon_ver=0 は null → デフォルトアイコン）
+function iconUrlOf(memberId, iconVer) {
+  const v = Number(iconVer || 0);
+  if (!memberId || v <= 0) return null;
+  return ICON_PUBLIC + memberId + '.jpg?v=' + v;
 }
 
 function isOwnerOf(group, dev) {
@@ -119,6 +229,21 @@ async function route(req, env, url) {
     if (m === 'GET') return json(req, { ok: true, me: publicMe(dev), group: await groupView(env, dev) });
     if (m === 'PATCH') return await patchMe(req, env, dev);
     if (m === 'DELETE') return await deleteMe(req, env, dev);
+  }
+
+  /* ---------- アイコン ---------- */
+  if (p === '/api/icon') {
+    if (m === 'POST' || m === 'PUT') return await putIcon(req, env, dev);
+    if (m === 'DELETE') return await deleteIcon(req, env, dev);
+    if (m === 'GET') {
+      const ver = Number(dev.icon_ver || 0);
+      return json(req, {
+        ok: true,
+        icon_ver: ver,
+        icon_url: iconUrlOf(dev.member_id, ver),
+        max_bytes: ICON_MAX_BYTES,
+      });
+    }
   }
 
   /* ---------- 体重 ---------- */
@@ -256,6 +381,8 @@ async function deleteMe(req, env, dev) {
     const g = await env.DB.prepare('SELECT * FROM groups WHERE group_id=?').bind(dev.group_id).first();
     if (g && isOwnerOf(g, dev)) await doDissolve(env, g.group_id);
   }
+  // R2 のアイコンも消す（D1 の行を消すと二度と辿れなくなるので先に）
+  await tryDeleteIconObject(env, dev.member_id);
   await env.DB.batch([
     env.DB.prepare('DELETE FROM weights  WHERE device_id=?').bind(dev.device_id),
     env.DB.prepare('DELETE FROM watching WHERE device_id=?').bind(dev.device_id),
@@ -483,6 +610,7 @@ async function listBans(req, env, dev) {
       member_id: x.member_id,
       nickname: x.nickname || null,
       icon_ver: Number(x.icon_ver || 0),
+      icon_url: iconUrlOf(x.member_id, x.icon_ver),
       created_at: x.created_at || null,
     })),
   });
@@ -568,6 +696,7 @@ function buildEntry(memberRow, stat, todayDay, showKg, isSelf, isRival) {
     member_id: memberRow.member_id,
     nickname: memberRow.nickname || null,
     icon_ver: Number(memberRow.icon_ver || 0),
+    icon_url: iconUrlOf(memberRow.member_id, memberRow.icon_ver),
     loss,
     start_kg: (showKg && stat && stat.first) ? stat.first.kg : null,
     latest_kg: (showKg && stat && stat.last) ? stat.last.kg : null,
@@ -799,6 +928,7 @@ async function listRivals(req, env, dev) {
       member_id: x.member_id,
       nickname: x.nickname || null,
       icon_ver: Number(x.icon_ver || 0),
+      icon_url: iconUrlOf(x.member_id, x.icon_ver),
     })),
   });
 }
@@ -839,6 +969,7 @@ async function listBlocks(req, env, dev) {
       member_id: x.member_id,
       nickname: x.nickname || null,
       icon_ver: Number(x.icon_ver || 0),
+      icon_url: iconUrlOf(x.member_id, x.icon_ver),
     })),
   });
 }

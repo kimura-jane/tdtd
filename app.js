@@ -3,6 +3,8 @@
 /* ===== API ===== */
 const API = '';                            // 同一オリジン。アプリ化時に絶対URLへ
 const K_DEV = 'tsudatsu.device_id.v1';
+const ICON_SIZE = 256;                     // 正方形クロップ後の一辺
+const ICON_LIMIT = 280 * 1024;             // Worker 側の上限(300KB)より少し内側
 
 function deviceId() {
   let v = localStorage.getItem(K_DEV);
@@ -18,6 +20,20 @@ async function api(path, opt = {}) {
     method: opt.method || 'GET',
     headers: { 'content-type': 'application/json', 'x-device-id': deviceId() },
     body: opt.body !== undefined ? JSON.stringify(opt.body) : undefined,
+    cache: 'no-store',
+  });
+  let data = {};
+  try { data = await res.json(); } catch {}
+  if (!res.ok || data.ok === false) throw new Error(data.error || ('http_' + res.status));
+  return data;
+}
+
+/* 画像は JSON ではなく生バイトで送る */
+async function apiBlob(path, blob, method = 'POST') {
+  const res = await fetch(API + path, {
+    method,
+    headers: { 'content-type': 'image/jpeg', 'x-device-id': deviceId() },
+    body: blob,
     cache: 'no-store',
   });
   let data = {};
@@ -44,11 +60,23 @@ const ERR = {
   own_group: '自分のグループです',
   bad_name: '名前を入力してください',
   bad_nickname: 'ニックネームを入力してください',
-  bad_start_ymd: 'スタート日が不正です',
-  too_many_requests: '操作が多すぎます。1分ほど待ってください',
-  already_reported_today: 'すでに通報済みです',
+  bad_member_id: '相手を特定できませんでした',
+  bad_reason: '通報理由を入力してください',
+  bad_notify: '通知設定の値が不正です',
+  member_not_found: 'その人は見つかりません',
+  not_watching: 'このチームは登録されていません',
+  self_not_allowed: '自分は対象にできません',
   cannot_kick_self: '自分は除名できません',
-  not_allowed: '閲覧権限がありません',
+  nothing_to_update: '変更点がありません',
+  rate_limited: '操作が多すぎます。1分ほど待ってください',
+  too_many_requests: '操作が多すぎます。1分ほど待ってください',
+  not_jpeg: '画像を変換できませんでした。別の写真でお試しください',
+  icon_too_large: '画像が大きすぎます。別の写真でお試しください',
+  icon_empty: '画像を読み込めませんでした',
+  no_bucket: '画像の保存先が未設定です',
+  not_image: '画像ファイルを選んでください',
+  bad_image: '画像を読み込めませんでした',
+  server_error: 'サーバーエラーが発生しました',
 };
 const emsg = e => ERR[e.message] || ('エラー（' + e.message + '）');
 
@@ -116,7 +144,21 @@ function normKg(raw) {
   const r = Math.round(v * 10) / 10;
   return (r >= 20 && r <= 300) ? r : null;
 }
-function fmtCode(c) { return c ? c.slice(0, 4) + '-' + c.slice(4) : '—'; }
+/* Worker は code を "ABCD-1234" 形式で返す。二重にハイフンを入れない */
+function fmtCode(c) {
+  if (!c) return '—';
+  const s = String(c).toUpperCase().replace(/[^0-9A-Z]/g, '');
+  return s.length === 8 ? s.slice(0, 4) + '-' + s.slice(4) : String(c);
+}
+function rawCode(c) { return String(c || '').toUpperCase().replace(/[^0-9A-Z]/g, ''); }
+
+/* 減量幅の表示：正 = 減った */
+function signKg(v) {
+  if (v === null || v === undefined) return '—';
+  if (v > 0) return '−' + Math.abs(v).toFixed(1) + 'kg';
+  if (v < 0) return '+' + Math.abs(v).toFixed(1) + 'kg';
+  return '±0.0kg';
+}
 
 /* ===== 要素 ===== */
 const $ = s => document.querySelector(s);
@@ -144,6 +186,10 @@ const el = {
   notifyOn: $('#notifyOn'), notifyDays: $('#notifyDays'), notifyHour: $('#notifyHour'), nmsg: $('#nmsg'),
   blockList: $('#blockList'),
   myMemberId: $('#myMemberId'), myDeviceId: $('#myDeviceId'), dmsg: $('#dmsg'),
+
+  /* アイコン（index.html 未更新でも null 安全に動く） */
+  iconBox: $('#iconBox'), iconFile: $('#iconFile'), iconPick: $('#iconPick'),
+  iconDel: $('#iconDel'), imsg: $('#imsg'),
 };
 
 const timers = new WeakMap();
@@ -153,6 +199,125 @@ function say(node, text, ok) {
   node.className = 'msg ' + (ok ? 'ok' : 'ng');
   clearTimeout(timers.get(node));
   timers.set(node, setTimeout(() => { node.textContent = ''; node.className = 'msg'; }, 3200));
+}
+
+/* ===== アイコン ===== */
+function canvasToBlob(cv, q) {
+  return new Promise(r => cv.toBlob(r, 'image/jpeg', q));
+}
+function loadImageEl(file) {
+  return new Promise((res, rej) => {
+    const url = URL.createObjectURL(file);
+    const im = new Image();
+    im.onload = () => { URL.revokeObjectURL(url); res(im); };
+    im.onerror = () => { URL.revokeObjectURL(url); rej(new Error('bad_image')); };
+    im.src = url;
+  });
+}
+async function loadImageAny(file) {
+  if (window.createImageBitmap) {
+    try { return await createImageBitmap(file, { imageOrientation: 'from-image' }); }
+    catch { /* 非対応ブラウザは <img> にフォールバック */ }
+  }
+  return await loadImageEl(file);
+}
+
+/* 中央で正方形に切り、256pxへ縮小、JPEG化。処理はすべて端末側で行う */
+async function fileToIconBlob(file) {
+  if (!file) throw new Error('bad_image');
+  if (file.type && !/^image\//.test(file.type)) throw new Error('not_image');
+
+  const img = await loadImageAny(file);
+  const iw = img.width, ih = img.height;
+  if (!iw || !ih) throw new Error('bad_image');
+
+  const s = Math.min(iw, ih);
+  const sx = Math.round((iw - s) / 2), sy = Math.round((ih - s) / 2);
+
+  const cv = document.createElement('canvas');
+  cv.width = ICON_SIZE; cv.height = ICON_SIZE;
+  const ctx = cv.getContext('2d');
+  ctx.fillStyle = '#ffffff';                 // 透過PNGが黒くならないように
+  ctx.fillRect(0, 0, ICON_SIZE, ICON_SIZE);
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(img, sx, sy, s, s, 0, 0, ICON_SIZE, ICON_SIZE);
+  if (img.close) img.close();
+
+  let q = 0.85;
+  let blob = await canvasToBlob(cv, q);
+  while (blob && blob.size > ICON_LIMIT && q > 0.4) {
+    q -= 0.15;
+    blob = await canvasToBlob(cv, q);
+  }
+  if (!blob) throw new Error('bad_image');
+  return blob;
+}
+
+function initialOf(row) {
+  const n = String((row && row.nickname) || '').trim();
+  return n ? [...n][0] : '?';
+}
+
+/* 丸アイコン。CSS 未更新でも見た目が崩れないよう最低限の指定を入れる */
+function avatar(row, size) {
+  const px = size || 36;
+  const d = document.createElement('div');
+  d.className = 'av';
+  d.style.cssText =
+    `width:${px}px;height:${px}px;flex:0 0 auto;border-radius:50%;overflow:hidden;` +
+    `background:#ece7e2;display:flex;align-items:center;justify-content:center;` +
+    `font-weight:700;color:#a8998f;font-size:${Math.round(px * 0.42)}px;line-height:1;`;
+  if (row && row.icon_url) {
+    const im = document.createElement('img');
+    im.src = API + row.icon_url;
+    im.alt = '';
+    im.loading = 'lazy';
+    im.style.cssText = 'width:100%;height:100%;object-fit:cover;display:block;';
+    im.onerror = () => { im.remove(); d.textContent = initialOf(row); };
+    d.appendChild(im);
+  } else {
+    d.textContent = initialOf(row);
+  }
+  return d;
+}
+
+function renderIcon() {
+  if (!el.iconBox) return;
+  el.iconBox.innerHTML = '';
+  el.iconBox.appendChild(avatar(cache.me || {}, 72));
+  if (el.iconDel) el.iconDel.hidden = !(cache.me && cache.me.icon_url);
+}
+
+async function uploadIcon(file) {
+  if (!cache.ready) { say(el.imsg, 'サーバーに接続中です', false); return; }
+  try {
+    say(el.imsg, '画像を処理しています…', true);
+    const blob = await fileToIconBlob(file);
+    const d = await apiBlob('/api/icon', blob);
+    if (cache.me) {
+      cache.me.icon_ver = d.icon_ver;
+      cache.me.icon_url = d.icon_url;
+    }
+    renderIcon();
+    if (cache.group || state.rank === 'rival') loadRanking();
+    say(el.imsg, 'アイコンを設定しました', true);
+  } catch (e) {
+    say(el.imsg, emsg(e), false);
+  }
+}
+
+async function removeIcon() {
+  if (!confirm('アイコンを削除しますか？')) return;
+  try {
+    await api('/api/icon', { method: 'DELETE' });
+    if (cache.me) { cache.me.icon_ver = 0; cache.me.icon_url = null; }
+    renderIcon();
+    if (cache.group || state.rank === 'rival') loadRanking();
+    say(el.imsg, 'アイコンを削除しました', true);
+  } catch (e) {
+    say(el.imsg, emsg(e), false);
+  }
 }
 
 /* ===== 保存 ===== */
@@ -367,9 +532,9 @@ function renderGroup() {
   const g = cache.group;
   el.noGroupBox.hidden = !!g;
   el.myGroupBox.hidden = !g;
-  el.rankBox.hidden = !g && !cache.watching.length && !state.rankHasRival;
+  el.rankBox.hidden = false;          // タブごとに空状態を出すので常に表示
 
-  if (!g) { el.rankBox.hidden = state.rank === 'mine'; return; }
+  if (!g) return;
 
   el.gName.textContent = g.name;
   el.gMeta.textContent =
@@ -378,7 +543,6 @@ function renderGroup() {
   if (g.is_owner) el.gCode.textContent = fmtCode(g.code || g.group_id);
   el.ownerTools.hidden = !g.is_owner;
   el.memberTools.hidden = !!g.is_owner;
-  el.rankBox.hidden = false;
 }
 
 function renderWatchSel() {
@@ -387,6 +551,7 @@ function renderWatchSel() {
     const o = document.createElement('option');
     o.value = ''; o.textContent = '登録なし';
     el.watchSel.appendChild(o);
+    state.watchId = null;
     return;
   }
   for (const w of cache.watching) {
@@ -394,8 +559,9 @@ function renderWatchSel() {
     o.value = w.group_id; o.textContent = w.name;
     el.watchSel.appendChild(o);
   }
-  if (state.watchId) el.watchSel.value = state.watchId;
-  else state.watchId = cache.watching[0].group_id;
+  const ids = cache.watching.map(w => w.group_id);
+  if (!state.watchId || !ids.includes(state.watchId)) state.watchId = ids[0];
+  el.watchSel.value = state.watchId;
 }
 
 function drawRank(data) {
@@ -405,7 +571,6 @@ function drawRank(data) {
     el.rankList.innerHTML = '<li class="empty">表示できるメンバーがいません</li>';
     return;
   }
-  const showKg = data.group ? data.group.show_weight : true;
 
   for (const r of rows) {
     const li = document.createElement('li');
@@ -416,21 +581,27 @@ function drawRank(data) {
     no.className = 'no' + (r.rank && r.rank <= 3 ? ' top' : '');
     no.textContent = r.rank ? r.rank : '—';
 
+    const av = avatar(r, 38);
+
     const who = document.createElement('div');
     who.className = 'who';
     const nm = document.createElement('div');
     nm.className = 'nm';
-    nm.textContent = r.nickname;
+    nm.textContent = r.nickname || '名前未設定';
     if (r.is_self) nm.appendChild(badge('あなた'));
-    if (r.is_rival) nm.appendChild(badge('ライバル', 'rival'));
+    if (r.is_rival && !r.is_self) nm.appendChild(badge('ライバル', 'rival'));
     if (r.inactive) nm.appendChild(badge('休止中'));
+
     const sb = document.createElement('div');
     sb.className = 'sb';
-    if (r.records === 0) sb.textContent = '記録なし';
-    else {
-      const kgPart = (showKg && r.start_kg != null)
+    if (!r.last_ymd) {
+      sb.textContent = '記録なし';
+    } else {
+      const kgPart = (r.start_kg != null && r.latest_kg != null)
         ? `${r.start_kg.toFixed(1)} → ${r.latest_kg.toFixed(1)}kg ／ ` : '';
-      sb.textContent = kgPart + `最終 ${fmtJp(r.last_ymd)}（${r.days_since}日前）`;
+      const idle = r.idle_days === 0 ? '今日' : `${r.idle_days}日前`;
+      const gname = r.group_name ? `${r.group_name} ／ ` : '';
+      sb.textContent = gname + kgPart + `最終 ${fmtJp(r.last_ymd)}（${idle}）`;
     }
     who.append(nm, sb);
 
@@ -438,14 +609,14 @@ function drawRank(data) {
     if (r.loss === null) { ls.className = 'ls none'; ls.textContent = '—'; }
     else {
       ls.className = 'ls ' + (r.loss > 0 ? 'minus' : (r.loss < 0 ? 'plus' : ''));
-      ls.textContent = (r.loss > 0 ? '−' : (r.loss < 0 ? '+' : '±')) + Math.abs(r.loss).toFixed(1) + 'kg';
+      ls.textContent = signKg(r.loss);
     }
 
     const kb = document.createElement('button');
     kb.className = 'kebab'; kb.type = 'button'; kb.textContent = '⋯';
     kb.onclick = () => memberMenu(r, data);
 
-    li.append(no, who, ls);
+    li.append(no, av, who, ls);
     if (!r.is_self) li.append(kb);
     el.rankList.appendChild(li);
   }
@@ -467,36 +638,38 @@ function memberMenu(r, data) {
   if (isOwner) acts.push(['グループから除名', () => doKick(r)]);
 
   const lines = acts.map((a, i) => `${i + 1}. ${a[0]}`).join('\n');
-  const sel = prompt(`${r.nickname}\n\n${lines}\n\n番号を入力`, '');
+  const sel = prompt(`${r.nickname || '名前未設定'}\n\n${lines}\n\n番号を入力`, '');
   if (sel === null) return;
   const i = parseInt(sel, 10) - 1;
   if (acts[i]) acts[i][1]();
 }
 
+const who = r => r.nickname || '名前未設定';
+
 async function rivalAdd(r) {
   try {
     await api('/api/rivals', { method: 'POST', body: { member_id: r.member_id } });
-    say(el.rmsg, `${r.nickname} をライバルに追加しました`, true);
+    say(el.rmsg, `${who(r)} をライバルに追加しました`, true);
     loadRanking();
   } catch (e) { say(el.rmsg, emsg(e), false); }
 }
 async function rivalDel(r) {
   try {
-    await api('/api/rivals?member_id=' + encodeURIComponent(r.member_id), { method: 'DELETE' });
-    say(el.rmsg, `${r.nickname} をライバルから外しました`, true);
+    await api('/api/rivals/' + encodeURIComponent(r.member_id), { method: 'DELETE' });
+    say(el.rmsg, `${who(r)} をライバルから外しました`, true);
     loadRanking();
   } catch (e) { say(el.rmsg, emsg(e), false); }
 }
 async function doReport(r) {
-  const reason = prompt(`${r.nickname} を通報します。理由を入力してください`, '');
+  const reason = prompt(`${who(r)} を通報します。理由を入力してください`, '');
   if (reason === null || !reason.trim()) return;
   try {
-    await api('/api/reports', { method: 'POST', body: { member_id: r.member_id, reason } });
+    await api('/api/reports', { method: 'POST', body: { target_id: r.member_id, reason } });
     say(el.rmsg, '通報を受け付けました', true);
   } catch (e) { say(el.rmsg, emsg(e), false); }
 }
 async function doBlock(r) {
-  if (!confirm(`${r.nickname} をブロックしますか？\nランキングに表示されなくなります。`)) return;
+  if (!confirm(`${who(r)} をブロックしますか？\nランキングに表示されなくなります。`)) return;
   try {
     await api('/api/blocks', { method: 'POST', body: { member_id: r.member_id } });
     say(el.rmsg, 'ブロックしました', true);
@@ -504,7 +677,7 @@ async function doBlock(r) {
   } catch (e) { say(el.rmsg, emsg(e), false); }
 }
 async function doKick(r) {
-  if (!confirm(`${r.nickname} を除名しますか？\n同じコードでは再参加できなくなります。`)) return;
+  if (!confirm(`${who(r)} を除名しますか？\n同じコードでは再参加できなくなります。`)) return;
   try {
     await api('/api/groups/kick', { method: 'POST', body: { member_id: r.member_id } });
     say(el.rmsg, '除名しました', true);
@@ -545,15 +718,17 @@ async function loadBlocks() {
 
 async function loadRanking() {
   if (state.view !== 'group') return;
-  let path = '/api/ranking?mode=group';
-  if (state.rank === 'rival') path = '/api/ranking?mode=rival';
-  else if (state.rank === 'watch') {
+
+  let path = '/api/ranking?scope=mine';
+  if (state.rank === 'rival') {
+    path = '/api/ranking?scope=rival';
+  } else if (state.rank === 'watch') {
     if (!state.watchId) {
       el.rankHead.textContent = '';
       el.rankList.innerHTML = '<li class="empty">コードを追加すると他チームを見られます</li>';
       return;
     }
-    path = '/api/ranking?mode=group&group_id=' + encodeURIComponent(state.watchId);
+    path = '/api/ranking?scope=watch&group_id=' + encodeURIComponent(state.watchId);
   } else if (!cache.group) {
     el.rankHead.textContent = '';
     el.rankList.innerHTML = '<li class="empty">グループに参加すると表示されます</li>';
@@ -563,11 +738,16 @@ async function loadRanking() {
   el.rankList.innerHTML = '<li class="empty">読み込み中…</li>';
   try {
     const d = await api(path);
+    const s = d.summary;
     if (d.group) {
-      el.rankHead.textContent =
-        `${d.group.name} ／ スタート ${fmtJpFull(d.group.start_ymd)} ／ チーム合計 −${d.total_loss.toFixed(1)}kg`;
+      const parts = [d.group.name, `スタート ${fmtJpFull(d.group.start_ymd)}`];
+      if (s && s.counted) {
+        parts.push(`全体 ${signKg(s.total_loss)}`);
+        parts.push(`平均 ${signKg(s.avg_loss)}/人`);
+      }
+      el.rankHead.textContent = parts.join(' ／ ');
     } else {
-      el.rankHead.textContent = `ライバル ${d.rows.length}人`;
+      el.rankHead.textContent = `自分＋ライバル ${(d.rows || []).length}人`;
     }
     drawRank(d);
   } catch (e) {
@@ -584,13 +764,12 @@ function renderMy() {
   if (document.activeElement !== el.goalInput) {
     el.goalInput.value = cache.goal !== null ? cache.goal.toFixed(1) : '';
   }
-  el.notifyOn.checked = !!(m.notify && m.notify.on);
-  if (m.notify) {
-    el.notifyDays.value = String(m.notify.days);
-    el.notifyHour.value = String(m.notify.hour);
-  }
+  el.notifyOn.checked = !!m.notify_on;
+  el.notifyDays.value = String(m.notify_days || 3);
+  el.notifyHour.value = String(m.notify_hour == null ? 20 : m.notify_hour);
   el.myMemberId.textContent = m.member_id || '—';
   el.myDeviceId.textContent = deviceId();
+  renderIcon();
 }
 
 function drawBlocks() {
@@ -601,17 +780,18 @@ function drawBlocks() {
   }
   for (const b of cache.blocks) {
     const li = document.createElement('li');
+    const av = avatar(b, 28);
     const d = document.createElement('span');
     d.className = 'd'; d.textContent = b.nickname || b.member_id;
     const btn = document.createElement('button');
     btn.type = 'button'; btn.textContent = '解除';
     btn.onclick = async () => {
       try {
-        await api('/api/blocks?member_id=' + encodeURIComponent(b.member_id), { method: 'DELETE' });
+        await api('/api/blocks/' + encodeURIComponent(b.member_id), { method: 'DELETE' });
         await loadBlocks(); loadRanking();
       } catch (e) { alert(emsg(e)); }
     };
-    li.append(d, btn);
+    li.append(av, d, btn);
     el.blockList.appendChild(li);
   }
 }
@@ -683,7 +863,7 @@ function init() {
     const name = el.newGroupName.value.trim();
     if (!name) { say(el.gmsg, 'グループ名を入力してください', false); return; }
     try {
-      await api('/api/groups', {
+      await api('/api/groups/create', {
         method: 'POST',
         body: {
           name,
@@ -697,7 +877,8 @@ function init() {
   };
 
   $('#copyCode').onclick = async () => {
-    const c = cache.group && (cache.group.code || cache.group.group_id);
+    const g = cache.group;
+    const c = g ? rawCode(g.code || g.group_id) : '';
     if (!c) return;
     try { await navigator.clipboard.writeText(c); say(el.gmsg2, 'コードをコピーしました', true); }
     catch { say(el.gmsg2, 'コピーできませんでした。手で入力してください', false); }
@@ -707,7 +888,7 @@ function init() {
     const v = prompt('新しいグループ名', cache.group ? cache.group.name : '');
     if (v === null || !v.trim()) return;
     try {
-      await api('/api/groups', { method: 'PATCH', body: { name: v.trim() } });
+      await api('/api/groups/rename', { method: 'POST', body: { name: v.trim() } });
       await loadMe(); loadRanking(); say(el.gmsg2, '名前を変更しました', true);
     } catch (e) { say(el.gmsg2, emsg(e), false); }
   };
@@ -716,7 +897,7 @@ function init() {
     const v = prompt('スタート日（YYYY-MM-DD）', cache.group ? cache.group.start_ymd : '');
     if (v === null || !/^\d{4}-\d{2}-\d{2}$/.test(v.trim())) return;
     try {
-      await api('/api/groups', { method: 'PATCH', body: { start_ymd: v.trim() } });
+      await api('/api/groups/start', { method: 'POST', body: { start_ymd: v.trim() } });
       await loadMe(); loadRanking(); say(el.gmsg2, 'スタート日を変更しました', true);
     } catch (e) { say(el.gmsg2, emsg(e), false); }
   };
@@ -724,11 +905,12 @@ function init() {
   $('#showBans').onclick = async () => {
     try {
       const d = await api('/api/groups/bans');
-      if (!d.bans.length) { say(el.gmsg2, '除名した人はいません', true); return; }
-      const lines = d.bans.map((b, i) => `${i + 1}. ${b.nickname || b.member_id}`).join('\n');
+      const bans = d.bans || [];
+      if (!bans.length) { say(el.gmsg2, '除名した人はいません', true); return; }
+      const lines = bans.map((b, i) => `${i + 1}. ${b.nickname || b.member_id}`).join('\n');
       const sel = prompt(`除名リスト\n\n${lines}\n\n復活させる番号を入力（空欄で閉じる）`, '');
       if (sel === null || !sel.trim()) return;
-      const t = d.bans[parseInt(sel, 10) - 1];
+      const t = bans[parseInt(sel, 10) - 1];
       if (!t) return;
       await api('/api/groups/unban', { method: 'POST', body: { member_id: t.member_id } });
       say(el.gmsg2, `${t.nickname || t.member_id} を復活させました`, true);
@@ -766,12 +948,27 @@ function init() {
     if (code === null || !code.trim()) return;
     try {
       const d = await api('/api/watching', { method: 'POST', body: { code: code.trim() } });
-      await loadWatching();
-      state.watchId = d.added.group_id;
-      el.watchSel.value = state.watchId;
+      cache.watching = d.watching || [];
+      const want = rawCode(code);
+      const hit = cache.watching.find(w => w.group_id === want);
+      state.watchId = hit ? hit.group_id : (cache.watching.length ? cache.watching[cache.watching.length - 1].group_id : null);
+      renderWatchSel();
       loadRanking();
     } catch (e) { say(el.rmsg, emsg(e), false); }
   };
+
+  /* マイページ：アイコン（index.html 未更新なら何もしない） */
+  if (el.iconPick && el.iconFile) {
+    el.iconPick.onclick = () => el.iconFile.click();
+  }
+  if (el.iconFile) {
+    el.iconFile.onchange = () => {
+      const f = el.iconFile.files && el.iconFile.files[0];
+      el.iconFile.value = '';                 // 同じ写真を選び直せるように
+      if (f) uploadIcon(f);
+    };
+  }
+  if (el.iconDel) el.iconDel.onclick = removeIcon;
 
   /* マイページ */
   $('#saveNick').onclick = async () => {

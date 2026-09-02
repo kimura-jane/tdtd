@@ -1,0 +1,23 @@
+name = "tdtd"
+main = "worker/index.js"
+compatibility_date = "2026-09-02"
+workers_dev = true
+
+[assets]
+directory = "."
+
+[[d1_databases]]
+binding = "DB"
+database_name = "tdtd"
+database_id = "＜D1のページに出ている Database ID を貼る＞"
+
+[[r2_buckets]]
+binding = "ICONS"
+bucket_name = "tdtd-icons"
+
+[[ratelimits]]
+name = "JOIN_LIMITER"
+namespace_id = "1001"
+  [ratelimits.simple]
+  limit = 5
+  period = 60

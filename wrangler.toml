@@ -9,11 +9,7 @@ directory = "."
 [[d1_databases]]
 binding = "DB"
 database_name = "tdtd"
-database_id = "＜D1のページに出ている Database ID を貼る＞"
-
-[[r2_buckets]]
-binding = "ICONS"
-bucket_name = "tdtd-icons"
+database_id = "ここに実際のIDを貼る"
 
 [[ratelimits]]
 name = "JOIN_LIMITER"

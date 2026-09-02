@@ -1,32 +1,70 @@
 'use strict';
 
-/* ===== ストレージ（ステップ2でサーバー同期に差し替える層） ===== */
-const K_W = 'tsudatsu.weights.v1';   // { "2026-09-02": 72.4, ... }
-const K_G = 'tsudatsu.goal.v1';
+/* ===== サーバー同期ストレージ ===== */
+const API = '';                            // 同一オリジン（workers.dev）
+const K_DEV = 'tsudatsu.device_id.v1';
+
+function deviceId() {
+  let v = localStorage.getItem(K_DEV);
+  if (!v) {
+    v = 'dev_' + crypto.randomUUID();
+    localStorage.setItem(K_DEV, v);
+  }
+  return v;
+}
+
+async function api(path, opt = {}) {
+  const res = await fetch(API + path, {
+    method: opt.method || 'GET',
+    headers: { 'content-type': 'application/json', 'x-device-id': deviceId() },
+    body: opt.body !== undefined ? JSON.stringify(opt.body) : undefined,
+    cache: 'no-store',
+  });
+  let data = {};
+  try { data = await res.json(); } catch {}
+  if (!res.ok || data.ok === false) {
+    throw new Error(data.error || ('http_' + res.status));
+  }
+  return data;
+}
+
+/* 画面はキャッシュを見る。サーバーへは裏で送る */
+const cache = { weights: {}, goal: null, me: null, ready: false };
 
 const store = {
-  all() {
-    try { return JSON.parse(localStorage.getItem(K_W) || '{}'); }
-    catch { return {}; }
-  },
+  all() { return cache.weights; },
   put(ymd, kg) {
-    const o = this.all();
-    o[ymd] = kg;                       // 同日は後勝ち
-    localStorage.setItem(K_W, JSON.stringify(o));
+    const before = cache.weights[ymd];
+    cache.weights[ymd] = kg;                                  // 楽観更新
+    api('/api/weights', { method: 'POST', body: { ymd, kg } })
+      .catch(err => {
+        if (before === undefined) delete cache.weights[ymd];
+        else cache.weights[ymd] = before;
+        render();
+        say('保存できませんでした（' + err.message + '）', false);
+      });
   },
   del(ymd) {
-    const o = this.all();
-    delete o[ymd];
-    localStorage.setItem(K_W, JSON.stringify(o));
+    const before = cache.weights[ymd];
+    delete cache.weights[ymd];
+    api('/api/weights/' + encodeURIComponent(ymd), { method: 'DELETE' })
+      .catch(err => {
+        if (before !== undefined) cache.weights[ymd] = before;
+        render();
+        say('削除できませんでした（' + err.message + '）', false);
+      });
   },
-  goal() {
-    const v = parseFloat(localStorage.getItem(K_G));
-    return Number.isFinite(v) ? v : null;
-  },
+  goal() { return cache.goal; },
   setGoal(v) {
-    if (v === null) localStorage.removeItem(K_G);
-    else localStorage.setItem(K_G, String(v));
-  }
+    const before = cache.goal;
+    cache.goal = v;
+    api('/api/me', { method: 'PATCH', body: { goal_weight: v } })
+      .catch(err => {
+        cache.goal = before;
+        render();
+        say('目標を保存できませんでした（' + err.message + '）', false);
+      });
+  },
 };
 
 /* ===== JST 日付ユーティリティ ===== */
@@ -87,6 +125,7 @@ function say(text, ok) {
 
 /* ===== 保存 ===== */
 function saveWeight(ymd, kg) {
+  if (!cache.ready) { say('サーバーに接続中です。少し待ってください', false); return false; }
   const today = todayYmdJST();
   if (ymd > today) { say('未来の日付は登録できません', false); return false; }
   const v = normKg(kg);
@@ -165,7 +204,7 @@ function drawChart() {
   if (!pts.length && !before) {
     ctx.fillStyle = '#8a8a8a';
     ctx.textAlign = 'center';
-    ctx.fillText('この期間の記録はありません', cssW / 2, cssH / 2);
+    ctx.fillText(cache.ready ? 'この期間の記録はありません' : '読み込み中…', cssW / 2, cssH / 2);
     return;
   }
 
@@ -272,7 +311,7 @@ function drawHist() {
   const keys = Object.keys(all).sort().reverse();
   el.hist.innerHTML = '';
   if (!keys.length) {
-    el.hist.innerHTML = '<li class="empty">まだ記録がありません</li>';
+    el.hist.innerHTML = `<li class="empty">${cache.ready ? 'まだ記録がありません' : '読み込み中…'}</li>`;
     return;
   }
   for (let i = 0; i < keys.length; i++) {
@@ -316,20 +355,18 @@ function drawHist() {
 
 function render() { drawChart(); drawSummary(); drawHist(); el.rangeLabel.textContent = currentRange().label; }
 
-/* ===== 初期化 ===== */
+/* ===== 初期化（UIの配線） ===== */
 function init() {
   const today = todayYmdJST();
   el.todayLabel.textContent = fmtJpFull(today) + ' の体重';
   el.pastYmd.max = today;
   el.pastYmd.value = today;
 
-  const all = store.all();
-  if (all[today] !== undefined) el.kgInput.value = all[today].toFixed(1);
-  const g = store.goal();
-  if (g !== null) el.goalInput.value = g.toFixed(1);
-
   const bump = n => {
-    const base = normKg(el.kgInput.value) ?? (Object.values(all).pop() ?? 60);
+    const all = store.all();
+    const keys = Object.keys(all).sort();
+    const latest = keys.length ? all[keys[keys.length - 1]] : 60;
+    const base = normKg(el.kgInput.value) ?? latest;
     el.kgInput.value = (Math.round((base + n) * 10) / 10).toFixed(1);
   };
   $('#plus').onclick = () => bump(0.1);
@@ -346,6 +383,7 @@ function init() {
   };
 
   $('#saveGoal').onclick = () => {
+    if (!cache.ready) { say('サーバーに接続中です。少し待ってください', false); return; }
     const raw = el.goalInput.value.trim();
     if (raw === '') { store.setGoal(null); render(); say('目標を解除しました', true); return; }
     const v = normKg(raw);
@@ -364,4 +402,31 @@ function init() {
   window.addEventListener('resize', drawChart);
   render();
 }
+
+/* ===== サーバーから読み込み ===== */
+async function boot() {
+  try {
+    await api('/api/register', { method: 'POST', body: { device_id: deviceId() } });
+    const [w, m] = await Promise.all([api('/api/weights'), api('/api/me')]);
+
+    cache.weights = {};
+    for (const r of (w.weights || [])) cache.weights[r.ymd] = r.kg;
+    cache.me = m.me || null;
+    cache.goal = (m.me && m.me.goal_weight != null) ? Number(m.me.goal_weight) : null;
+    cache.ready = true;
+
+    if (cache.goal !== null) el.goalInput.value = cache.goal.toFixed(1);
+    const today = todayYmdJST();
+    if (cache.weights[today] !== undefined) el.kgInput.value = cache.weights[today].toFixed(1);
+
+    render();
+  } catch (err) {
+    const msg = err.message === 'banned'
+      ? 'このアカウントは利用できません'
+      : 'サーバーに接続できません（' + err.message + '）';
+    say(msg, false);
+  }
+}
+
 init();
+boot();

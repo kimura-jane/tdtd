@@ -8,11 +8,13 @@
 </head>
 <body>
 <header class="hd">
-  <h1>体重記録</h1>
+  <h1 id="hdTitle">体重記録</h1>
 </header>
 
 <main>
-  <!-- 今日の入力 -->
+<!-- ============ 記録 ============ -->
+<div class="view is-on" id="view-log">
+
   <section class="card">
     <div class="today">
       <div class="today-date" id="todayLabel">—</div>
@@ -40,7 +42,6 @@
     <p class="msg" id="msg"></p>
   </section>
 
-  <!-- グラフ -->
   <section class="card">
     <div class="tabs" id="periodTabs">
       <button class="tab is-on" data-p="week">週間</button>
@@ -62,21 +63,163 @@
     <div class="summary" id="summary"></div>
   </section>
 
-  <!-- 目標（後でマイページへ移動） -->
-  <section class="card">
-    <label class="lbl" for="goalInput">目標体重</label>
-    <div class="past-row">
-      <input type="number" id="goalInput" step="0.1" min="20" max="300" placeholder="未設定">
-      <button class="ghost sm" id="saveGoal" type="button">保存</button>
-    </div>
-  </section>
-
-  <!-- 履歴 -->
   <section class="card">
     <h2 class="h2">履歴</h2>
     <ul class="hist" id="hist"></ul>
   </section>
+</div>
+
+<!-- ============ グループ ============ -->
+<div class="view" id="view-group">
+
+  <!-- 未所属 -->
+  <section class="card" id="noGroupBox" hidden>
+    <h2 class="h2">グループに参加</h2>
+    <p class="note">主催者からもらった8文字のコードを入れてください。</p>
+    <div class="past-row">
+      <input type="text" id="joinCode" placeholder="ABCD-1234" autocapitalize="characters" autocomplete="off">
+      <button class="primary sm" id="doJoin" type="button">参加</button>
+    </div>
+    <hr class="sep">
+    <h2 class="h2">グループを作る</h2>
+    <div class="field">
+      <label class="lbl" for="newGroupName">グループ名</label>
+      <input type="text" id="newGroupName" placeholder="つだつダイエット部 Aチーム">
+    </div>
+    <div class="field">
+      <label class="lbl" for="newStartYmd">スタート日</label>
+      <input type="date" id="newStartYmd">
+      <p class="note">未入力なら今日になります。この日以降の最初の記録が基準です。</p>
+    </div>
+    <div class="field">
+      <label class="chk">
+        <input type="checkbox" id="newShowWeight" checked>
+        <span>体重をメンバーに公開する</span>
+      </label>
+      <p class="note">オフにすると減量幅だけ見えます。あとから変更できません。</p>
+    </div>
+    <button class="primary" id="doCreate" type="button">作成する</button>
+    <p class="msg" id="gmsg"></p>
+  </section>
+
+  <!-- 所属中 -->
+  <section class="card" id="myGroupBox" hidden>
+    <div class="grow">
+      <h2 class="h2" id="gName">—</h2>
+      <div class="meta" id="gMeta">—</div>
+    </div>
+    <div class="codebox" id="gCodeBox" hidden>
+      <span class="lbl">参加コード</span>
+      <span class="code" id="gCode">—</span>
+      <button class="ghost sm" id="copyCode" type="button">コピー</button>
+    </div>
+    <div class="past-row" id="ownerTools" hidden>
+      <button class="ghost sm" id="renameGroup" type="button">名前を変更</button>
+      <button class="ghost sm" id="editStart" type="button">スタート日</button>
+      <button class="ghost sm" id="showBans" type="button">除名リスト</button>
+      <button class="danger sm" id="dissolveGroup" type="button">解散</button>
+    </div>
+    <div class="past-row" id="memberTools" hidden>
+      <button class="ghost sm" id="leaveGroup" type="button">グループを抜ける</button>
+    </div>
+    <p class="msg" id="gmsg2"></p>
+  </section>
+
+  <!-- ランキング -->
+  <section class="card" id="rankBox" hidden>
+    <div class="tabs" id="rankTabs">
+      <button class="tab is-on" data-r="mine">自分のチーム</button>
+      <button class="tab" data-r="watch">他チーム</button>
+      <button class="tab" data-r="rival">ライバル</button>
+    </div>
+    <div class="nav" id="watchNav" hidden>
+      <select id="watchSel"></select>
+      <button class="ghost sm" id="addWatch" type="button">＋追加</button>
+    </div>
+    <div class="rank-head" id="rankHead">—</div>
+    <ol class="rank" id="rankList"></ol>
+    <p class="msg" id="rmsg"></p>
+  </section>
+</div>
+
+<!-- ============ マイページ ============ -->
+<div class="view" id="view-my">
+
+  <section class="card">
+    <h2 class="h2">プロフィール</h2>
+    <div class="field">
+      <label class="lbl" for="nickInput">ニックネーム</label>
+      <div class="past-row">
+        <input type="text" id="nickInput" maxlength="12" placeholder="12文字まで">
+        <button class="ghost sm" id="saveNick" type="button">保存</button>
+      </div>
+    </div>
+    <div class="field">
+      <label class="lbl" for="goalInput">目標体重</label>
+      <div class="past-row">
+        <input type="number" id="goalInput" step="0.1" min="20" max="300" placeholder="未設定">
+        <button class="ghost sm" id="saveGoal" type="button">保存</button>
+      </div>
+      <p class="note">グラフに点線で表示されます。ランキングには使いません。</p>
+    </div>
+    <p class="msg" id="mmsg"></p>
+  </section>
+
+  <section class="card">
+    <h2 class="h2">通知</h2>
+    <label class="chk">
+      <input type="checkbox" id="notifyOn">
+      <span>未入力が続いたら知らせる</span>
+    </label>
+    <div class="field">
+      <label class="lbl" for="notifyDays">間隔</label>
+      <select id="notifyDays">
+        <option value="3">3日ごと</option>
+        <option value="7">7日ごと</option>
+      </select>
+    </div>
+    <div class="field">
+      <label class="lbl" for="notifyHour">時刻</label>
+      <select id="notifyHour"></select>
+    </div>
+    <button class="ghost sm" id="saveNotify" type="button">通知設定を保存</button>
+    <p class="note">アプリ版で有効になります。ブラウザでは動きません。</p>
+    <p class="msg" id="nmsg"></p>
+  </section>
+
+  <section class="card">
+    <h2 class="h2">ブロック中</h2>
+    <ul class="hist" id="blockList"></ul>
+  </section>
+
+  <section class="card">
+    <h2 class="h2">サポート情報</h2>
+    <div class="field">
+      <span class="lbl">メンバーID</span>
+      <div class="mono" id="myMemberId">—</div>
+    </div>
+    <div class="field">
+      <span class="lbl">端末ID</span>
+      <div class="mono small" id="myDeviceId">—</div>
+      <p class="note">問い合わせのときに伝えてください。</p>
+    </div>
+    <button class="ghost sm" id="copyDeviceId" type="button">端末IDをコピー</button>
+  </section>
+
+  <section class="card">
+    <h2 class="h2">データの削除</h2>
+    <p class="note">体重の記録、ニックネーム、グループの所属がすべて消えます。取り消せません。</p>
+    <button class="danger" id="deleteAll" type="button">すべてのデータを削除する</button>
+    <p class="msg" id="dmsg"></p>
+  </section>
+</div>
 </main>
+
+<nav class="tabbar">
+  <button class="tabbtn is-on" data-v="log" type="button"><span>記録</span></button>
+  <button class="tabbtn" data-v="group" type="button"><span>グループ</span></button>
+  <button class="tabbtn" data-v="my" type="button"><span>マイページ</span></button>
+</nav>
 
 <script src="./app.js"></script>
 </body>

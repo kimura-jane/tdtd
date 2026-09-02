@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>つだつダイエット部</title>
+<link rel="stylesheet" href="./style.css">
+</head>
+<body>
+<header class="hd">
+  <h1>体重記録</h1>
+</header>
+
+<main>
+  <!-- 今日の入力 -->
+  <section class="card">
+    <div class="today">
+      <div class="today-date" id="todayLabel">—</div>
+      <div class="kg-row">
+        <button class="step" id="minus" type="button">−</button>
+        <input class="kg" id="kgInput" type="number" inputmode="decimal" step="0.1" min="20" max="300" placeholder="0.0">
+        <span class="unit">kg</span>
+        <button class="step" id="plus" type="button">＋</button>
+      </div>
+      <button class="primary" id="saveToday" type="button">今日の体重を記録</button>
+      <button class="linkish" id="openPast" type="button">過去の体重を追加</button>
+    </div>
+
+    <div class="past" id="pastBox" hidden>
+      <div class="past-row">
+        <input type="date" id="pastYmd">
+        <input type="number" id="pastKg" step="0.1" min="20" max="300" placeholder="kg">
+      </div>
+      <div class="past-row">
+        <button class="primary sm" id="savePast" type="button">追加する</button>
+        <button class="ghost sm" id="closePast" type="button">閉じる</button>
+      </div>
+      <p class="note">スタート日の体重もここから入れられます。</p>
+    </div>
+    <p class="msg" id="msg"></p>
+  </section>
+
+  <!-- グラフ -->
+  <section class="card">
+    <div class="tabs" id="periodTabs">
+      <button class="tab is-on" data-p="week">週間</button>
+      <button class="tab" data-p="month">月間</button>
+      <button class="tab" data-p="year">年</button>
+      <button class="tab" data-p="all">全期間</button>
+    </div>
+    <div class="nav">
+      <button class="navbtn" id="prevRange" type="button">‹</button>
+      <div class="range" id="rangeLabel">—</div>
+      <button class="navbtn" id="nextRange" type="button">›</button>
+    </div>
+    <canvas id="chart" height="240"></canvas>
+    <div class="legend">
+      <span><i class="dot"></i>実測</span>
+      <span><i class="dash"></i>未入力（前の値で継続）</span>
+      <span><i class="goal"></i>目標</span>
+    </div>
+    <div class="summary" id="summary"></div>
+  </section>
+
+  <!-- 目標（後でマイページへ移動） -->
+  <section class="card">
+    <label class="lbl" for="goalInput">目標体重</label>
+    <div class="past-row">
+      <input type="number" id="goalInput" step="0.1" min="20" max="300" placeholder="未設定">
+      <button class="ghost sm" id="saveGoal" type="button">保存</button>
+    </div>
+  </section>
+
+  <!-- 履歴 -->
+  <section class="card">
+    <h2 class="h2">履歴</h2>
+    <ul class="hist" id="hist"></ul>
+  </section>
+</main>
+
+<script src="./app.js"></script>
+</body>
+</html>

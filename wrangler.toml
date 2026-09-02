@@ -5,11 +5,16 @@ workers_dev = true
 
 [assets]
 directory = "."
+binding = "ASSETS"
 
 [[d1_databases]]
 binding = "DB"
 database_name = "tdtd"
 database_id = "01ace57a-e539-4f86-ad22-e04cd4b07971"
+
+[[r2_buckets]]
+binding = "ICONS"
+bucket_name = "tdtd-icons"
 
 [[ratelimits]]
 name = "JOIN_LIMITER"

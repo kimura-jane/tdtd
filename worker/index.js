@@ -1,812 +1,885 @@
 'use strict';
 
 import {
-  pickOrigin, corsHeaders, json, auth, pubMe, rateOk,
-  todayYmdJST, isValidYmd, nowIso, normKg, normNickname,
-  randomCode, normalizeCode,
+  INACTIVE_DAYS, CODE_LEN,
+  json, bad, preflight, notFound,
+  todayYmdJST, isYmd, ymdToDay, round1,
+  normKg, normNickname, normGroupName, normReason,
+  normalizeCode, fmtCode, genCode, genId, rateOk,
 } from './lib.js';
 
-const INACTIVE_DAYS = 14;   // これを超えて未入力なら「休止中」
+/* ============================================================
+   つだつダイエット部 / worker/index.js
+   ============================================================ */
 
 export default {
-  async fetch(request, env) {
-    const url = new URL(request.url);
-    const path = url.pathname.replace(/\/+$/, '') || '/';
-    const allow = pickOrigin(request);
+  async fetch(req, env) {
+    if (req.method === 'OPTIONS') return preflight(req);
 
-    if (!path.startsWith('/api/')) {
-      return new Response('Not Found', { status: 404 });
-    }
-    if (request.method === 'OPTIONS') {
-      return new Response(null, { status: 204, headers: corsHeaders(allow) });
+    const url = new URL(req.url);
+    if (!url.pathname.startsWith('/api/')) {
+      if (env.ASSETS && typeof env.ASSETS.fetch === 'function') return env.ASSETS.fetch(req);
+      return notFound(req);
     }
 
     try {
-      if (path === '/api/register')  return await register(request, env, allow);
-      if (path === '/api/me')        return await me(request, env, allow);
-      if (path === '/api/weights')   return await weights(request, env, allow);
-
-      const mw = path.match(/^\/api\/weights\/(.+)$/);
-      if (mw) return await weightDelete(request, env, allow, decodeURIComponent(mw[1]));
-
-      if (path === '/api/groups')          return await groups(request, env, allow);
-      if (path === '/api/groups/join')     return await groupJoin(request, env, allow);
-      if (path === '/api/groups/leave')    return await groupLeave(request, env, allow);
-      if (path === '/api/groups/kick')     return await groupKick(request, env, allow);
-      if (path === '/api/groups/unban')    return await groupUnban(request, env, allow);
-      if (path === '/api/groups/bans')     return await groupBans(request, env, allow);
-      if (path === '/api/groups/dissolve') return await groupDissolve(request, env, allow);
-
-      if (path === '/api/ranking')  return await ranking(request, env, allow);
-      if (path === '/api/watching') return await watching(request, env, allow);
-      if (path === '/api/rivals')   return await rivals(request, env, allow);
-      if (path === '/api/blocks')   return await blocks(request, env, allow);
-      if (path === '/api/reports')  return await reports(request, env, allow);
-
-      return json({ ok: false, error: 'not_found', path }, 404, allow);
+      return await route(req, env, url);
     } catch (e) {
-      return json({ ok: false, error: 'server_error', detail: String(e?.message || e) }, 500, allow);
+      return json(req, { ok: false, error: 'server_error', detail: String((e && e.message) || e) }, 500);
     }
   },
 };
 
-/* ===================== /api/register ===================== */
-async function register(request, env, allow) {
-  if (request.method !== 'POST') return json({ ok: false, error: 'POST only' }, 405, allow);
-
-  let body = {};
-  try { body = await request.json(); } catch {}
-
-  const deviceId = body.device_id;
-  if (!/^dev_[0-9a-fA-F-]{36}$/.test(deviceId || '')) {
-    return json({ ok: false, error: 'device_id required (dev_ + uuid)' }, 400, allow);
+/* ---------- 小物 ---------- */
+async function readBody(req) {
+  try {
+    const b = await req.json();
+    return (b && typeof b === 'object') ? b : {};
+  } catch {
+    return {};
   }
-
-  const existing = await env.DB.prepare('SELECT * FROM devices WHERE device_id = ?')
-    .bind(deviceId).first();
-
-  if (existing) {
-    if (existing.banned) return json({ ok: false, error: 'banned' }, 403, allow);
-    await env.DB.prepare('UPDATE devices SET last_seen_at = ? WHERE device_id = ?')
-      .bind(nowIso(), deviceId).run();
-    return json({ ok: true, created: false, today: todayYmdJST(), me: pubMe(existing) }, 200, allow);
-  }
-
-  const nickname = normNickname(body.nickname) || '名無し';
-  const now = nowIso();
-
-  for (let i = 0; i < 5; i++) {
-    try {
-      await env.DB.prepare(
-        `INSERT INTO devices (device_id, member_id, nickname, created_at, last_seen_at)
-         VALUES (?, ?, ?, ?, ?)`
-      ).bind(deviceId, randomCode(10), nickname, now, now).run();
-
-      const row = await env.DB.prepare('SELECT * FROM devices WHERE device_id = ?')
-        .bind(deviceId).first();
-      return json({ ok: true, created: true, today: todayYmdJST(), me: pubMe(row) }, 200, allow);
-    } catch (e) {
-      if (!String(e?.message || e).includes('UNIQUE')) throw e;
-    }
-  }
-  return json({ ok: false, error: 'member_id_collision' }, 500, allow);
 }
 
-/* ===================== /api/me ===================== */
-async function me(request, env, allow) {
-  const a = await auth(request, env);
-  if (a.error) return json({ ok: false, error: a.error }, a.status, allow);
-  const self = a.me;
-
-  if (request.method === 'GET') {
-    return json({
-      ok: true, today: todayYmdJST(), me: pubMe(self),
-      group: await groupView(env, self),
-    }, 200, allow);
-  }
-
-  if (request.method === 'PATCH') {
-    let body = {};
-    try { body = await request.json(); } catch {
-      return json({ ok: false, error: 'invalid_json' }, 400, allow);
-    }
-    const sets = [], args = [];
-
-    if ('nickname' in body) {
-      const n = normNickname(body.nickname);
-      if (!n) return json({ ok: false, error: 'bad_nickname' }, 400, allow);
-      sets.push('nickname = ?'); args.push(n);
-    }
-    if ('goal_weight' in body) {
-      if (body.goal_weight === null) { sets.push('goal_weight = NULL'); }
-      else {
-        const g = normKg(body.goal_weight);
-        if (g === null) return json({ ok: false, error: 'bad_goal_weight' }, 400, allow);
-        sets.push('goal_weight = ?'); args.push(g);
-      }
-    }
-    if ('notify_on' in body) { sets.push('notify_on = ?'); args.push(body.notify_on ? 1 : 0); }
-    if ('notify_days' in body) {
-      const d = Number(body.notify_days);
-      if (![3, 7].includes(d)) return json({ ok: false, error: 'bad_notify_days' }, 400, allow);
-      sets.push('notify_days = ?'); args.push(d);
-    }
-    if ('notify_hour' in body) {
-      const h = Number(body.notify_hour);
-      if (!Number.isInteger(h) || h < 0 || h > 23) {
-        return json({ ok: false, error: 'bad_notify_hour' }, 400, allow);
-      }
-      sets.push('notify_hour = ?'); args.push(h);
-    }
-    if (!sets.length) return json({ ok: false, error: 'nothing_to_update' }, 400, allow);
-
-    args.push(self.device_id);
-    await env.DB.prepare(`UPDATE devices SET ${sets.join(', ')} WHERE device_id = ?`)
-      .bind(...args).run();
-
-    const row = await env.DB.prepare('SELECT * FROM devices WHERE device_id = ?')
-      .bind(self.device_id).first();
-    return json({ ok: true, me: pubMe(row), group: await groupView(env, row) }, 200, allow);
-  }
-
-  if (request.method === 'DELETE') {
-    // 自分がオーナーのグループは解散させる
-    const owned = await env.DB.prepare('SELECT group_id FROM groups WHERE owner_id = ?')
-      .bind(self.device_id).first();
-    if (owned) await dissolve(env, owned.group_id);
-
-    await env.DB.batch([
-      env.DB.prepare('DELETE FROM weights  WHERE device_id = ?').bind(self.device_id),
-      env.DB.prepare('DELETE FROM watching WHERE device_id = ?').bind(self.device_id),
-      env.DB.prepare('DELETE FROM rivals   WHERE device_id = ?').bind(self.device_id),
-      env.DB.prepare('DELETE FROM blocks   WHERE device_id = ?').bind(self.device_id),
-      env.DB.prepare('DELETE FROM rivals   WHERE rival_member_id = ?').bind(self.member_id),
-      env.DB.prepare('DELETE FROM blocks   WHERE blocked_member_id = ?').bind(self.member_id),
-      env.DB.prepare('DELETE FROM devices  WHERE device_id = ?').bind(self.device_id),
-    ]);
-
-    if (env.ICONS) {
-      try { await env.ICONS.delete(`icon/${self.member_id}.jpg`); } catch {}
-    }
-    return json({ ok: true, deleted: true }, 200, allow);
-  }
-
-  return json({ ok: false, error: 'GET, PATCH or DELETE only' }, 405, allow);
+function num(v) {
+  return v === null || v === undefined ? null : Number(v);
 }
 
-/* ===================== /api/weights ===================== */
-async function weights(request, env, allow) {
-  const a = await auth(request, env);
-  if (a.error) return json({ ok: false, error: a.error }, a.status, allow);
-  const self = a.me;
-  const today = todayYmdJST();
-
-  if (request.method === 'POST') {
-    let body = {};
-    try { body = await request.json(); } catch {
-      return json({ ok: false, error: 'invalid_json' }, 400, allow);
-    }
-    const ymd = body.ymd || today;
-    if (!isValidYmd(ymd)) return json({ ok: false, error: 'bad_ymd' }, 400, allow);
-    if (ymd > today) return json({ ok: false, error: 'future_ymd' }, 400, allow);
-
-    const kg = normKg(body.kg);
-    if (kg === null) return json({ ok: false, error: 'bad_kg' }, 400, allow);
-
-    await env.DB.prepare(
-      `INSERT INTO weights (device_id, ymd, kg, updated_at) VALUES (?, ?, ?, ?)
-       ON CONFLICT(device_id, ymd) DO UPDATE SET kg = excluded.kg, updated_at = excluded.updated_at`
-    ).bind(self.device_id, ymd, kg, nowIso()).run();
-
-    await env.DB.prepare('UPDATE devices SET last_seen_at = ? WHERE device_id = ?')
-      .bind(nowIso(), self.device_id).run();
-
-    return json({ ok: true, saved: { ymd, kg }, today }, 200, allow);
-  }
-
-  if (request.method === 'GET') {
-    const u = new URL(request.url);
-    const from = u.searchParams.get('from');
-    const to = u.searchParams.get('to');
-    if (from && !isValidYmd(from)) return json({ ok: false, error: 'bad_from' }, 400, allow);
-    if (to && !isValidYmd(to)) return json({ ok: false, error: 'bad_to' }, 400, allow);
-
-    let sql = 'SELECT ymd, kg FROM weights WHERE device_id = ?';
-    const args = [self.device_id];
-    if (from) { sql += ' AND ymd >= ?'; args.push(from); }
-    if (to)   { sql += ' AND ymd <= ?'; args.push(to); }
-    sql += ' ORDER BY ymd ASC';
-
-    const { results } = await env.DB.prepare(sql).bind(...args).all();
-    return json({ ok: true, today, weights: results || [] }, 200, allow);
-  }
-
-  return json({ ok: false, error: 'GET or POST only' }, 405, allow);
-}
-
-/* ===================== /api/weights/:ymd ===================== */
-async function weightDelete(request, env, allow, ymd) {
-  if (request.method !== 'DELETE') return json({ ok: false, error: 'DELETE only' }, 405, allow);
-  const a = await auth(request, env);
-  if (a.error) return json({ ok: false, error: a.error }, a.status, allow);
-  if (!isValidYmd(ymd)) return json({ ok: false, error: 'bad_ymd' }, 400, allow);
-
-  const r = await env.DB.prepare('DELETE FROM weights WHERE device_id = ? AND ymd = ?')
-    .bind(a.me.device_id, ymd).run();
-  return json({ ok: true, deleted: r.meta.changes || 0 }, 200, allow);
-}
-
-/* ===================== グループ共通 ===================== */
-async function groupView(env, self) {
-  if (!self.group_id) return null;
-  const g = await env.DB.prepare('SELECT * FROM groups WHERE group_id = ?')
-    .bind(self.group_id).first();
-  if (!g) return null;
-  const c = await env.DB.prepare('SELECT COUNT(*) AS n FROM devices WHERE group_id = ?')
-    .bind(g.group_id).first();
-  const isOwner = g.owner_id === self.device_id;
+function publicMe(dev) {
   return {
-    group_id: g.group_id,
-    name: g.name,
-    show_weight: !!g.show_weight,
-    start_ymd: g.start_ymd,
-    members: c?.n || 0,
-    is_owner: isOwner,
-    code: isOwner ? g.group_id : undefined,   // コードはオーナーにだけ返す
+    member_id: dev.member_id,
+    nickname: dev.nickname || null,
+    icon_ver: Number(dev.icon_ver || 0),
+    goal_weight: dev.goal_weight === null || dev.goal_weight === undefined ? null : Number(dev.goal_weight),
+    notify_on: Number(dev.notify_on || 0) === 1,
+    notify_days: Number(dev.notify_days || 3),
+    notify_hour: Number(dev.notify_hour || 20),
+    in_group: !!dev.group_id,
+    joined_at: dev.joined_at || null,
   };
 }
 
-async function dissolve(env, groupId) {
+function isOwnerOf(group, dev) {
+  // owner_id は member_id 運用。過去に device_id が入っている行があっても拾う
+  return group.owner_id === dev.member_id || group.owner_id === dev.device_id;
+}
+
+/* ---------- 端末 ---------- */
+async function getDevice(env, deviceId) {
+  return await env.DB.prepare('SELECT * FROM devices WHERE device_id=?').bind(deviceId).first();
+}
+
+async function ensureDevice(env, deviceId) {
+  const now = Date.now();
+  let dev = await getDevice(env, deviceId);
+  if (dev) {
+    await env.DB.prepare('UPDATE devices SET last_seen_at=? WHERE device_id=?').bind(now, deviceId).run();
+    dev.last_seen_at = now;
+    return dev;
+  }
+  for (let i = 0; i < 8; i++) {
+    const mid = genId(10);
+    try {
+      await env.DB.prepare(
+        'INSERT INTO devices (device_id,member_id,icon_ver,notify_on,notify_days,notify_hour,banned,created_at,last_seen_at) VALUES (?,?,0,0,3,20,0,?,?)'
+      ).bind(deviceId, mid, now, now).run();
+      return await getDevice(env, deviceId);
+    } catch (e) {
+      const msg = String((e && e.message) || e);
+      if (!/UNIQUE/i.test(msg)) throw e;
+      const again = await getDevice(env, deviceId);
+      if (again) return again;      // 同時登録
+    }
+  }
+  throw new Error('member_id_alloc_failed');
+}
+
+/* ============================================================
+   ルーティング
+   ============================================================ */
+async function route(req, env, url) {
+  const p = url.pathname.replace(/\/+$/, '') || '/api';
+  const m = req.method;
+
+  const deviceId = (req.headers.get('x-device-id') || '').trim();
+  if (!/^[A-Za-z0-9_-]{8,64}$/.test(deviceId)) return bad(req, 'bad_device_id');
+
+  /* 登録 */
+  if (p === '/api/register' && m === 'POST') {
+    const dev = await ensureDevice(env, deviceId);
+    if (Number(dev.banned) === 1) return bad(req, 'banned', 403);
+    return json(req, { ok: true, me: publicMe(dev), group: await groupView(env, dev) });
+  }
+
+  const dev = await getDevice(env, deviceId);
+  if (!dev) return bad(req, 'not_registered', 404);
+  if (Number(dev.banned) === 1) return bad(req, 'banned', 403);
+
+  /* ---------- 自分 ---------- */
+  if (p === '/api/me') {
+    if (m === 'GET') return json(req, { ok: true, me: publicMe(dev), group: await groupView(env, dev) });
+    if (m === 'PATCH') return await patchMe(req, env, dev);
+    if (m === 'DELETE') return await deleteMe(req, env, dev);
+  }
+
+  /* ---------- 体重 ---------- */
+  if (p === '/api/weights') {
+    if (m === 'GET') {
+      const rs = await env.DB.prepare('SELECT ymd,kg FROM weights WHERE device_id=? ORDER BY ymd ASC')
+        .bind(dev.device_id).all();
+      return json(req, { ok: true, weights: (rs.results || []).map(r => ({ ymd: r.ymd, kg: Number(r.kg) })) });
+    }
+    if (m === 'POST') return await putWeight(req, env, dev);
+    if (m === 'DELETE') {
+      const b = await readBody(req);
+      return await delWeight(req, env, dev, String(b.ymd || ''));
+    }
+  }
+  if (p.startsWith('/api/weights/') && m === 'DELETE') {
+    return await delWeight(req, env, dev, decodeURIComponent(p.slice('/api/weights/'.length)));
+  }
+
+  /* ---------- グループ ---------- */
+  if (p === '/api/groups') {
+    if (m === 'GET') {
+      const code = url.searchParams.get('code');
+      if (code) return await findGroup(req, env, dev, code);
+      return json(req, { ok: true, group: await groupView(env, dev) });
+    }
+    if (m === 'POST')   return await createGroup(req, env, dev);
+    if (m === 'PATCH')  return await patchGroup(req, env, dev);
+    if (m === 'DELETE') return await dissolveGroup(req, env, dev);
+  }
+  if (p === '/api/groups/create'   && m === 'POST') return await createGroup(req, env, dev);
+  if (p === '/api/groups/join'     && m === 'POST') return await joinGroup(req, env, dev);
+  if (p === '/api/groups/leave'    && m === 'POST') return await leaveGroup(req, env, dev);
+  if (p === '/api/groups/rename'   && m === 'POST') return await patchGroup(req, env, dev);
+  if (p === '/api/groups/start'    && m === 'POST') return await patchGroup(req, env, dev);
+  if (p === '/api/groups/kick'     && m === 'POST') return await kickMember(req, env, dev);
+  if (p === '/api/groups/unban'    && m === 'POST') return await unbanMember(req, env, dev);
+  if (p === '/api/groups/dissolve' && m === 'POST') return await dissolveGroup(req, env, dev);
+  if (p === '/api/groups/bans'     && m === 'GET')  return await listBans(req, env, dev);
+
+  /* ---------- ランキング ---------- */
+  if (p === '/api/ranking' && m === 'GET') return await ranking(req, env, dev, url);
+
+  /* ---------- 他チーム購読 ---------- */
+  if (p === '/api/watching') {
+    if (m === 'GET')    return await listWatching(req, env, dev);
+    if (m === 'POST')   return await addWatching(req, env, dev);
+    if (m === 'DELETE') {
+      const b = await readBody(req);
+      return await delWatching(req, env, dev, String(b.group_id || ''));
+    }
+  }
+  if (p.startsWith('/api/watching/') && m === 'DELETE') {
+    return await delWatching(req, env, dev, decodeURIComponent(p.slice('/api/watching/'.length)));
+  }
+
+  /* ---------- ライバル ---------- */
+  if (p === '/api/rivals') {
+    if (m === 'GET')    return await listRivals(req, env, dev);
+    if (m === 'POST')   return await addRival(req, env, dev);
+    if (m === 'DELETE') {
+      const b = await readBody(req);
+      return await delRival(req, env, dev, String(b.member_id || ''));
+    }
+  }
+  if (p.startsWith('/api/rivals/') && m === 'DELETE') {
+    return await delRival(req, env, dev, decodeURIComponent(p.slice('/api/rivals/'.length)));
+  }
+
+  /* ---------- ブロック ---------- */
+  if (p === '/api/blocks') {
+    if (m === 'GET')    return await listBlocks(req, env, dev);
+    if (m === 'POST')   return await addBlock(req, env, dev);
+    if (m === 'DELETE') {
+      const b = await readBody(req);
+      return await delBlock(req, env, dev, String(b.member_id || ''));
+    }
+  }
+  if (p.startsWith('/api/blocks/') && m === 'DELETE') {
+    return await delBlock(req, env, dev, decodeURIComponent(p.slice('/api/blocks/'.length)));
+  }
+
+  /* ---------- 通報 ---------- */
+  if (p === '/api/reports' && m === 'POST') return await addReport(req, env, dev);
+
+  return notFound(req);
+}
+
+/* ============================================================
+   自分
+   ============================================================ */
+async function patchMe(req, env, dev) {
+  const b = await readBody(req);
+  const sets = [], vals = [];
+
+  if ('nickname' in b) {
+    if (b.nickname === null || b.nickname === '') { sets.push('nickname=?'); vals.push(null); }
+    else {
+      const nk = normNickname(b.nickname);
+      if (!nk) return bad(req, 'bad_nickname');
+      sets.push('nickname=?'); vals.push(nk);
+    }
+  }
+  if ('goal_weight' in b) {
+    if (b.goal_weight === null || b.goal_weight === '') { sets.push('goal_weight=?'); vals.push(null); }
+    else {
+      const g = normKg(b.goal_weight);
+      if (g === null) return bad(req, 'bad_kg');
+      sets.push('goal_weight=?'); vals.push(g);
+    }
+  }
+  if ('notify_on' in b)   { sets.push('notify_on=?');   vals.push(b.notify_on ? 1 : 0); }
+  if ('notify_days' in b) {
+    const d = Number(b.notify_days);
+    if (![3, 7].includes(d)) return bad(req, 'bad_notify');
+    sets.push('notify_days=?'); vals.push(d);
+  }
+  if ('notify_hour' in b) {
+    const h = Number(b.notify_hour);
+    if (!Number.isInteger(h) || h < 0 || h > 23) return bad(req, 'bad_notify');
+    sets.push('notify_hour=?'); vals.push(h);
+  }
+
+  if (sets.length) {
+    vals.push(dev.device_id);
+    await env.DB.prepare(`UPDATE devices SET ${sets.join(',')} WHERE device_id=?`).bind(...vals).run();
+  }
+  const fresh = await getDevice(env, dev.device_id);
+  return json(req, { ok: true, me: publicMe(fresh) });
+}
+
+async function deleteMe(req, env, dev) {
+  // オーナーなら先に解散（グループを孤児にしない）
+  if (dev.group_id) {
+    const g = await env.DB.prepare('SELECT * FROM groups WHERE group_id=?').bind(dev.group_id).first();
+    if (g && isOwnerOf(g, dev)) await doDissolve(env, g.group_id);
+  }
   await env.DB.batch([
-    env.DB.prepare('UPDATE devices SET group_id = NULL, joined_at = NULL WHERE group_id = ?').bind(groupId),
-    env.DB.prepare('DELETE FROM watching   WHERE group_id = ?').bind(groupId),
-    env.DB.prepare('DELETE FROM group_bans WHERE group_id = ?').bind(groupId),
-    env.DB.prepare('DELETE FROM groups     WHERE group_id = ?').bind(groupId),
+    env.DB.prepare('DELETE FROM weights  WHERE device_id=?').bind(dev.device_id),
+    env.DB.prepare('DELETE FROM watching WHERE device_id=?').bind(dev.device_id),
+    env.DB.prepare('DELETE FROM rivals   WHERE device_id=?').bind(dev.device_id),
+    env.DB.prepare('DELETE FROM blocks   WHERE device_id=?').bind(dev.device_id),
+    env.DB.prepare('DELETE FROM rivals   WHERE rival_member_id=?').bind(dev.member_id),
+    env.DB.prepare('DELETE FROM blocks   WHERE blocked_member_id=?').bind(dev.member_id),
+    env.DB.prepare('DELETE FROM devices  WHERE device_id=?').bind(dev.device_id),
   ]);
+  return json(req, { ok: true, deleted: true });
 }
 
-/* ===================== /api/groups（作成・改名） ===================== */
-async function groups(request, env, allow) {
-  const a = await auth(request, env);
-  if (a.error) return json({ ok: false, error: a.error }, a.status, allow);
-  const self = a.me;
+/* ============================================================
+   体重
+   ============================================================ */
+async function putWeight(req, env, dev) {
+  const b = await readBody(req);
+  const ymd = String(b.ymd || '');
+  if (!isYmd(ymd)) return bad(req, 'bad_ymd');
+  if (ymd > todayYmdJST()) return bad(req, 'future_ymd');
+  const kg = normKg(b.kg);
+  if (kg === null) return bad(req, 'bad_kg');
 
-  if (request.method === 'POST') {
-    if (!await rateOk(env, 'grp:' + self.device_id)) {
-      return json({ ok: false, error: 'too_many_requests' }, 429, allow);
-    }
-    if (self.group_id) return json({ ok: false, error: 'already_in_group' }, 409, allow);
-
-    let body = {};
-    try { body = await request.json(); } catch {
-      return json({ ok: false, error: 'invalid_json' }, 400, allow);
-    }
-    const name = normNickname(body.name);
-    if (!name) return json({ ok: false, error: 'bad_name' }, 400, allow);
-
-    const today = todayYmdJST();
-    let start = body.start_ymd || today;               // 未指定なら作成日
-    if (!isValidYmd(start)) return json({ ok: false, error: 'bad_start_ymd' }, 400, allow);
-
-    const showWeight = body.show_weight === undefined ? 1 : (body.show_weight ? 1 : 0);
-    const now = nowIso();
-
-    for (let i = 0; i < 5; i++) {
-      const code = randomCode(8);
-      try {
-        await env.DB.prepare(
-          `INSERT INTO groups (group_id, name, owner_id, show_weight, start_ymd, created_at)
-           VALUES (?, ?, ?, ?, ?, ?)`
-        ).bind(code, name, self.device_id, showWeight, start, now).run();
-
-        await env.DB.prepare('UPDATE devices SET group_id = ?, joined_at = ? WHERE device_id = ?')
-          .bind(code, now, self.device_id).run();
-
-        const row = await env.DB.prepare('SELECT * FROM devices WHERE device_id = ?')
-          .bind(self.device_id).first();
-        return json({ ok: true, created: true, group: await groupView(env, row) }, 200, allow);
-      } catch (e) {
-        if (!String(e?.message || e).includes('UNIQUE')) throw e;
-      }
-    }
-    return json({ ok: false, error: 'code_collision' }, 500, allow);
-  }
-
-  if (request.method === 'PATCH') {
-    if (!self.group_id) return json({ ok: false, error: 'not_in_group' }, 400, allow);
-    const g = await env.DB.prepare('SELECT * FROM groups WHERE group_id = ?')
-      .bind(self.group_id).first();
-    if (!g) return json({ ok: false, error: 'group_not_found' }, 404, allow);
-    if (g.owner_id !== self.device_id) return json({ ok: false, error: 'not_owner' }, 403, allow);
-
-    let body = {};
-    try { body = await request.json(); } catch {
-      return json({ ok: false, error: 'invalid_json' }, 400, allow);
-    }
-    const sets = [], args = [];
-    if ('name' in body) {
-      const n = normNickname(body.name);
-      if (!n) return json({ ok: false, error: 'bad_name' }, 400, allow);
-      sets.push('name = ?'); args.push(n);
-    }
-    if ('start_ymd' in body) {
-      if (!isValidYmd(body.start_ymd)) return json({ ok: false, error: 'bad_start_ymd' }, 400, allow);
-      sets.push('start_ymd = ?'); args.push(body.start_ymd);
-    }
-    if (!sets.length) return json({ ok: false, error: 'nothing_to_update' }, 400, allow);
-
-    args.push(g.group_id);
-    await env.DB.prepare(`UPDATE groups SET ${sets.join(', ')} WHERE group_id = ?`)
-      .bind(...args).run();
-    return json({ ok: true, group: await groupView(env, self) }, 200, allow);
-  }
-
-  return json({ ok: false, error: 'POST or PATCH only' }, 405, allow);
-}
-
-/* ===================== /api/groups/join ===================== */
-async function groupJoin(request, env, allow) {
-  if (request.method !== 'POST') return json({ ok: false, error: 'POST only' }, 405, allow);
-  const a = await auth(request, env);
-  if (a.error) return json({ ok: false, error: a.error }, a.status, allow);
-  const self = a.me;
-
-  if (!await rateOk(env, 'join:' + self.device_id)) {
-    return json({ ok: false, error: 'too_many_requests' }, 429, allow);
-  }
-  if (self.group_id) return json({ ok: false, error: 'already_in_group' }, 409, allow);
-
-  let body = {};
-  try { body = await request.json(); } catch {
-    return json({ ok: false, error: 'invalid_json' }, 400, allow);
-  }
-  const code = normalizeCode(body.code);
-  if (!code) return json({ ok: false, error: 'bad_code' }, 400, allow);
-
-  const g = await env.DB.prepare('SELECT * FROM groups WHERE group_id = ?').bind(code).first();
-  if (!g) return json({ ok: false, error: 'group_not_found' }, 404, allow);
-
-  const ban = await env.DB.prepare('SELECT 1 FROM group_bans WHERE group_id = ? AND member_id = ?')
-    .bind(code, self.member_id).first();
-  if (ban) return json({ ok: false, error: 'banned_from_group' }, 403, allow);
-
-  const c = await env.DB.prepare('SELECT COUNT(*) AS n FROM devices WHERE group_id = ?')
-    .bind(code).first();
-  if ((c?.n || 0) >= g.max_members) return json({ ok: false, error: 'group_full' }, 409, allow);
-
-  await env.DB.prepare('UPDATE devices SET group_id = ?, joined_at = ? WHERE device_id = ?')
-    .bind(code, nowIso(), self.device_id).run();
-  await env.DB.prepare('DELETE FROM watching WHERE device_id = ? AND group_id = ?')
-    .bind(self.device_id, code).run();
-
-  const row = await env.DB.prepare('SELECT * FROM devices WHERE device_id = ?')
-    .bind(self.device_id).first();
-  return json({ ok: true, joined: true, group: await groupView(env, row) }, 200, allow);
-}
-
-/* ===================== /api/groups/leave ===================== */
-async function groupLeave(request, env, allow) {
-  if (request.method !== 'POST') return json({ ok: false, error: 'POST only' }, 405, allow);
-  const a = await auth(request, env);
-  if (a.error) return json({ ok: false, error: a.error }, a.status, allow);
-  const self = a.me;
-  if (!self.group_id) return json({ ok: false, error: 'not_in_group' }, 400, allow);
-
-  const g = await env.DB.prepare('SELECT * FROM groups WHERE group_id = ?')
-    .bind(self.group_id).first();
-  if (g && g.owner_id === self.device_id) {
-    return json({ ok: false, error: 'owner_must_dissolve' }, 409, allow);
-  }
-
-  await env.DB.prepare('UPDATE devices SET group_id = NULL, joined_at = NULL WHERE device_id = ?')
-    .bind(self.device_id).run();
-  return json({ ok: true, left: true }, 200, allow);
-}
-
-/* ===================== /api/groups/kick（除名＝BAN） ===================== */
-async function groupKick(request, env, allow) {
-  if (request.method !== 'POST') return json({ ok: false, error: 'POST only' }, 405, allow);
-  const a = await auth(request, env);
-  if (a.error) return json({ ok: false, error: a.error }, a.status, allow);
-  const self = a.me;
-  if (!self.group_id) return json({ ok: false, error: 'not_in_group' }, 400, allow);
-
-  const g = await env.DB.prepare('SELECT * FROM groups WHERE group_id = ?')
-    .bind(self.group_id).first();
-  if (!g) return json({ ok: false, error: 'group_not_found' }, 404, allow);
-  if (g.owner_id !== self.device_id) return json({ ok: false, error: 'not_owner' }, 403, allow);
-
-  let body = {};
-  try { body = await request.json(); } catch {
-    return json({ ok: false, error: 'invalid_json' }, 400, allow);
-  }
-  const target = String(body.member_id || '');
-  if (!target) return json({ ok: false, error: 'member_id required' }, 400, allow);
-  if (target === self.member_id) return json({ ok: false, error: 'cannot_kick_self' }, 400, allow);
-
-  const t = await env.DB.prepare('SELECT device_id FROM devices WHERE member_id = ? AND group_id = ?')
-    .bind(target, g.group_id).first();
-  if (!t) return json({ ok: false, error: 'member_not_found' }, 404, allow);
-
+  const now = Date.now();
   await env.DB.batch([
-    env.DB.prepare('UPDATE devices SET group_id = NULL, joined_at = NULL WHERE device_id = ?')
-      .bind(t.device_id),
     env.DB.prepare(
-      `INSERT INTO group_bans (group_id, member_id, by_admin, created_at) VALUES (?, ?, 0, ?)
-       ON CONFLICT(group_id, member_id) DO NOTHING`
-    ).bind(g.group_id, target, nowIso()),
+      `INSERT INTO weights (device_id,ymd,kg,updated_at) VALUES (?,?,?,?)
+       ON CONFLICT(device_id,ymd) DO UPDATE SET kg=excluded.kg, updated_at=excluded.updated_at`
+    ).bind(dev.device_id, ymd, kg, now),
+    env.DB.prepare('UPDATE devices SET last_seen_at=? WHERE device_id=?').bind(now, dev.device_id),
   ]);
-  return json({ ok: true, kicked: target }, 200, allow);
-}
 
-/* ===================== /api/groups/unban（BAN解除） ===================== */
-async function groupUnban(request, env, allow) {
-  if (request.method !== 'POST') return json({ ok: false, error: 'POST only' }, 405, allow);
-  const a = await auth(request, env);
-  if (a.error) return json({ ok: false, error: a.error }, a.status, allow);
-  const self = a.me;
-  if (!self.group_id) return json({ ok: false, error: 'not_in_group' }, 400, allow);
+  // ④の演出用：直前の実測記録と目標を返す（クライアントは使わなくても害なし）
+  const prev = await env.DB.prepare(
+    'SELECT ymd,kg FROM weights WHERE device_id=? AND ymd<? ORDER BY ymd DESC LIMIT 1'
+  ).bind(dev.device_id, ymd).first();
 
-  const g = await env.DB.prepare('SELECT * FROM groups WHERE group_id = ?')
-    .bind(self.group_id).first();
-  if (!g) return json({ ok: false, error: 'group_not_found' }, 404, allow);
-  if (g.owner_id !== self.device_id) return json({ ok: false, error: 'not_owner' }, 403, allow);
-
-  let body = {};
-  try { body = await request.json(); } catch {
-    return json({ ok: false, error: 'invalid_json' }, 400, allow);
-  }
-  const target = String(body.member_id || '');
-  if (!target) return json({ ok: false, error: 'member_id required' }, 400, allow);
-
-  const r = await env.DB.prepare('DELETE FROM group_bans WHERE group_id = ? AND member_id = ?')
-    .bind(g.group_id, target).run();
-  return json({ ok: true, unbanned: r.meta.changes || 0 }, 200, allow);
-}
-
-/* ===================== /api/groups/bans（BAN一覧） ===================== */
-async function groupBans(request, env, allow) {
-  if (request.method !== 'GET') return json({ ok: false, error: 'GET only' }, 405, allow);
-  const a = await auth(request, env);
-  if (a.error) return json({ ok: false, error: a.error }, a.status, allow);
-  const self = a.me;
-  if (!self.group_id) return json({ ok: false, error: 'not_in_group' }, 400, allow);
-
-  const g = await env.DB.prepare('SELECT * FROM groups WHERE group_id = ?')
-    .bind(self.group_id).first();
-  if (!g) return json({ ok: false, error: 'group_not_found' }, 404, allow);
-  if (g.owner_id !== self.device_id) return json({ ok: false, error: 'not_owner' }, 403, allow);
-
-  const { results } = await env.DB.prepare(
-    `SELECT b.member_id, b.by_admin, b.created_at, d.nickname
-       FROM group_bans b LEFT JOIN devices d ON d.member_id = b.member_id
-      WHERE b.group_id = ? ORDER BY b.created_at DESC`
-  ).bind(g.group_id).all();
-  return json({ ok: true, bans: results || [] }, 200, allow);
-}
-
-/* ===================== /api/groups/dissolve（解散） ===================== */
-async function groupDissolve(request, env, allow) {
-  if (request.method !== 'POST') return json({ ok: false, error: 'POST only' }, 405, allow);
-  const a = await auth(request, env);
-  if (a.error) return json({ ok: false, error: a.error }, a.status, allow);
-  const self = a.me;
-  if (!self.group_id) return json({ ok: false, error: 'not_in_group' }, 400, allow);
-
-  const g = await env.DB.prepare('SELECT * FROM groups WHERE group_id = ?')
-    .bind(self.group_id).first();
-  if (!g) return json({ ok: false, error: 'group_not_found' }, 404, allow);
-  if (g.owner_id !== self.device_id) return json({ ok: false, error: 'not_owner' }, 403, allow);
-
-  await dissolve(env, g.group_id);
-  return json({ ok: true, dissolved: g.group_id }, 200, allow);
-}
-
-/* ===================== /api/ranking ===================== */
-async function ranking(request, env, allow) {
-  if (request.method !== 'GET') return json({ ok: false, error: 'GET only' }, 405, allow);
-  const a = await auth(request, env);
-  if (a.error) return json({ ok: false, error: a.error }, a.status, allow);
-  const self = a.me;
-
-  const u = new URL(request.url);
-  const mode = u.searchParams.get('mode') || 'group';      // group | rival
-  const today = todayYmdJST();
-
-  if (mode === 'rival') {
-    const { results } = await env.DB.prepare(
-      `SELECT d.device_id, d.member_id, d.nickname, d.icon_ver, d.group_id
-         FROM rivals r JOIN devices d ON d.member_id = r.rival_member_id
-        WHERE r.device_id = ? AND d.banned = 0`
-    ).bind(self.device_id).all();
-    const rows = await buildRows(env, results || [], null, today, self);
-    return json({ ok: true, today, mode, group: null, rows }, 200, allow);
-  }
-
-  const gid = u.searchParams.get('group_id') || self.group_id;
-  if (!gid) return json({ ok: false, error: 'not_in_group' }, 400, allow);
-
-  const g = await env.DB.prepare('SELECT * FROM groups WHERE group_id = ?').bind(gid).first();
-  if (!g) return json({ ok: false, error: 'group_not_found' }, 404, allow);
-
-  // 自分のグループ or 閲覧登録済みのみ許可
-  if (gid !== self.group_id) {
-    const w = await env.DB.prepare('SELECT 1 FROM watching WHERE device_id = ? AND group_id = ?')
-      .bind(self.device_id, gid).first();
-    if (!w) return json({ ok: false, error: 'not_allowed' }, 403, allow);
-  }
-
-  const { results } = await env.DB.prepare(
-    `SELECT device_id, member_id, nickname, icon_ver, group_id
-       FROM devices WHERE group_id = ? AND banned = 0`
-  ).bind(gid).all();
-
-  const rows = await buildRows(env, results || [], g.start_ymd, today, self, !!g.show_weight);
-  const totalLoss = rows.filter(r => !r.inactive)
-    .reduce((s, r) => s + (r.loss > 0 ? r.loss : 0), 0);
-
-  return json({
-    ok: true, today, mode: 'group',
-    group: {
-      group_id: g.group_id, name: g.name, start_ymd: g.start_ymd,
-      show_weight: !!g.show_weight, members: rows.length,
-      is_owner: g.owner_id === self.device_id,
-      is_mine: gid === self.group_id,
-    },
-    total_loss: Math.round(totalLoss * 10) / 10,
-    rows,
-  }, 200, allow);
-}
-
-/* メンバー配列 → ランキング行 */
-async function buildRows(env, members, startYmd, today, self, showWeight = true) {
-  if (!members.length) return [];
-
-  // ブロック中の相手は除外
-  const { results: bl } = await env.DB.prepare(
-    'SELECT blocked_member_id FROM blocks WHERE device_id = ?'
-  ).bind(self.device_id).all();
-  const blocked = new Set((bl || []).map(r => r.blocked_member_id));
-  const list = members.filter(m => !blocked.has(m.member_id) || m.member_id === self.member_id);
-  if (!list.length) return [];
-
-  // ライバル登録済みの相手
-  const { results: rv } = await env.DB.prepare(
-    'SELECT rival_member_id FROM rivals WHERE device_id = ?'
-  ).bind(self.device_id).all();
-  const rivalSet = new Set((rv || []).map(r => r.rival_member_id));
-
-  const byDevice = new Map(list.map(m => [m.device_id, m]));
-  const rows = [];
-
-  for (const m of list) {
-    let sql = 'SELECT ymd, kg FROM weights WHERE device_id = ?';
-    const args = [m.device_id];
-    const start = startYmd || null;
-    if (start) { sql += ' AND ymd >= ?'; args.push(start); }
-    sql += ' ORDER BY ymd ASC';
-    const { results: ws } = await env.DB.prepare(sql).bind(...args).all();
-
-    const arr = ws || [];
-    const first = arr[0] || null;
-    const last = arr[arr.length - 1] || null;
-    const loss = (first && last) ? Math.round((first.kg - last.kg) * 10) / 10 : null;
-    const days = last ? daysBetween(last.ymd, today) : null;
-    const inactive = (days === null) || (days > INACTIVE_DAYS);
-    const isSelf = m.member_id === self.member_id;
-    const visible = showWeight || isSelf;
-
-    rows.push({
-      member_id: m.member_id,
-      nickname: m.nickname || '名無し',
-      icon_ver: m.icon_ver,
-      is_self: isSelf,
-      is_rival: rivalSet.has(m.member_id),
-      loss,
-      records: arr.length,
-      last_ymd: last ? last.ymd : null,
-      days_since: days,
-      inactive,
-      start_kg: visible && first ? first.kg : undefined,
-      latest_kg: visible && last ? last.kg : undefined,
-    });
-  }
-
-  rows.sort((x, y) => {
-    if (x.inactive !== y.inactive) return x.inactive ? 1 : -1;
-    const lx = x.loss === null ? -Infinity : x.loss;
-    const ly = y.loss === null ? -Infinity : y.loss;
-    if (ly !== lx) return ly - lx;
-    return (x.nickname || '').localeCompare(y.nickname || '', 'ja');
+  const goal = dev.goal_weight === null || dev.goal_weight === undefined ? null : Number(dev.goal_weight);
+  return json(req, {
+    ok: true, ymd, kg,
+    prev: prev ? { ymd: prev.ymd, kg: Number(prev.kg) } : null,
+    diff: prev ? round1(kg - Number(prev.kg)) : null,
+    goal_weight: goal,
+    to_goal: goal === null ? null : round1(kg - goal),
   });
+}
+
+async function delWeight(req, env, dev, ymd) {
+  if (!isYmd(ymd)) return bad(req, 'bad_ymd');
+  await env.DB.prepare('DELETE FROM weights WHERE device_id=? AND ymd=?').bind(dev.device_id, ymd).run();
+  return json(req, { ok: true, ymd });
+}
+
+/* ============================================================
+   グループ
+   ============================================================ */
+async function groupView(env, dev) {
+  if (!dev.group_id) return null;
+  const g = await env.DB.prepare('SELECT * FROM groups WHERE group_id=?').bind(dev.group_id).first();
+  if (!g) return null;
+  const c = await env.DB.prepare('SELECT COUNT(*) AS n FROM devices WHERE group_id=? AND banned=0')
+    .bind(g.group_id).first();
+  const owner = isOwnerOf(g, dev);
+  return {
+    group_id: g.group_id,
+    name: g.name,
+    start_ymd: g.start_ymd,
+    show_weight: Number(g.show_weight) === 1,
+    max_members: Number(g.max_members || 100),
+    members: Number(c ? c.n : 0),
+    is_owner: owner,
+    code: owner ? fmtCode(g.group_id) : null,   // 参加コードはオーナーにだけ返す
+  };
+}
+
+async function createGroup(req, env, dev) {
+  if (dev.group_id) return bad(req, 'already_in_group');
+  if (!await rateOk(env, 'create:' + dev.device_id)) return bad(req, 'rate_limited', 429);
+
+  const b = await readBody(req);
+  const name = normGroupName(b.name);
+  if (!name) return bad(req, 'bad_name');
+
+  const start = isYmd(b.start_ymd) ? b.start_ymd : todayYmdJST();
+  const show = (b.show_weight === undefined || b.show_weight === null) ? 1 : (b.show_weight ? 1 : 0);
+  const now = Date.now();
+
+  let gid = null;
+  for (let i = 0; i < 8; i++) {
+    const cand = genCode();
+    const hit = await env.DB.prepare('SELECT group_id FROM groups WHERE group_id=?').bind(cand).first();
+    if (!hit) { gid = cand; break; }
+  }
+  if (!gid) return bad(req, 'code_alloc_failed', 500);
+
+  await env.DB.batch([
+    env.DB.prepare(
+      'INSERT INTO groups (group_id,name,owner_id,show_weight,start_ymd,max_members,created_at) VALUES (?,?,?,?,?,100,?)'
+    ).bind(gid, name, dev.member_id, show, start, now),
+    env.DB.prepare('UPDATE devices SET group_id=?, joined_at=? WHERE device_id=?').bind(gid, now, dev.device_id),
+  ]);
+
+  const fresh = await getDevice(env, dev.device_id);
+  return json(req, { ok: true, group: await groupView(env, fresh) });
+}
+
+async function joinGroup(req, env, dev) {
+  if (dev.group_id) return bad(req, 'already_in_group');
+  if (!await rateOk(env, 'join:' + dev.device_id)) return bad(req, 'rate_limited', 429);
+
+  const b = await readBody(req);
+  const gid = normalizeCode(b.code);
+  if (!gid) return bad(req, 'bad_code');
+
+  const g = await env.DB.prepare('SELECT * FROM groups WHERE group_id=?').bind(gid).first();
+  if (!g) return bad(req, 'group_not_found', 404);
+
+  const banned = await env.DB.prepare('SELECT member_id FROM group_bans WHERE group_id=? AND member_id=?')
+    .bind(gid, dev.member_id).first();
+  if (banned) return bad(req, 'banned_from_group', 403);
+
+  const c = await env.DB.prepare('SELECT COUNT(*) AS n FROM devices WHERE group_id=? AND banned=0')
+    .bind(gid).first();
+  if (Number(c ? c.n : 0) >= Number(g.max_members || 100)) return bad(req, 'group_full');
+
+  const now = Date.now();
+  await env.DB.batch([
+    env.DB.prepare('UPDATE devices SET group_id=?, joined_at=? WHERE device_id=?').bind(gid, now, dev.device_id),
+    env.DB.prepare('DELETE FROM watching WHERE device_id=? AND group_id=?').bind(dev.device_id, gid),
+  ]);
+
+  const fresh = await getDevice(env, dev.device_id);
+  return json(req, { ok: true, group: await groupView(env, fresh) });
+}
+
+async function leaveGroup(req, env, dev) {
+  if (!dev.group_id) return bad(req, 'not_in_group');
+  const g = await env.DB.prepare('SELECT * FROM groups WHERE group_id=?').bind(dev.group_id).first();
+  if (g && isOwnerOf(g, dev)) return bad(req, 'owner_must_dissolve');
+  await env.DB.prepare('UPDATE devices SET group_id=NULL, joined_at=NULL WHERE device_id=?')
+    .bind(dev.device_id).run();
+  return json(req, { ok: true, group: null });
+}
+
+async function requireOwnedGroup(env, dev) {
+  if (!dev.group_id) return { error: 'not_in_group' };
+  const g = await env.DB.prepare('SELECT * FROM groups WHERE group_id=?').bind(dev.group_id).first();
+  if (!g) return { error: 'group_not_found' };
+  if (!isOwnerOf(g, dev)) return { error: 'not_owner' };
+  return { group: g };
+}
+
+async function patchGroup(req, env, dev) {
+  const r = await requireOwnedGroup(env, dev);
+  if (r.error) return bad(req, r.error, r.error === 'not_owner' ? 403 : 400);
+
+  const b = await readBody(req);
+  const sets = [], vals = [];
+  if ('name' in b) {
+    const nm = normGroupName(b.name);
+    if (!nm) return bad(req, 'bad_name');
+    sets.push('name=?'); vals.push(nm);
+  }
+  if ('start_ymd' in b) {
+    if (!isYmd(b.start_ymd)) return bad(req, 'bad_ymd');
+    sets.push('start_ymd=?'); vals.push(b.start_ymd);
+  }
+  // show_weight は作成後に変更できない仕様（あとから公開に変えると過去分が漏れる）
+  if (!sets.length) return bad(req, 'nothing_to_update');
+
+  vals.push(r.group.group_id);
+  await env.DB.prepare(`UPDATE groups SET ${sets.join(',')} WHERE group_id=?`).bind(...vals).run();
+
+  const fresh = await getDevice(env, dev.device_id);
+  return json(req, { ok: true, group: await groupView(env, fresh) });
+}
+
+async function kickMember(req, env, dev) {
+  const r = await requireOwnedGroup(env, dev);
+  if (r.error) return bad(req, r.error, r.error === 'not_owner' ? 403 : 400);
+
+  const b = await readBody(req);
+  const mid = String(b.member_id || '').trim();
+  if (!mid) return bad(req, 'bad_member_id');
+  if (mid === dev.member_id) return bad(req, 'cannot_kick_self');
+
+  const target = await env.DB.prepare('SELECT device_id,group_id FROM devices WHERE member_id=?').bind(mid).first();
+  if (!target || target.group_id !== r.group.group_id) return bad(req, 'not_in_group', 404);
+
+  const now = Date.now();
+  await env.DB.batch([
+    env.DB.prepare('INSERT OR IGNORE INTO group_bans (group_id,member_id,by_admin,created_at) VALUES (?,?,0,?)')
+      .bind(r.group.group_id, mid, now),
+    env.DB.prepare('UPDATE devices SET group_id=NULL, joined_at=NULL WHERE member_id=?').bind(mid),
+  ]);
+  return json(req, { ok: true, member_id: mid });
+}
+
+async function unbanMember(req, env, dev) {
+  const r = await requireOwnedGroup(env, dev);
+  if (r.error) return bad(req, r.error, r.error === 'not_owner' ? 403 : 400);
+
+  const b = await readBody(req);
+  const mid = String(b.member_id || '').trim();
+  if (!mid) return bad(req, 'bad_member_id');
+
+  await env.DB.prepare('DELETE FROM group_bans WHERE group_id=? AND member_id=?')
+    .bind(r.group.group_id, mid).run();
+  return json(req, { ok: true, member_id: mid });
+}
+
+async function listBans(req, env, dev) {
+  const r = await requireOwnedGroup(env, dev);
+  if (r.error) return bad(req, r.error, r.error === 'not_owner' ? 403 : 400);
+
+  const rs = await env.DB.prepare(
+    `SELECT b.member_id, b.created_at, d.nickname, d.icon_ver
+       FROM group_bans b LEFT JOIN devices d ON d.member_id=b.member_id
+      WHERE b.group_id=? ORDER BY b.created_at DESC`
+  ).bind(r.group.group_id).all();
+
+  return json(req, {
+    ok: true,
+    bans: (rs.results || []).map(x => ({
+      member_id: x.member_id,
+      nickname: x.nickname || null,
+      icon_ver: Number(x.icon_ver || 0),
+      created_at: x.created_at || null,
+    })),
+  });
+}
+
+async function doDissolve(env, gid) {
+  await env.DB.batch([
+    env.DB.prepare('UPDATE devices SET group_id=NULL, joined_at=NULL WHERE group_id=?').bind(gid),
+    env.DB.prepare('DELETE FROM group_bans WHERE group_id=?').bind(gid),
+    env.DB.prepare('DELETE FROM watching   WHERE group_id=?').bind(gid),
+    env.DB.prepare('DELETE FROM groups     WHERE group_id=?').bind(gid),
+  ]);
+}
+
+async function dissolveGroup(req, env, dev) {
+  const r = await requireOwnedGroup(env, dev);
+  if (r.error) return bad(req, r.error, r.error === 'not_owner' ? 403 : 400);
+  await doDissolve(env, r.group.group_id);
+  return json(req, { ok: true, group: null });
+}
+
+async function findGroup(req, env, dev, rawCode) {
+  const gid = normalizeCode(rawCode);
+  if (!gid) return bad(req, 'bad_code');
+  const g = await env.DB.prepare('SELECT group_id,name,start_ymd,show_weight FROM groups WHERE group_id=?')
+    .bind(gid).first();
+  if (!g) return bad(req, 'group_not_found', 404);
+  const c = await env.DB.prepare('SELECT COUNT(*) AS n FROM devices WHERE group_id=? AND banned=0')
+    .bind(gid).first();
+  return json(req, {
+    ok: true,
+    group: {
+      group_id: g.group_id,
+      name: g.name,
+      start_ymd: g.start_ymd,
+      show_weight: Number(g.show_weight) === 1,
+      members: Number(c ? c.n : 0),
+      is_mine: dev.group_id === g.group_id,
+    },
+  });
+}
+
+/* ============================================================
+   減量幅の集計
+   loss = (スタート日以降の最初の実測) − (最新の実測)
+   → 正の値 = 減った / 負の値 = 増えた
+   スタート日以降の記録が2件未満なら loss は null（増減が測れない）
+   ============================================================ */
+async function lossStats(env, deviceIds, startYmd) {
+  const map = new Map();
+  if (!deviceIds.length) return map;
+
+  const ph = deviceIds.map(() => '?').join(',');
+  const sql = `
+    SELECT device_id, ymd, kg FROM (
+      SELECT device_id, ymd, kg,
+             ROW_NUMBER() OVER (PARTITION BY device_id ORDER BY ymd ASC)  AS ra,
+             ROW_NUMBER() OVER (PARTITION BY device_id ORDER BY ymd DESC) AS rd
+        FROM weights
+       WHERE device_id IN (${ph}) AND ymd >= ?
+    ) WHERE ra = 1 OR rd = 1`;
+
+  const rs = await env.DB.prepare(sql).bind(...deviceIds, startYmd || '1900-01-01').all();
+  for (const r of (rs.results || [])) {
+    const kg = Number(r.kg);
+    let e = map.get(r.device_id);
+    if (!e) { e = { first: null, last: null }; map.set(r.device_id, e); }
+    if (!e.first || r.ymd < e.first.ymd) e.first = { ymd: r.ymd, kg };
+    if (!e.last  || r.ymd > e.last.ymd)  e.last  = { ymd: r.ymd, kg };
+  }
+  return map;
+}
+
+function buildEntry(memberRow, stat, todayDay, showKg, isSelf, isRival) {
+  const hasPair = !!(stat && stat.first && stat.last && stat.first.ymd !== stat.last.ymd);
+  const loss = hasPair ? round1(stat.first.kg - stat.last.kg) : null;
+  const lastYmd = stat && stat.last ? stat.last.ymd : null;
+  const idle = lastYmd === null ? null : todayDay - ymdToDay(lastYmd);
+  // 「14日間入力なし」で休止（最後の記録から14日経過した時点）
+  const inactive = idle === null ? true : idle >= INACTIVE_DAYS;
+
+  return {
+    member_id: memberRow.member_id,
+    nickname: memberRow.nickname || null,
+    icon_ver: Number(memberRow.icon_ver || 0),
+    loss,
+    start_kg: (showKg && stat && stat.first) ? stat.first.kg : null,
+    latest_kg: (showKg && stat && stat.last) ? stat.last.kg : null,
+    start_ymd: stat && stat.first ? stat.first.ymd : null,
+    last_ymd: lastYmd,
+    idle_days: idle,
+    inactive,
+    is_self: !!isSelf,
+    is_rival: !!isRival,
+    rank: null,
+  };
+}
+
+function finishRows(entries) {
+  // 集計は「休止中でも有効な記録があれば対象」／純増減の合算
+  const vals = entries.filter(e => e.loss !== null).map(e => e.loss);
+  const total = vals.length ? round1(vals.reduce((a, b) => a + b, 0)) : 0;
+  const avg = vals.length ? round1(total / vals.length) : null;
+
+  const active = entries.filter(e => !e.inactive && e.loss !== null)
+    .sort((a, b) => b.loss - a.loss);
+  const rest = entries.filter(e => e.inactive || e.loss === null)
+    .sort((a, b) => {
+      if (a.loss !== null && b.loss !== null) return b.loss - a.loss;
+      if (a.loss !== null) return -1;
+      if (b.loss !== null) return 1;
+      return String(a.nickname || '').localeCompare(String(b.nickname || ''));
+    });
 
   let rank = 0, prev = null;
-  rows.forEach((r, i) => {
-    if (r.inactive) { r.rank = null; return; }
-    if (r.loss !== prev) { rank = i + 1; prev = r.loss; }
-    r.rank = rank;
+  active.forEach((e, i) => {
+    if (prev === null || e.loss !== prev) { rank = i + 1; prev = e.loss; }
+    e.rank = rank;
   });
 
-  return rows;
+  return {
+    rows: [...active, ...rest],
+    summary: {
+      total_loss: total,     // 正 = チーム全体で減った
+      avg_loss: avg,         // 全体増減 ÷ 増減を計算できた人数
+      counted: vals.length,
+      members: entries.length,
+      active: active.length,
+      // 旧クライアント互換（中身は純増減に修正済み）
+      team_loss: total,
+    },
+  };
 }
 
-function daysBetween(ymdA, ymdB) {
-  const a = Date.parse(ymdA + 'T00:00:00+09:00');
-  const b = Date.parse(ymdB + 'T00:00:00+09:00');
-  return Math.round((b - a) / 86400000);
+async function blockedSet(env, dev) {
+  const rs = await env.DB.prepare('SELECT blocked_member_id FROM blocks WHERE device_id=?')
+    .bind(dev.device_id).all();
+  return new Set((rs.results || []).map(r => r.blocked_member_id));
 }
 
-/* ===================== /api/watching（他チーム閲覧） ===================== */
-async function watching(request, env, allow) {
-  const a = await auth(request, env);
-  if (a.error) return json({ ok: false, error: a.error }, a.status, allow);
-  const self = a.me;
+async function rivalSet(env, dev) {
+  const rs = await env.DB.prepare('SELECT rival_member_id FROM rivals WHERE device_id=?')
+    .bind(dev.device_id).all();
+  return new Set((rs.results || []).map(r => r.rival_member_id));
+}
 
-  if (request.method === 'GET') {
-    const { results } = await env.DB.prepare(
-      `SELECT w.group_id, g.name, g.start_ymd, g.show_weight
-         FROM watching w JOIN groups g ON g.group_id = w.group_id
-        WHERE w.device_id = ? ORDER BY w.created_at ASC`
-    ).bind(self.device_id).all();
-    return json({ ok: true, watching: results || [] }, 200, allow);
-  }
+/* ---------- ランキング本体 ---------- */
+async function ranking(req, env, dev, url) {
+  const scope = url.searchParams.get('scope') || 'mine';
+  const blocked = await blockedSet(env, dev);
+  const rivals = await rivalSet(env, dev);
+  const todayDay = ymdToDay(todayYmdJST());
 
-  if (request.method === 'POST') {
-    let body = {};
-    try { body = await request.json(); } catch {
-      return json({ ok: false, error: 'invalid_json' }, 400, allow);
+  if (scope === 'rival') return await rivalRanking(req, env, dev, blocked, rivals, todayDay);
+
+  let gid = dev.group_id;
+  if (scope === 'watch') {
+    gid = normalizeCode(url.searchParams.get('group_id') || '');
+    if (!gid) return bad(req, 'bad_code');
+    if (gid !== dev.group_id) {
+      const w = await env.DB.prepare('SELECT group_id FROM watching WHERE device_id=? AND group_id=?')
+        .bind(dev.device_id, gid).first();
+      if (!w) return bad(req, 'not_watching', 403);
     }
-    const code = normalizeCode(body.code);
-    if (!code) return json({ ok: false, error: 'bad_code' }, 400, allow);
-    if (code === self.group_id) return json({ ok: false, error: 'own_group' }, 400, allow);
-
-    const g = await env.DB.prepare('SELECT group_id, name FROM groups WHERE group_id = ?')
-      .bind(code).first();
-    if (!g) return json({ ok: false, error: 'group_not_found' }, 404, allow);
-
-    await env.DB.prepare(
-      `INSERT INTO watching (device_id, group_id, created_at) VALUES (?, ?, ?)
-       ON CONFLICT(device_id, group_id) DO NOTHING`
-    ).bind(self.device_id, code, nowIso()).run();
-    return json({ ok: true, added: g }, 200, allow);
   }
+  if (!gid) return json(req, { ok: true, scope, group: null, rows: [], summary: null });
 
-  if (request.method === 'DELETE') {
-    const u = new URL(request.url);
-    const code = normalizeCode(u.searchParams.get('group_id'));
-    if (!code) return json({ ok: false, error: 'bad_code' }, 400, allow);
-    const r = await env.DB.prepare('DELETE FROM watching WHERE device_id = ? AND group_id = ?')
-      .bind(self.device_id, code).run();
-    return json({ ok: true, removed: r.meta.changes || 0 }, 200, allow);
-  }
+  const g = await env.DB.prepare('SELECT * FROM groups WHERE group_id=?').bind(gid).first();
+  if (!g) return bad(req, 'group_not_found', 404);
 
-  return json({ ok: false, error: 'GET, POST or DELETE only' }, 405, allow);
+  const ms = await env.DB.prepare(
+    'SELECT device_id,member_id,nickname,icon_ver FROM devices WHERE group_id=? AND banned=0'
+  ).bind(gid).all();
+  const members = ms.results || [];
+
+  const stats = await lossStats(env, members.map(x => x.device_id), g.start_ymd);
+  const showWeight = Number(g.show_weight) === 1;
+
+  const entries = members.map(mrow => buildEntry(
+    mrow,
+    stats.get(mrow.device_id),
+    todayDay,
+    showWeight || mrow.member_id === dev.member_id,   // 非公開グループでは体重を出さない
+    mrow.member_id === dev.member_id,
+    rivals.has(mrow.member_id)
+  ));
+
+  const built = finishRows(entries);   // 集計はブロック前の全員で行う（誰が見ても同じ数字）
+  const rows = built.rows.filter(e => e.is_self || !blocked.has(e.member_id));
+
+  return json(req, {
+    ok: true,
+    scope,
+    group: {
+      group_id: g.group_id,
+      name: g.name,
+      start_ymd: g.start_ymd,
+      show_weight: showWeight,
+      is_mine: gid === dev.group_id,
+      is_owner: gid === dev.group_id && isOwnerOf(g, dev),
+    },
+    summary: built.summary,
+    rows,
+  });
 }
 
-/* ===================== /api/rivals ===================== */
-async function rivals(request, env, allow) {
-  const a = await auth(request, env);
-  if (a.error) return json({ ok: false, error: a.error }, a.status, allow);
-  const self = a.me;
+/* ---------- ライバル：自分＋登録したライバル ---------- */
+async function rivalRanking(req, env, dev, blocked, rivals, todayDay) {
+  const ids = [dev.member_id, ...[...rivals].filter(x => x !== dev.member_id)];
+  const ph = ids.map(() => '?').join(',');
+  const rs = await env.DB.prepare(
+    `SELECT device_id,member_id,nickname,icon_ver,group_id FROM devices
+      WHERE member_id IN (${ph}) AND banned=0`
+  ).bind(...ids).all();
+  const people = rs.results || [];
 
-  if (request.method === 'GET') {
-    const { results } = await env.DB.prepare(
-      `SELECT r.rival_member_id AS member_id, d.nickname, d.icon_ver
-         FROM rivals r JOIN devices d ON d.member_id = r.rival_member_id
-        WHERE r.device_id = ? ORDER BY r.created_at ASC`
-    ).bind(self.device_id).all();
-    return json({ ok: true, rivals: results || [] }, 200, allow);
+  // 各自の所属グループのスタート日を基準にそろえる
+  const gids = [...new Set(people.map(x => x.group_id).filter(Boolean))];
+  const groups = new Map();
+  if (gids.length) {
+    const gph = gids.map(() => '?').join(',');
+    const grs = await env.DB.prepare(
+      `SELECT group_id,name,start_ymd,show_weight FROM groups WHERE group_id IN (${gph})`
+    ).bind(...gids).all();
+    for (const g of (grs.results || [])) groups.set(g.group_id, g);
   }
 
-  if (request.method === 'POST') {
-    let body = {};
-    try { body = await request.json(); } catch {
-      return json({ ok: false, error: 'invalid_json' }, 400, allow);
-    }
-    const target = String(body.member_id || '');
-    if (!target) return json({ ok: false, error: 'member_id required' }, 400, allow);
-    if (target === self.member_id) return json({ ok: false, error: 'cannot_add_self' }, 400, allow);
-
-    const t = await env.DB.prepare('SELECT 1 FROM devices WHERE member_id = ? AND banned = 0')
-      .bind(target).first();
-    if (!t) return json({ ok: false, error: 'member_not_found' }, 404, allow);
-
-    await env.DB.prepare(
-      `INSERT INTO rivals (device_id, rival_member_id, created_at) VALUES (?, ?, ?)
-       ON CONFLICT(device_id, rival_member_id) DO NOTHING`
-    ).bind(self.device_id, target, nowIso()).run();
-    return json({ ok: true, added: target }, 200, allow);
+  // スタート日ごとにまとめて集計
+  const byStart = new Map();
+  for (const pr of people) {
+    const g = pr.group_id ? groups.get(pr.group_id) : null;
+    const start = (g && g.start_ymd) ? g.start_ymd : '1900-01-01';  // 未所属は全期間
+    if (!byStart.has(start)) byStart.set(start, []);
+    byStart.get(start).push(pr);
+  }
+  const stats = new Map();
+  for (const [start, list] of byStart) {
+    const s = await lossStats(env, list.map(x => x.device_id), start);
+    for (const [k, v] of s) stats.set(k, v);
   }
 
-  if (request.method === 'DELETE') {
-    const u = new URL(request.url);
-    const target = u.searchParams.get('member_id') || '';
-    if (!target) return json({ ok: false, error: 'member_id required' }, 400, allow);
-    const r = await env.DB.prepare('DELETE FROM rivals WHERE device_id = ? AND rival_member_id = ?')
-      .bind(self.device_id, target).run();
-    return json({ ok: true, removed: r.meta.changes || 0 }, 200, allow);
-  }
+  const entries = people.map(pr => {
+    const g = pr.group_id ? groups.get(pr.group_id) : null;
+    const isSelf = pr.member_id === dev.member_id;
+    // 非公開グループ／未所属の体重は絶対に返さない（ライバル経由の漏洩を封じる）
+    const showKg = isSelf || !!(g && Number(g.show_weight) === 1);
+    const e = buildEntry(pr, stats.get(pr.device_id), todayDay, showKg, isSelf, !isSelf);
+    e.group_name = g ? g.name : null;
+    return e;
+  });
 
-  return json({ ok: false, error: 'GET, POST or DELETE only' }, 405, allow);
+  const built = finishRows(entries);
+  const rows = built.rows.filter(e => e.is_self || !blocked.has(e.member_id));
+
+  return json(req, { ok: true, scope: 'rival', group: null, summary: built.summary, rows });
 }
 
-/* ===================== /api/blocks ===================== */
-async function blocks(request, env, allow) {
-  const a = await auth(request, env);
-  if (a.error) return json({ ok: false, error: a.error }, a.status, allow);
-  const self = a.me;
+/* ============================================================
+   購読 / ライバル / ブロック / 通報
+   ============================================================ */
+async function listWatching(req, env, dev) {
+  const rs = await env.DB.prepare(
+    `SELECT w.group_id, g.name, g.start_ymd, g.show_weight,
+            (SELECT COUNT(*) FROM devices d WHERE d.group_id=w.group_id AND d.banned=0) AS n
+       FROM watching w JOIN groups g ON g.group_id=w.group_id
+      WHERE w.device_id=? ORDER BY w.created_at ASC`
+  ).bind(dev.device_id).all();
 
-  if (request.method === 'GET') {
-    const { results } = await env.DB.prepare(
-      `SELECT b.blocked_member_id AS member_id, d.nickname
-         FROM blocks b LEFT JOIN devices d ON d.member_id = b.blocked_member_id
-        WHERE b.device_id = ? ORDER BY b.created_at DESC`
-    ).bind(self.device_id).all();
-    return json({ ok: true, blocks: results || [] }, 200, allow);
-  }
-
-  if (request.method === 'POST') {
-    let body = {};
-    try { body = await request.json(); } catch {
-      return json({ ok: false, error: 'invalid_json' }, 400, allow);
-    }
-    const target = String(body.member_id || '');
-    if (!target) return json({ ok: false, error: 'member_id required' }, 400, allow);
-    if (target === self.member_id) return json({ ok: false, error: 'cannot_block_self' }, 400, allow);
-
-    await env.DB.batch([
-      env.DB.prepare(
-        `INSERT INTO blocks (device_id, blocked_member_id, created_at) VALUES (?, ?, ?)
-         ON CONFLICT(device_id, blocked_member_id) DO NOTHING`
-      ).bind(self.device_id, target, nowIso()),
-      env.DB.prepare('DELETE FROM rivals WHERE device_id = ? AND rival_member_id = ?')
-        .bind(self.device_id, target),
-    ]);
-    return json({ ok: true, blocked: target }, 200, allow);
-  }
-
-  if (request.method === 'DELETE') {
-    const u = new URL(request.url);
-    const target = u.searchParams.get('member_id') || '';
-    if (!target) return json({ ok: false, error: 'member_id required' }, 400, allow);
-    const r = await env.DB.prepare('DELETE FROM blocks WHERE device_id = ? AND blocked_member_id = ?')
-      .bind(self.device_id, target).run();
-    return json({ ok: true, removed: r.meta.changes || 0 }, 200, allow);
-  }
-
-  return json({ ok: false, error: 'GET, POST or DELETE only' }, 405, allow);
+  return json(req, {
+    ok: true,
+    watching: (rs.results || []).map(x => ({
+      group_id: x.group_id,
+      code: fmtCode(x.group_id),
+      name: x.name,
+      start_ymd: x.start_ymd,
+      show_weight: Number(x.show_weight) === 1,
+      members: Number(x.n || 0),
+    })),
+  });
 }
 
-/* ===================== /api/reports（通報） ===================== */
-async function reports(request, env, allow) {
-  if (request.method !== 'POST') return json({ ok: false, error: 'POST only' }, 405, allow);
-  const a = await auth(request, env);
-  if (a.error) return json({ ok: false, error: a.error }, a.status, allow);
-  const self = a.me;
+async function addWatching(req, env, dev) {
+  const b = await readBody(req);
+  const gid = normalizeCode(b.code || b.group_id);
+  if (!gid) return bad(req, 'bad_code');
+  if (gid === dev.group_id) return bad(req, 'own_group');
 
-  let body = {};
-  try { body = await request.json(); } catch {
-    return json({ ok: false, error: 'invalid_json' }, 400, allow);
-  }
-  const target = String(body.member_id || '');
-  const reason = normNickname(body.reason) || '';
-  if (!target) return json({ ok: false, error: 'member_id required' }, 400, allow);
-  if (!reason) return json({ ok: false, error: 'reason required' }, 400, allow);
-  if (target === self.member_id) return json({ ok: false, error: 'cannot_report_self' }, 400, allow);
+  const g = await env.DB.prepare('SELECT group_id FROM groups WHERE group_id=?').bind(gid).first();
+  if (!g) return bad(req, 'group_not_found', 404);
 
-  const t = await env.DB.prepare('SELECT 1 FROM devices WHERE member_id = ?').bind(target).first();
-  if (!t) return json({ ok: false, error: 'member_not_found' }, 404, allow);
+  await env.DB.prepare('INSERT OR IGNORE INTO watching (device_id,group_id,created_at) VALUES (?,?,?)')
+    .bind(dev.device_id, gid, Date.now()).run();
+  return await listWatching(req, env, dev);
+}
 
-  const today = todayYmdJST();
-  const dup = await env.DB.prepare(
-    'SELECT 1 FROM reports WHERE reporter_id = ? AND target_id = ? AND ymd = ?'
-  ).bind(self.member_id, target, today).first();
-  if (dup) return json({ ok: false, error: 'already_reported_today' }, 409, allow);
+async function delWatching(req, env, dev, raw) {
+  const gid = normalizeCode(raw);
+  if (!gid) return bad(req, 'bad_code');
+  await env.DB.prepare('DELETE FROM watching WHERE device_id=? AND group_id=?')
+    .bind(dev.device_id, gid).run();
+  return await listWatching(req, env, dev);
+}
 
+async function listRivals(req, env, dev) {
+  const rs = await env.DB.prepare(
+    `SELECT r.rival_member_id AS member_id, d.nickname, d.icon_ver
+       FROM rivals r LEFT JOIN devices d ON d.member_id=r.rival_member_id
+      WHERE r.device_id=? ORDER BY r.created_at ASC`
+  ).bind(dev.device_id).all();
+
+  return json(req, {
+    ok: true,
+    rivals: (rs.results || []).map(x => ({
+      member_id: x.member_id,
+      nickname: x.nickname || null,
+      icon_ver: Number(x.icon_ver || 0),
+    })),
+  });
+}
+
+async function addRival(req, env, dev) {
+  const b = await readBody(req);
+  const mid = String(b.member_id || '').trim();
+  if (!mid) return bad(req, 'bad_member_id');
+  if (mid === dev.member_id) return bad(req, 'self_not_allowed');
+
+  const t = await env.DB.prepare('SELECT member_id FROM devices WHERE member_id=? AND banned=0')
+    .bind(mid).first();
+  if (!t) return bad(req, 'member_not_found', 404);
+
+  await env.DB.prepare('INSERT OR IGNORE INTO rivals (device_id,rival_member_id,created_at) VALUES (?,?,?)')
+    .bind(dev.device_id, mid, Date.now()).run();
+  return await listRivals(req, env, dev);
+}
+
+async function delRival(req, env, dev, mid) {
+  const id = String(mid || '').trim();
+  if (!id) return bad(req, 'bad_member_id');
+  await env.DB.prepare('DELETE FROM rivals WHERE device_id=? AND rival_member_id=?')
+    .bind(dev.device_id, id).run();
+  return await listRivals(req, env, dev);
+}
+
+async function listBlocks(req, env, dev) {
+  const rs = await env.DB.prepare(
+    `SELECT b.blocked_member_id AS member_id, d.nickname, d.icon_ver
+       FROM blocks b LEFT JOIN devices d ON d.member_id=b.blocked_member_id
+      WHERE b.device_id=? ORDER BY b.created_at DESC`
+  ).bind(dev.device_id).all();
+
+  return json(req, {
+    ok: true,
+    blocks: (rs.results || []).map(x => ({
+      member_id: x.member_id,
+      nickname: x.nickname || null,
+      icon_ver: Number(x.icon_ver || 0),
+    })),
+  });
+}
+
+async function addBlock(req, env, dev) {
+  const b = await readBody(req);
+  const mid = String(b.member_id || '').trim();
+  if (!mid) return bad(req, 'bad_member_id');
+  if (mid === dev.member_id) return bad(req, 'self_not_allowed');
+
+  await env.DB.batch([
+    env.DB.prepare('INSERT OR IGNORE INTO blocks (device_id,blocked_member_id,created_at) VALUES (?,?,?)')
+      .bind(dev.device_id, mid, Date.now()),
+    env.DB.prepare('DELETE FROM rivals WHERE device_id=? AND rival_member_id=?').bind(dev.device_id, mid),
+  ]);
+  return await listBlocks(req, env, dev);
+}
+
+async function delBlock(req, env, dev, mid) {
+  const id = String(mid || '').trim();
+  if (!id) return bad(req, 'bad_member_id');
+  await env.DB.prepare('DELETE FROM blocks WHERE device_id=? AND blocked_member_id=?')
+    .bind(dev.device_id, id).run();
+  return await listBlocks(req, env, dev);
+}
+
+async function addReport(req, env, dev) {
+  if (!await rateOk(env, 'report:' + dev.device_id)) return bad(req, 'rate_limited', 429);
+
+  const b = await readBody(req);
+  const target = String(b.target_id || b.member_id || '').trim();
+  if (!target) return bad(req, 'bad_member_id');
+  if (target === dev.member_id) return bad(req, 'self_not_allowed');
+
+  const reason = normReason(b.reason);        // 通報専用：最大200文字
+  if (!reason) return bad(req, 'bad_reason');
+
+  const ymd = isYmd(b.ymd) ? b.ymd : todayYmdJST();
   await env.DB.prepare(
-    `INSERT INTO reports (reporter_id, target_id, ymd, reason, created_at)
-     VALUES (?, ?, ?, ?, ?)`
-  ).bind(self.member_id, target, today, reason.slice(0, 200), nowIso()).run();
+    'INSERT INTO reports (reporter_id,target_id,ymd,reason,created_at,handled) VALUES (?,?,?,?,?,0)'
+  ).bind(dev.member_id, target, ymd, reason, Date.now()).run();
 
-  return json({ ok: true, reported: true }, 200, allow);
+  return json(req, { ok: true, reported: true });
 }

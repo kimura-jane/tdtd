@@ -147,6 +147,18 @@
 
   <section class="card">
     <h2 class="h2">プロフィール</h2>
+
+    <div class="iconrow">
+      <div class="iconbox" id="iconBox"></div>
+      <div class="iconbtns">
+        <button class="ghost sm" id="iconPick" type="button">写真を選ぶ</button>
+        <button class="danger sm" id="iconDel" type="button" hidden>削除</button>
+        <p class="note">正方形に切り取って256pxに縮小してから保存します。</p>
+      </div>
+    </div>
+    <input class="filehide" type="file" id="iconFile" accept="image/*">
+    <p class="msg" id="imsg"></p>
+
     <div class="field">
       <label class="lbl" for="nickInput">ニックネーム</label>
       <div class="past-row">

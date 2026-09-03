@@ -72,7 +72,55 @@
 <!-- ============ グループ ============ -->
 <div class="view" id="view-group">
 
-  <!-- 未所属 -->
+  <!-- ランキング（所属中は最上段） -->
+  <section class="card" id="rankBox" hidden>
+    <div class="tabs" id="rankTabs">
+      <button class="tab is-on" data-r="mine">自分のチーム</button>
+      <button class="tab" data-r="watch">他チーム</button>
+      <button class="tab" data-r="rival">ライバル</button>
+    </div>
+    <div class="nav" id="watchNav" hidden>
+      <select id="watchSel"></select>
+      <button class="ghost sm" id="addWatch" type="button">＋追加</button>
+    </div>
+    <div class="rank-head" id="rankHead">—</div>
+    <ol class="rank" id="rankList"></ol>
+    <p class="msg" id="rmsg"></p>
+  </section>
+
+  <!-- 所属中のグループ情報 -->
+  <section class="card" id="myGroupBox" hidden>
+    <div class="grow">
+      <h2 class="h2" id="gName">—</h2>
+      <div class="meta" id="gMeta">—</div>
+    </div>
+    <div class="codebox" id="gCodeBox" hidden>
+      <span class="lbl">参加コード</span>
+      <span class="code" id="gCode">—</span>
+      <button class="ghost sm" id="copyCode" type="button">コピー</button>
+    </div>
+    <div class="past-row" id="ownerTools" hidden>
+      <button class="ghost sm" id="renameGroup" type="button">名前を変更</button>
+      <button class="ghost sm" id="editStart" type="button">スタート日</button>
+      <button class="ghost sm" id="showBans" type="button">除名リスト</button>
+      <button class="danger sm" id="dissolveGroup" type="button">解散</button>
+    </div>
+    <div class="past-row" id="memberTools" hidden>
+      <button class="ghost sm" id="leaveGroup" type="button">グループを抜ける</button>
+    </div>
+    <p class="msg" id="gmsg2"></p>
+  </section>
+
+  <!-- 他チームの追加 -->
+  <section class="card" id="watchAddBox">
+    <h2 class="h2">他のチームを見る</h2>
+    <p class="note">参加コードを入れると「他チーム」タブでそのチームのランキングを見られます。</p>
+    <div class="past-row">
+      <button class="ghost sm" id="addWatch2" type="button">＋チームを追加</button>
+    </div>
+  </section>
+
+  <!-- 未所属のときの参加・作成 -->
   <section class="card" id="noGroupBox" hidden>
     <h2 class="h2">グループに参加</h2>
     <p class="note">主催者からもらった8文字のコードを入れてください。</p>
@@ -100,45 +148,6 @@
     </div>
     <button class="primary" id="doCreate" type="button">作成する</button>
     <p class="msg" id="gmsg"></p>
-  </section>
-
-  <!-- 所属中 -->
-  <section class="card" id="myGroupBox" hidden>
-    <div class="grow">
-      <h2 class="h2" id="gName">—</h2>
-      <div class="meta" id="gMeta">—</div>
-    </div>
-    <div class="codebox" id="gCodeBox" hidden>
-      <span class="lbl">参加コード</span>
-      <span class="code" id="gCode">—</span>
-      <button class="ghost sm" id="copyCode" type="button">コピー</button>
-    </div>
-    <div class="past-row" id="ownerTools" hidden>
-      <button class="ghost sm" id="renameGroup" type="button">名前を変更</button>
-      <button class="ghost sm" id="editStart" type="button">スタート日</button>
-      <button class="ghost sm" id="showBans" type="button">除名リスト</button>
-      <button class="danger sm" id="dissolveGroup" type="button">解散</button>
-    </div>
-    <div class="past-row" id="memberTools" hidden>
-      <button class="ghost sm" id="leaveGroup" type="button">グループを抜ける</button>
-    </div>
-    <p class="msg" id="gmsg2"></p>
-  </section>
-
-  <!-- ランキング -->
-  <section class="card" id="rankBox" hidden>
-    <div class="tabs" id="rankTabs">
-      <button class="tab is-on" data-r="mine">自分のチーム</button>
-      <button class="tab" data-r="watch">他チーム</button>
-      <button class="tab" data-r="rival">ライバル</button>
-    </div>
-    <div class="nav" id="watchNav" hidden>
-      <select id="watchSel"></select>
-      <button class="ghost sm" id="addWatch" type="button">＋追加</button>
-    </div>
-    <div class="rank-head" id="rankHead">—</div>
-    <ol class="rank" id="rankList"></ol>
-    <p class="msg" id="rmsg"></p>
   </section>
 </div>
 

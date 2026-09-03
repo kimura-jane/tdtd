@@ -107,6 +107,19 @@ main{padding:0 15px}
   padding-top:26px;
 }
 
+/* グループ画面は状態で並び順を変える */
+#view-group.is-on{
+  display:flex; flex-direction:column;
+  gap:14px; padding:16px 0;
+}
+#view-group>.card{margin:0}
+#view-group #rankBox{order:1}
+#view-group #myGroupBox{order:2}
+#view-group #watchAddBox{order:3}
+#view-group #noGroupBox{order:4}
+/* 未所属のときは参加・作成を最上段に */
+#view-group.no-group #noGroupBox{order:0}
+
 .h2{
   margin:0 0 16px;
   font-size:10.5px; font-weight:800;

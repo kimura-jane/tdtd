@@ -174,6 +174,7 @@
         <input type="text" id="nickInput" maxlength="12" placeholder="12文字まで">
         <button class="ghost sm" id="saveNick" type="button">保存</button>
       </div>
+      <p class="note">他のメンバーに表示されます。本名や連絡先は入れないでください。</p>
     </div>
     <div class="field">
       <label class="lbl" for="goalInput">目標体重</label>
@@ -186,7 +187,10 @@
     <p class="msg" id="mmsg"></p>
   </section>
 
-  <section class="card">
+  <!-- 通知はサーバ側が未実装のため、機能が動くまで非表示にしている。
+       app.js が #notifyOn / #notifyDays / #notifyHour / #saveNotify / #nmsg を
+       参照するため、要素そのものは残す。実装後に hidden を外す。 -->
+  <section class="card" hidden>
     <h2 class="h2">通知</h2>
     <label class="chk">
       <input type="checkbox" id="notifyOn">
@@ -204,7 +208,7 @@
       <select id="notifyHour"></select>
     </div>
     <button class="ghost sm" id="saveNotify" type="button">通知設定を保存</button>
-    <p class="note">アプリ版で有効になります。ブラウザでは動きません。</p>
+    <p class="note">この機能は準備中です。</p>
     <p class="msg" id="nmsg"></p>
   </section>
 
@@ -235,9 +239,16 @@
   </section>
 
   <section class="card">
-    <h2 class="h2">プライバシー</h2>
-    <p class="note">取得する情報、体重データの共有範囲、保存・削除方法について確認できます。</p>
-    <a href="./privacy.html">プライバシーポリシーを見る</a>
+    <h2 class="h2">規約とプライバシー</h2>
+    <p class="note">禁止事項、通報とブロックの取り扱い、取得する情報、体重データの共有範囲、保存・削除方法について確認できます。</p>
+    <p><a href="./terms.html">利用規約を見る</a></p>
+    <p><a href="./privacy.html">プライバシーポリシーを見る</a></p>
+  </section>
+
+  <section class="card">
+    <h2 class="h2">お問い合わせ</h2>
+    <p class="note">不具合のご報告、違反行為のご連絡、データの削除のご依頼は下記へお送りください。メンバーIDを添えていただけると調査が早く進みます。</p>
+    <p><a href="mailto:where.is.my.oasis1216@gmail.com">where.is.my.oasis1216@gmail.com</a></p>
   </section>
 </div>
 </main>
@@ -269,6 +280,15 @@
   <button class="tabbtn" data-v="my" type="button"><span>マイページ</span></button>
 </nav>
 
-<script src="./app.js?v=20260903a"></script>
+<!-- APIの宛先。ブラウザ（本番ドメイン）なら同一オリジン、
+     アプリ（capacitor://localhost, https://localhost）なら絶対URL。
+     app.js 側は  const API = window.MINYASE_API_BASE || '';  にする。 -->
+<script>
+  window.MINYASE_API_BASE =
+    location.hostname === 'tdtd.la-kofu.workers.dev'
+      ? ''
+      : 'https://tdtd.la-kofu.workers.dev';
+</script>
+<script src="./app.js?v=20260903b"></script>
 </body>
 </html>

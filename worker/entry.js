@@ -30,6 +30,28 @@ export default {
     const m = req.method;
 
     try {
+      /* 設定確認用。トークンの値は返さず、存在・型・文字数だけを報告する。
+         no_admin_token / unauthorized の切り分けが済んだら削除して良い */
+      if (p === '/api/admin-selftest') {
+        const t = env.ADMIN_TOKEN;
+        return json(req, {
+          ok: true,
+          env_keys: Object.keys(env).sort(),
+          admin_token: {
+            present: t !== undefined && t !== null,
+            type: typeof t,
+            length: typeof t === 'string' ? t.length : null,
+            trimmed_length: typeof t === 'string' ? t.trim().length : null,
+          },
+          bindings: {
+            DB: !!env.DB,
+            ICONS: !!env.ICONS,
+            ASSETS: !!env.ASSETS,
+            JOIN_LIMITER: !!env.JOIN_LIMITER,
+          },
+        });
+      }
+
       /* ⑦ 管理画面 API：ADMIN_TOKEN のみで認証する。
          端末IDチェックより前なのでダミー device_id は不要 */
       if (p.startsWith('/api/admin/')) {

@@ -76,7 +76,6 @@
 <!-- ============ グループ ============ -->
 <div class="view" id="view-group">
 
-  <!-- ランキング（所属中は最上段） -->
   <section class="card" id="rankBox" hidden>
     <div class="tabs" id="rankTabs">
       <button class="tab is-on" data-r="mine">自分のチーム</button>
@@ -92,7 +91,6 @@
     <p class="msg" id="rmsg"></p>
   </section>
 
-  <!-- 所属中のグループ情報 -->
   <section class="card" id="myGroupBox" hidden>
     <div class="grow">
       <h2 class="h2" id="gName">—</h2>
@@ -115,7 +113,6 @@
     <p class="msg" id="gmsg2"></p>
   </section>
 
-  <!-- 他チームの追加 -->
   <section class="card" id="watchAddBox">
     <h2 class="h2">他のチームを見る</h2>
     <p class="note">参加コードを入れると「他チーム」タブでそのチームのランキングを見られます。</p>
@@ -124,7 +121,6 @@
     </div>
   </section>
 
-  <!-- 未所属のときの参加・作成 -->
   <section class="card" id="noGroupBox" hidden>
     <h2 class="h2">グループに参加</h2>
     <p class="note">主催者からもらった8文字のコードを入れてください。</p>
@@ -236,6 +232,12 @@
     <p class="note">体重の記録、ニックネーム、グループの所属がすべて消えます。取り消せません。</p>
     <button class="danger" id="deleteAll" type="button">すべてのデータを削除する</button>
     <p class="msg" id="dmsg"></p>
+  </section>
+
+  <section class="card">
+    <h2 class="h2">プライバシー</h2>
+    <p class="note">取得する情報、体重データの共有範囲、保存・削除方法について確認できます。</p>
+    <a href="./privacy.html">プライバシーポリシーを見る</a>
   </section>
 </div>
 </main>

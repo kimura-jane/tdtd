@@ -1,0 +1,121 @@
+# みんやせ / codemagic.yaml
+#
+# 前提
+#   - リポジトリ直下の index.html / style.css / app.js / privacy.html / terms.html を
+#     www/ にコピーし、それを Capacitor の webDir として iOS アプリに同梱する。
+#   - サーバは Cloudflare Workers（https://tdtd.la-kofu.workers.dev）のまま。
+#     アプリからは絶対URLでAPIを叩く（index.html の MINYASE_API_BASE）。
+#   - Codemagic UI 側に事前登録が必要なもの
+#       Team integrations > Developer Portal : App Store Connect API キー
+#       codemagic.yaml settings > Code signing identities : 配布証明書とプロファイル
+#   - APP_STORE_APPLE_ID は App Store Connect の
+#     一般 > App情報 > Apple ID の数値。app record を先に作っておく。
+
+workflows:
+  ios-minyase:
+    name: MINYASE iOS
+    max_build_duration: 60
+    instance_type: mac_mini_m2
+
+    integrations:
+      # Codemagic UI に登録した App Store Connect API キーの名前に置き換える
+      app_store_connect: minyase-asc-key
+
+    environment:
+      node: 20
+      xcode: latest
+      cocoapods: default
+      ios_signing:
+        distribution_type: app_store
+        bundle_identifier: jp.lakofu.minyase
+      vars:
+        XCODE_WORKSPACE: "ios/App/App.xcworkspace"
+        XCODE_SCHEME: "App"
+        # App Store Connect で app record を作ったあとの Apple ID に置き換える
+        APP_STORE_APPLE_ID: 0000000000
+
+    scripts:
+      - name: 依存の取得
+        script: |
+          set -e
+          npm install
+
+      - name: 配信するWebファイルを www/ に集める
+        script: |
+          set -e
+          npm run build
+          ls -l www
+
+      - name: iOS プロジェクトを用意する
+        script: |
+          set -e
+          if [ ! -d "ios" ]; then
+            npx cap add ios
+          fi
+
+      - name: アイコンとスプラッシュを生成する
+        script: |
+          set -e
+          if [ -f "resources/icon.png" ]; then
+            npx @capacitor/assets generate --ios
+          else
+            echo "resources/icon.png がありません。既定のアイコンのままビルドします。"
+            echo "App Store 提出にはアイコンが必須なので、1024x1024 の PNG を置いてください。"
+          fi
+
+      - name: Web ファイルをネイティブ側へ同期する
+        script: |
+          set -e
+          npx cap sync ios
+
+      - name: CocoaPods
+        script: |
+          set -e
+          cd ios/App
+          pod install
+
+      - name: 署名設定を Xcode プロジェクトへ適用する
+        script: |
+          set -e
+          xcode-project use-profiles
+
+      - name: ビルド番号を採番する
+        script: |
+          set -e
+          cd "$CM_BUILD_DIR/ios/App"
+          LATEST_BUILD_NUMBER=$(app-store-connect get-latest-app-store-build-number "$APP_STORE_APPLE_ID" || true)
+          if [ -z "$LATEST_BUILD_NUMBER" ]; then
+            NEXT=$BUILD_NUMBER
+          else
+            NEXT=$((LATEST_BUILD_NUMBER + 1))
+          fi
+          echo "build number: $NEXT"
+          agvtool new-version -all "$NEXT"
+
+      - name: ipa を作る
+        script: |
+          set -e
+          cd "$CM_BUILD_DIR/ios/App"
+          xcode-project build-ipa \
+            --workspace "$CM_BUILD_DIR/$XCODE_WORKSPACE" \
+            --scheme "$XCODE_SCHEME"
+
+    artifacts:
+      - ios/App/build/ios/ipa/*.ipa
+      - /tmp/xcodebuild_logs/*.log
+      - $HOME/Library/Developer/Xcode/DerivedData/**/Build/**/*.app
+      - $HOME/Library/Developer/Xcode/DerivedData/**/Build/**/*.dSYM
+
+    publishing:
+      email:
+        recipients:
+          - where.is.my.oasis1216@gmail.com
+        notify:
+          success: true
+          failure: true
+      app_store_connect:
+        auth: integration
+        # まず TestFlight に上げて実機で確認する。
+        # 審査提出は App Store Connect の画面から手で行う。
+        submit_to_testflight: true
+        submit_to_app_store: false

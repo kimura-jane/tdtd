@@ -7,3 +7,11 @@ README.md
 **/node_modules
 **/.git
 **/.DS_Store
+package.json
+package-lock.json
+capacitor.config.json
+codemagic.yaml
+www/**
+ios/**
+android/**
+resources/**

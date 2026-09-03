@@ -81,11 +81,9 @@ export default {
         if (res) return res;
       }
     } catch (e) {
-      return json(req, {
-        ok: false,
-        error: 'server_error',
-        detail: String((e && e.message) || e),
-      }, 500);
+      // 内部の例外文はクライアントに返さない（ログにだけ残す）
+      console.error('entry_error', p, m, (e && e.stack) || e);
+      return json(req, { ok: false, error: 'server_error' }, 500);
     }
 
     /* 既存の全ルート（/api/me, /api/weights, /api/groups, /api/ranking,

@@ -5,6 +5,7 @@ const API = '';                            // 同一オリジン。アプリ化�
 const K_DEV = 'tsudatsu.device_id.v1';
 const ICON_SIZE = 256;                     // 正方形クロップ後の一辺
 const ICON_LIMIT = 280 * 1024;             // Worker 側の上限(300KB)より少し内側
+const CANCELED = 'canceled';               // 切り取りをやめたときの内部合図
 
 function deviceId() {
   let v = localStorage.getItem(K_DEV);
@@ -190,6 +191,10 @@ const el = {
   /* アイコン（index.html 未更新でも null 安全に動く） */
   iconBox: $('#iconBox'), iconFile: $('#iconFile'), iconPick: $('#iconPick'),
   iconDel: $('#iconDel'), imsg: $('#imsg'),
+
+  /* 切り取り画面（未更新なら中央固定にフォールバック） */
+  cropOv: $('#cropOv'), cropCv: $('#cropCv'), cropZoom: $('#cropZoom'),
+  cropOk: $('#cropOk'), cropCancel: $('#cropCancel'),
 };
 
 const timers = new WeakMap();
@@ -199,6 +204,11 @@ function say(node, text, ok) {
   node.className = 'msg ' + (ok ? 'ok' : 'ng');
   clearTimeout(timers.get(node));
   timers.set(node, setTimeout(() => { node.textContent = ''; node.className = 'msg'; }, 3200));
+}
+function clearMsg(node) {
+  if (!node) return;
+  clearTimeout(timers.get(node));
+  node.textContent = ''; node.className = 'msg';
 }
 
 /* ===== アイコン ===== */
@@ -222,36 +232,151 @@ async function loadImageAny(file) {
   return await loadImageEl(file);
 }
 
-/* 中央で正方形に切り、256pxへ縮小、JPEG化。処理はすべて端末側で行う */
+/* 切り取り画面。決定すると元画像上の切り取り範囲を返す */
+function cropDialog(img) {
+  return new Promise((resolve, reject) => {
+    const ov = el.cropOv, cv = el.cropCv, zoom = el.cropZoom;
+    const ok = el.cropOk, cancel = el.cropCancel;
+
+    const S = Math.max(200, Math.min(320, window.innerWidth - 96));
+    const dpr = window.devicePixelRatio || 1;
+    cv.style.width = S + 'px'; cv.style.height = S + 'px';
+    cv.width = Math.round(S * dpr); cv.height = Math.round(S * dpr);
+    const ctx = cv.getContext('2d');
+
+    const iw = img.width, ih = img.height;
+    const base = Math.max(S / iw, S / ih);   // 円が必ず埋まる最小倍率
+    let z = 1, tx = 0, ty = 0;
+
+    const clamp = () => {
+      const dw = iw * base * z, dh = ih * base * z;
+      tx = Math.min(0, Math.max(S - dw, tx));
+      ty = Math.min(0, Math.max(S - dh, ty));
+    };
+    const draw = () => {
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, S, S);
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
+      ctx.drawImage(img, tx, ty, iw * base * z, ih * base * z);
+    };
+    const setZoom = (nz, ax, ay) => {
+      nz = Math.min(4, Math.max(1, nz));
+      const k = nz / z;
+      tx = ax - (ax - tx) * k;
+      ty = ay - (ay - ty) * k;
+      z = nz; clamp(); draw();
+      zoom.value = String(Math.round(z * 100));
+    };
+
+    tx = (S - iw * base) / 2; ty = (S - ih * base) / 2;
+    clamp(); draw(); zoom.value = '100';
+
+    const pts = new Map();
+    let lastDist = 0;
+
+    const onDown = e => {
+      cv.setPointerCapture(e.pointerId);
+      pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      lastDist = 0;
+    };
+    const onMove = e => {
+      if (!pts.has(e.pointerId)) return;
+      e.preventDefault();
+      const prev = pts.get(e.pointerId);
+      pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      const arr = [...pts.values()];
+      if (arr.length >= 2) {
+        const d = Math.hypot(arr[0].x - arr[1].x, arr[0].y - arr[1].y);
+        const r = cv.getBoundingClientRect();
+        const mx = (arr[0].x + arr[1].x) / 2 - r.left;
+        const my = (arr[0].y + arr[1].y) / 2 - r.top;
+        if (lastDist) setZoom(z * d / lastDist, mx, my);
+        lastDist = d;
+      } else {
+        tx += e.clientX - prev.x;
+        ty += e.clientY - prev.y;
+        clamp(); draw();
+      }
+    };
+    const onUp = e => { pts.delete(e.pointerId); lastDist = 0; };
+    const onWheel = e => {
+      e.preventDefault();
+      const r = cv.getBoundingClientRect();
+      setZoom(z * (e.deltaY < 0 ? 1.12 : 1 / 1.12), e.clientX - r.left, e.clientY - r.top);
+    };
+    const onSlider = () => setZoom(Number(zoom.value) / 100, S / 2, S / 2);
+
+    cv.addEventListener('pointerdown', onDown);
+    cv.addEventListener('pointermove', onMove, { passive: false });
+    cv.addEventListener('pointerup', onUp);
+    cv.addEventListener('pointercancel', onUp);
+    cv.addEventListener('wheel', onWheel, { passive: false });
+    zoom.addEventListener('input', onSlider);
+
+    const close = () => {
+      cv.removeEventListener('pointerdown', onDown);
+      cv.removeEventListener('pointermove', onMove);
+      cv.removeEventListener('pointerup', onUp);
+      cv.removeEventListener('pointercancel', onUp);
+      cv.removeEventListener('wheel', onWheel);
+      zoom.removeEventListener('input', onSlider);
+      ok.onclick = null; cancel.onclick = null;
+      ov.hidden = true;
+      document.body.style.overflow = '';
+    };
+
+    ok.onclick = () => {
+      const scale = base * z;
+      const rect = { sx: -tx / scale, sy: -ty / scale, sw: S / scale, sh: S / scale };
+      close(); resolve(rect);
+    };
+    cancel.onclick = () => { close(); reject(new Error(CANCELED)); };
+
+    ov.hidden = false;
+    document.body.style.overflow = 'hidden';
+  });
+}
+
+/* 切り取り範囲を256pxへ縮小してJPEG化。処理はすべて端末側で行う */
 async function fileToIconBlob(file) {
   if (!file) throw new Error('bad_image');
   if (file.type && !/^image\//.test(file.type)) throw new Error('not_image');
 
   const img = await loadImageAny(file);
-  const iw = img.width, ih = img.height;
-  if (!iw || !ih) throw new Error('bad_image');
+  try {
+    const iw = img.width, ih = img.height;
+    if (!iw || !ih) throw new Error('bad_image');
 
-  const s = Math.min(iw, ih);
-  const sx = Math.round((iw - s) / 2), sy = Math.round((ih - s) / 2);
+    let rect;
+    if (el.cropOv && el.cropCv && el.cropZoom && el.cropOk && el.cropCancel) {
+      rect = await cropDialog(img);
+    } else {
+      const s = Math.min(iw, ih);           // 切り取り画面が無い場合は中央固定
+      rect = { sx: (iw - s) / 2, sy: (ih - s) / 2, sw: s, sh: s };
+    }
 
-  const cv = document.createElement('canvas');
-  cv.width = ICON_SIZE; cv.height = ICON_SIZE;
-  const ctx = cv.getContext('2d');
-  ctx.fillStyle = '#ffffff';                 // 透過PNGが黒くならないように
-  ctx.fillRect(0, 0, ICON_SIZE, ICON_SIZE);
-  ctx.imageSmoothingEnabled = true;
-  ctx.imageSmoothingQuality = 'high';
-  ctx.drawImage(img, sx, sy, s, s, 0, 0, ICON_SIZE, ICON_SIZE);
-  if (img.close) img.close();
+    const cv = document.createElement('canvas');
+    cv.width = ICON_SIZE; cv.height = ICON_SIZE;
+    const ctx = cv.getContext('2d');
+    ctx.fillStyle = '#ffffff';                 // 透過PNGが黒くならないように
+    ctx.fillRect(0, 0, ICON_SIZE, ICON_SIZE);
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(img, rect.sx, rect.sy, rect.sw, rect.sh, 0, 0, ICON_SIZE, ICON_SIZE);
 
-  let q = 0.85;
-  let blob = await canvasToBlob(cv, q);
-  while (blob && blob.size > ICON_LIMIT && q > 0.4) {
-    q -= 0.15;
-    blob = await canvasToBlob(cv, q);
+    let q = 0.85;
+    let blob = await canvasToBlob(cv, q);
+    while (blob && blob.size > ICON_LIMIT && q > 0.4) {
+      q -= 0.15;
+      blob = await canvasToBlob(cv, q);
+    }
+    if (!blob) throw new Error('bad_image');
+    return blob;
+  } finally {
+    if (img.close) img.close();
   }
-  if (!blob) throw new Error('bad_image');
-  return blob;
 }
 
 function initialOf(row) {
@@ -292,8 +417,8 @@ function renderIcon() {
 async function uploadIcon(file) {
   if (!cache.ready) { say(el.imsg, 'サーバーに接続中です', false); return; }
   try {
-    say(el.imsg, '画像を処理しています…', true);
     const blob = await fileToIconBlob(file);
+    say(el.imsg, 'アップロード中…', true);
     const d = await apiBlob('/api/icon', blob);
     if (cache.me) {
       cache.me.icon_ver = d.icon_ver;
@@ -303,7 +428,8 @@ async function uploadIcon(file) {
     if (cache.group || state.rank === 'rival') loadRanking();
     say(el.imsg, 'アイコンを設定しました', true);
   } catch (e) {
-    say(el.imsg, emsg(e), false);
+    if (e && e.message === CANCELED) clearMsg(el.imsg);
+    else say(el.imsg, emsg(e), false);
   }
 }
 

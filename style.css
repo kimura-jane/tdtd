@@ -67,34 +67,35 @@ body>*{position:relative;z-index:1}
 ::selection{background:var(--accent);color:#fff}
 
 /* ---------- ヘッダー ---------- */
-/* 和文を大きく、その下に欧文とタグラインを小さく置く親子構成 */
-.hd{padding:34px 22px 0}
+/* 中央一本軸。直下のカード（.today）が中央揃えなので軸を合わせる。
+   欧文の小見出し → 和文を大きく → タグラインの順に積む */
+.hd{padding:30px 22px 0; text-align:center}
 
-.brand{
-  margin:0;
-  font-family:'Zen Kaku Gothic New',-apple-system,"Hiragino Sans","Noto Sans JP",sans-serif;
-  font-size:clamp(40px,12vw,52px);
-  font-weight:900;
-  letter-spacing:-.02em;
-  line-height:1.04;
-}
 .brand-en{
-  margin:11px 0 0;
+  margin:0;
   font-family:'Syne','Inter',sans-serif;
-  font-size:10.5px; font-weight:700;
-  letter-spacing:.3em;
+  font-size:10px; font-weight:700;
+  letter-spacing:.34em;
   color:var(--faint);
 }
-.tagline{
-  margin:5px 0 0;
-  font-size:12.5px; font-weight:500;
+.brand{
+  margin:11px 0 0;
+  font-family:'Zen Kaku Gothic New',-apple-system,"Hiragino Sans","Noto Sans JP",sans-serif;
+  font-size:clamp(30px,8.6vw,38px);
+  font-weight:700;
   letter-spacing:.06em;
+  line-height:1.15;
+}
+.tagline{
+  margin:7px 0 0;
+  font-size:12px; font-weight:500;
+  letter-spacing:.08em;
   color:var(--sub);
 }
 /* 現在のビュー名。app.js が #hdTitle に書き込む */
 .viewname{
-  margin-top:22px;
-  padding-top:13px;
+  margin-top:24px;
+  padding-top:12px;
   border-top:1px solid var(--line);
   font-size:10px; font-weight:800;
   letter-spacing:.18em;

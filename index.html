@@ -153,7 +153,7 @@
       <div class="iconbtns">
         <button class="ghost sm" id="iconPick" type="button">写真を選ぶ</button>
         <button class="danger sm" id="iconDel" type="button" hidden>削除</button>
-        <p class="note">正方形に切り取って256pxに縮小してから保存します。</p>
+        <p class="note">選んだあとに位置と大きさを決められます。</p>
       </div>
     </div>
     <input class="filehide" type="file" id="iconFile" accept="image/*">
@@ -226,6 +226,27 @@
   </section>
 </div>
 </main>
+
+<!-- ============ アイコンの切り取り ============ -->
+<div class="ov" id="cropOv" hidden>
+  <div class="sheet">
+    <h2 class="h2">位置を決める</h2>
+    <p class="note">ドラッグで位置、スライダーかピンチで大きさを調整します。</p>
+    <div class="cropstage">
+      <canvas id="cropCv"></canvas>
+      <div class="cropmask"></div>
+    </div>
+    <div class="croprow">
+      <span class="zi">−</span>
+      <input type="range" id="cropZoom" min="100" max="400" step="1" value="100">
+      <span class="zi">＋</span>
+    </div>
+    <div class="past-row">
+      <button class="primary sm" id="cropOk" type="button">これにする</button>
+      <button class="ghost sm" id="cropCancel" type="button">やめる</button>
+    </div>
+  </div>
+</div>
 
 <nav class="tabbar">
   <button class="tabbtn is-on" data-v="log" type="button"><span>記録</span></button>

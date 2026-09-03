@@ -21,6 +21,7 @@ export const ALLOWED = [
   'https://kimura-jane.github.io',
   'capacitor://localhost',
   'ionic://localhost',
+  'https://localhost',        // androidScheme:"https" のときの WebView オリジン
   'http://localhost',
   'http://localhost:8788',
 ];
@@ -102,6 +103,36 @@ export function normKg(raw) {
   return r;
 }
 
+/* ---------- 投稿内容フィルタ（Guideline 1.2）----------
+   app.js 側と同じ判定をサーバでも行う。
+   クライアントを通さず API を直接叩かれた場合の穴をふさぐのが目的。
+   語を足したいときは NG_WORDS に追記する（app.js 側とそろえる）。 */
+const NG_WORDS = [
+  '死ね', 'しね', '殺す', 'ころす', 'ぶっ殺', '自殺しろ',
+  'レイプ', '強姦', 'セックス', '売春', '風俗', '援交', '裏垢',
+  'ちんこ', 'ちんぽ', 'まんこ', '射精', '中出し', 'ヤリマン', 'ヤリチン',
+  'キチガイ', 'きちがい', '気違い', '池沼', 'カタワ', '知恵遅れ',
+  'ゴキブリ以下', '消えろ', 'うんこ野郎',
+  'fuck', 'shit', 'bitch', 'cunt', 'dick', 'pussy', 'porn', 'rape',
+  'kill you', 'nigger', 'faggot',
+];
+
+const RE_CONTACT =
+  /(https?:\/\/|www\.|[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}|line\s*id|ラインid|カカオ|@[a-z0-9_]{4,}|\d{10,})/i;
+
+/* 表示名として使えない文字列なら true */
+export function isBanned(raw) {
+  const s = String(raw || '').normalize('NFKC').toLowerCase();
+  if (!s) return false;
+  if (RE_CONTACT.test(s)) return true;
+  /* 記号・空白・区切りを抜いて素通りを防ぐ */
+  const flat = s.replace(/[\s\u3000!-\/:-@\[-`{-~。、・゛゜「」…]/g, '');
+  for (const w of NG_WORDS) {
+    if (flat.includes(w.replace(/\s/g, ''))) return true;
+  }
+  return false;
+}
+
 /* ---------- 文字列 ---------- */
 function stripCtrl(s) {
   return String(s).replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, '');
@@ -111,17 +142,23 @@ export function normNickname(raw) {
   if (raw === null || raw === undefined) return null;
   const s = stripCtrl(raw).replace(/\s+/g, ' ').trim();
   if (!s) return null;
-  return [...s].slice(0, NICK_MAX).join('');
+  const cut = [...s].slice(0, NICK_MAX).join('');
+  if (isBanned(cut)) return null;
+  return cut;
 }
 
 export function normGroupName(raw) {
   if (raw === null || raw === undefined) return null;
   const s = stripCtrl(raw).replace(/\s+/g, ' ').trim();
   if (!s) return null;
-  return [...s].slice(0, NAME_MAX).join('');
+  const cut = [...s].slice(0, NAME_MAX).join('');
+  if (isBanned(cut)) return null;
+  return cut;
 }
 
-/* 通報理由は最大200文字。改行は残す（ニックネーム用関数を通さない） */
+/* 通報理由は最大200文字。改行は残す（ニックネーム用関数を通さない）。
+   不適切なニックネームの引用や、状況説明としてのURLを弾いてしまうと
+   通報そのものができなくなるため、ここには NG 判定をかけない。 */
 export function normReason(raw) {
   if (raw === null || raw === undefined) return null;
   const s = stripCtrl(raw).replace(/[ \t]+/g, ' ').replace(/\n{3,}/g, '\n\n').trim();

@@ -13,13 +13,38 @@ import { json, bad, preflight } from './lib.js';
    管理系と新規の会員系ルートだけを先に処理して、
    それ以外は従来どおり index.js の default export に丸投げする。
 
-   wrangler.toml の main = "worker/entry.js" に変更すること。
+   管理トークンの取得順
+     1. env.ADMIN_TOKEN（ダッシュボードの Settings > 変数とシークレット）
+     2. D1 の app_config テーブル k='admin_token'
+   2 は GitHub 連携のデプロイでシークレットが消える環境向けの逃げ道。
    ============================================================ */
 
 const DEVICE_ID_RE = /^[A-Za-z0-9_-]{8,64}$/;      // index.js の判定と同一
 
 // admin.js の memberRoute が担当するパス（それ以外は index.js のまま）
 const MEMBER_PATHS = ['/api/group/day', '/api/export', '/api/import'];
+
+// 同一 isolate 内でのみ再利用する。デプロイや isolate 入れ替えで自然に消える
+let tokCache = null;
+
+async function adminToken(env) {
+  const fromEnv = env.ADMIN_TOKEN;
+  if (typeof fromEnv === 'string' && fromEnv.trim()) {
+    return { token: fromEnv.trim(), source: 'env' };
+  }
+  if (tokCache) return tokCache;
+  try {
+    const r = await env.DB
+      .prepare("SELECT v FROM app_config WHERE k='admin_token'")
+      .first();
+    const v = r && typeof r.v === 'string' ? r.v.trim() : '';
+    if (v) {
+      tokCache = { token: v, source: 'd1' };
+      return tokCache;
+    }
+  } catch { /* テーブル未作成 → env 未設定として扱う */ }
+  return { token: '', source: 'none' };
+}
 
 export default {
   async fetch(req, env, ctx) {
@@ -30,24 +55,21 @@ export default {
     const m = req.method;
 
     try {
-      /* 設定確認用。トークンの値は返さず、存在・型・文字数だけを報告する。
-         no_admin_token / unauthorized の切り分けが済んだら削除して良い */
+      /* 設定確認用。トークンの値は返さず、存在・型・文字数だけを報告する */
       if (p === '/api/admin-selftest') {
         const t = env.ADMIN_TOKEN;
+        const a = await adminToken(env);
         return json(req, {
           ok: true,
           env_keys: Object.keys(env).sort(),
-          admin_token: {
+          admin_token_env: {
             present: t !== undefined && t !== null,
             type: typeof t,
-            length: typeof t === 'string' ? t.length : null,
             trimmed_length: typeof t === 'string' ? t.trim().length : null,
           },
-          bindings: {
-            DB: !!env.DB,
-            ICONS: !!env.ICONS,
-            ASSETS: !!env.ASSETS,
-            JOIN_LIMITER: !!env.JOIN_LIMITER,
+          admin_token_effective: {
+            source: a.source,
+            length: a.token.length,
           },
         });
       }
@@ -55,7 +77,10 @@ export default {
       /* ⑦ 管理画面 API：ADMIN_TOKEN のみで認証する。
          端末IDチェックより前なのでダミー device_id は不要 */
       if (p.startsWith('/api/admin/')) {
-        return await adminRoute(req, env, url, p, m);
+        const a = await adminToken(env);
+        // admin.js は env.ADMIN_TOKEN を見るので、D1 由来のときは差し込んで渡す
+        const e2 = a.source === 'env' ? env : { ...env, ADMIN_TOKEN: a.token };
+        return await adminRoute(req, e2, url, p, m);
       }
 
       /* ⑤⑥ 一般ユーザー向け：index.js と同じ端末チェックを通してから渡す */

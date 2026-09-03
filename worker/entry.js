@@ -21,7 +21,7 @@ import { json, bad, preflight } from './lib.js';
    2 はデプロイでシークレットが消える環境向けの予備。現在は 1 で稼働中。
    ============================================================ */
 
-const DEVICE_ID_RE = /^[A-Za-z0-9_-]{8,64}$/;      // index.js の判定と同一
+const DEVICE_ID_RE = /^[A-Za-z0-9_-]{8,64}$/;
 
 // admin.js の memberRoute が担当するパス（それ以外は index.js のまま）
 const MEMBER_PATHS = ['/api/group/day', '/api/export', '/api/import'];
@@ -78,7 +78,7 @@ export default {
         if (Number(dev.banned) === 1) return bad(req, 'banned', 403);
 
         const res = await memberRoute(req, env, dev, url, p, m);
-        if (res) return res;      // null なら下の既存ルートへ落ちる
+        if (res) return res;
       }
     } catch (e) {
       return json(req, {

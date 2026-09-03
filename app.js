@@ -173,6 +173,7 @@ const el = {
   chart: $('#chart'), rangeLabel: $('#rangeLabel'), summary: $('#summary'),
   hist: $('#hist'), tabs: $('#periodTabs'),
 
+  viewGroup: $('#view-group'),
   noGroupBox: $('#noGroupBox'), joinCode: $('#joinCode'),
   newGroupName: $('#newGroupName'), newStartYmd: $('#newStartYmd'), newShowWeight: $('#newShowWeight'),
   gmsg: $('#gmsg'),
@@ -659,6 +660,8 @@ function renderGroup() {
   el.noGroupBox.hidden = !!g;
   el.myGroupBox.hidden = !g;
   el.rankBox.hidden = false;          // タブごとに空状態を出すので常に表示
+  /* 未所属なら参加・作成を最上段、所属中ならランキングを最上段にする */
+  el.viewGroup.classList.toggle('no-group', !g);
 
   if (!g) return;
 
@@ -851,7 +854,7 @@ async function loadRanking() {
   } else if (state.rank === 'watch') {
     if (!state.watchId) {
       el.rankHead.textContent = '';
-      el.rankList.innerHTML = '<li class="empty">コードを追加すると他チームを見られます</li>';
+      el.rankList.innerHTML = '<li class="empty">下の「チームを追加」からコードを登録してください</li>';
       return;
     }
     path = '/api/ranking?scope=watch&group_id=' + encodeURIComponent(state.watchId);
@@ -880,6 +883,27 @@ async function loadRanking() {
     el.rankHead.textContent = '';
     el.rankList.innerHTML = `<li class="empty">${emsg(e)}</li>`;
   }
+}
+
+/* 他チームの追加。ランキング内の＋追加と、下のカードの両方から使う */
+async function addWatchByPrompt(msgNode) {
+  const code = prompt('見たいチームの参加コード（8文字）', '');
+  if (code === null || !code.trim()) return;
+  try {
+    const d = await api('/api/watching', { method: 'POST', body: { code: code.trim() } });
+    cache.watching = d.watching || [];
+    const want = rawCode(code);
+    const hit = cache.watching.find(w => w.group_id === want);
+    state.watchId = hit ? hit.group_id
+      : (cache.watching.length ? cache.watching[cache.watching.length - 1].group_id : null);
+    renderWatchSel();
+    /* 追加したチームをすぐ見せる */
+    state.rank = 'watch';
+    [...el.rankTabs.children].forEach(t => t.classList.toggle('is-on', t.dataset.r === 'watch'));
+    el.watchNav.hidden = false;
+    loadRanking();
+    say(msgNode || el.rmsg, 'チームを追加しました', true);
+  } catch (e) { say(msgNode || el.rmsg, emsg(e), false); }
 }
 
 /* ===== マイページ描画 ===== */
@@ -981,7 +1005,7 @@ function init() {
       await api('/api/groups/join', { method: 'POST', body: { code } });
       el.joinCode.value = '';
       await loadMe(); loadRanking();
-      say(el.gmsg, '参加しました', true);
+      say(el.gmsg2, '参加しました', true);
     } catch (e) { say(el.gmsg, emsg(e), false); }
   };
 
@@ -1069,19 +1093,9 @@ function init() {
 
   el.watchSel.onchange = () => { state.watchId = el.watchSel.value; loadRanking(); };
 
-  $('#addWatch').onclick = async () => {
-    const code = prompt('見たいチームの参加コード（8文字）', '');
-    if (code === null || !code.trim()) return;
-    try {
-      const d = await api('/api/watching', { method: 'POST', body: { code: code.trim() } });
-      cache.watching = d.watching || [];
-      const want = rawCode(code);
-      const hit = cache.watching.find(w => w.group_id === want);
-      state.watchId = hit ? hit.group_id : (cache.watching.length ? cache.watching[cache.watching.length - 1].group_id : null);
-      renderWatchSel();
-      loadRanking();
-    } catch (e) { say(el.rmsg, emsg(e), false); }
-  };
+  $('#addWatch').onclick = () => addWatchByPrompt(el.rmsg);
+  const addWatch2 = $('#addWatch2');
+  if (addWatch2) addWatch2.onclick = () => addWatchByPrompt(el.rmsg);
 
   /* マイページ：アイコン（index.html 未更新なら何もしない） */
   if (el.iconPick && el.iconFile) {

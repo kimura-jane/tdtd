@@ -755,4 +755,269 @@ function finishRows(entries) {
 
 async function blockedSet(env, dev) {
   const rs = await env.DB.prepare('SELECT blocked_member_id FROM blocks WHERE device_id=?')
-    .bind(dev.
+    .bind(dev.device_id).all();
+  return new Set((rs.results || []).map(r => r.blocked_member_id));
+}
+
+async function rivalSet(env, dev) {
+  const rs = await env.DB.prepare('SELECT rival_member_id FROM rivals WHERE device_id=?')
+    .bind(dev.device_id).all();
+  return new Set((rs.results || []).map(r => r.rival_member_id));
+}
+
+/* ---------- ランキング本体 ---------- */
+async function ranking(req, env, dev, url) {
+  const scope = url.searchParams.get('scope') || 'mine';
+  const blocked = await blockedSet(env, dev);
+  const rivals = await rivalSet(env, dev);
+  const todayDay = ymdToDay(todayYmdJST());
+
+  if (scope === 'rival') return await rivalRanking(req, env, dev, blocked, rivals, todayDay);
+
+  let gid = dev.group_id;
+  if (scope === 'watch') {
+    gid = normalizeCode(url.searchParams.get('group_id') || '');
+    if (!gid) return bad(req, 'bad_code');
+    if (gid !== dev.group_id) {
+      const w = await env.DB.prepare('SELECT group_id FROM watching WHERE device_id=? AND group_id=?')
+        .bind(dev.device_id, gid).first();
+      if (!w) return bad(req, 'not_watching', 403);
+    }
+  }
+  if (!gid) return json(req, { ok: true, scope, group: null, rows: [], summary: null });
+
+  const g = await env.DB.prepare('SELECT * FROM groups WHERE group_id=?').bind(gid).first();
+  if (!g) return bad(req, 'group_not_found', 404);
+
+  const ms = await env.DB.prepare(
+    'SELECT device_id,member_id,nickname,icon_ver FROM devices WHERE group_id=? AND banned=0'
+  ).bind(gid).all();
+  const members = ms.results || [];
+
+  const stats = await lossStats(env, members.map(x => x.device_id), g.start_ymd);
+  const showWeight = Number(g.show_weight) === 1;
+
+  const entries = members.map(mrow => buildEntry(
+    mrow,
+    stats.get(mrow.device_id),
+    todayDay,
+    showWeight || mrow.member_id === dev.member_id,   // 非公開グループでは体重を出さない
+    mrow.member_id === dev.member_id,
+    rivals.has(mrow.member_id)
+  ));
+
+  const built = finishRows(entries);   // 集計はブロック前の全員で行う（誰が見ても同じ数字）
+  const rows = built.rows.filter(e => e.is_self || !blocked.has(e.member_id));
+
+  return json(req, {
+    ok: true,
+    scope,
+    group: {
+      group_id: g.group_id,
+      name: g.name,
+      start_ymd: g.start_ymd,
+      show_weight: showWeight,
+      is_mine: gid === dev.group_id,
+      is_owner: gid === dev.group_id && isOwnerOf(g, dev),
+    },
+    summary: built.summary,
+    rows,
+  });
+}
+
+/* ---------- ライバル：自分＋登録したライバル ---------- */
+async function rivalRanking(req, env, dev, blocked, rivals, todayDay) {
+  const ids = [dev.member_id, ...[...rivals].filter(x => x !== dev.member_id)];
+  const ph = ids.map(() => '?').join(',');
+  const rs = await env.DB.prepare(
+    `SELECT device_id,member_id,nickname,icon_ver,group_id FROM devices
+      WHERE member_id IN (${ph}) AND banned=0`
+  ).bind(...ids).all();
+  const people = rs.results || [];
+
+  // 各自の所属グループのスタート日を基準にそろえる
+  const gids = [...new Set(people.map(x => x.group_id).filter(Boolean))];
+  const groups = new Map();
+  if (gids.length) {
+    const gph = gids.map(() => '?').join(',');
+    const grs = await env.DB.prepare(
+      `SELECT group_id,name,start_ymd,show_weight FROM groups WHERE group_id IN (${gph})`
+    ).bind(...gids).all();
+    for (const g of (grs.results || [])) groups.set(g.group_id, g);
+  }
+
+  // スタート日ごとにまとめて集計
+  const byStart = new Map();
+  for (const pr of people) {
+    const g = pr.group_id ? groups.get(pr.group_id) : null;
+    const start = (g && g.start_ymd) ? g.start_ymd : '1900-01-01';  // 未所属は全期間
+    if (!byStart.has(start)) byStart.set(start, []);
+    byStart.get(start).push(pr);
+  }
+  const stats = new Map();
+  for (const [start, list] of byStart) {
+    const s = await lossStats(env, list.map(x => x.device_id), start);
+    for (const [k, v] of s) stats.set(k, v);
+  }
+
+  const entries = people.map(pr => {
+    const g = pr.group_id ? groups.get(pr.group_id) : null;
+    const isSelf = pr.member_id === dev.member_id;
+    // 非公開グループ／未所属の体重は絶対に返さない（ライバル経由の漏洩を封じる）
+    const showKg = isSelf || !!(g && Number(g.show_weight) === 1);
+    const e = buildEntry(pr, stats.get(pr.device_id), todayDay, showKg, isSelf, !isSelf);
+    e.group_name = g ? g.name : null;
+    return e;
+  });
+
+  const built = finishRows(entries);
+  const rows = built.rows.filter(e => e.is_self || !blocked.has(e.member_id));
+
+  return json(req, { ok: true, scope: 'rival', group: null, summary: built.summary, rows });
+}
+
+/* ============================================================
+   購読 / ライバル / ブロック / 通報
+   ============================================================ */
+async function listWatching(req, env, dev) {
+  const rs = await env.DB.prepare(
+    `SELECT w.group_id, g.name, g.start_ymd, g.show_weight,
+            (SELECT COUNT(*) FROM devices d WHERE d.group_id=w.group_id AND d.banned=0) AS n
+       FROM watching w JOIN groups g ON g.group_id=w.group_id
+      WHERE w.device_id=? ORDER BY w.created_at ASC`
+  ).bind(dev.device_id).all();
+
+  return json(req, {
+    ok: true,
+    watching: (rs.results || []).map(x => ({
+      group_id: x.group_id,
+      code: fmtCode(x.group_id),
+      name: x.name,
+      start_ymd: x.start_ymd,
+      show_weight: Number(x.show_weight) === 1,
+      members: Number(x.n || 0),
+    })),
+  });
+}
+
+async function addWatching(req, env, dev) {
+  const b = await readBody(req);
+  const gid = normalizeCode(b.code || b.group_id);
+  if (!gid) return bad(req, 'bad_code');
+  if (gid === dev.group_id) return bad(req, 'own_group');
+
+  const g = await env.DB.prepare('SELECT group_id FROM groups WHERE group_id=?').bind(gid).first();
+  if (!g) return bad(req, 'group_not_found', 404);
+
+  await env.DB.prepare('INSERT OR IGNORE INTO watching (device_id,group_id,created_at) VALUES (?,?,?)')
+    .bind(dev.device_id, gid, Date.now()).run();
+  return await listWatching(req, env, dev);
+}
+
+async function delWatching(req, env, dev, raw) {
+  const gid = normalizeCode(raw);
+  if (!gid) return bad(req, 'bad_code');
+  await env.DB.prepare('DELETE FROM watching WHERE device_id=? AND group_id=?')
+    .bind(dev.device_id, gid).run();
+  return await listWatching(req, env, dev);
+}
+
+async function listRivals(req, env, dev) {
+  const rs = await env.DB.prepare(
+    `SELECT r.rival_member_id AS member_id, d.nickname, d.icon_ver
+       FROM rivals r LEFT JOIN devices d ON d.member_id=r.rival_member_id
+      WHERE r.device_id=? ORDER BY r.created_at ASC`
+  ).bind(dev.device_id).all();
+
+  return json(req, {
+    ok: true,
+    rivals: (rs.results || []).map(x => ({
+      member_id: x.member_id,
+      nickname: x.nickname || null,
+      icon_ver: Number(x.icon_ver || 0),
+      icon_url: iconUrlOf(x.member_id, x.icon_ver),
+    })),
+  });
+}
+
+async function addRival(req, env, dev) {
+  const b = await readBody(req);
+  const mid = String(b.member_id || '').trim();
+  if (!mid) return bad(req, 'bad_member_id');
+  if (mid === dev.member_id) return bad(req, 'self_not_allowed');
+
+  const t = await env.DB.prepare('SELECT member_id FROM devices WHERE member_id=? AND banned=0')
+    .bind(mid).first();
+  if (!t) return bad(req, 'member_not_found', 404);
+
+  await env.DB.prepare('INSERT OR IGNORE INTO rivals (device_id,rival_member_id,created_at) VALUES (?,?,?)')
+    .bind(dev.device_id, mid, Date.now()).run();
+  return await listRivals(req, env, dev);
+}
+
+async function delRival(req, env, dev, mid) {
+  const id = String(mid || '').trim();
+  if (!id) return bad(req, 'bad_member_id');
+  await env.DB.prepare('DELETE FROM rivals WHERE device_id=? AND rival_member_id=?')
+    .bind(dev.device_id, id).run();
+  return await listRivals(req, env, dev);
+}
+
+async function listBlocks(req, env, dev) {
+  const rs = await env.DB.prepare(
+    `SELECT b.blocked_member_id AS member_id, d.nickname, d.icon_ver
+       FROM blocks b LEFT JOIN devices d ON d.member_id=b.blocked_member_id
+      WHERE b.device_id=? ORDER BY b.created_at DESC`
+  ).bind(dev.device_id).all();
+
+  return json(req, {
+    ok: true,
+    blocks: (rs.results || []).map(x => ({
+      member_id: x.member_id,
+      nickname: x.nickname || null,
+      icon_ver: Number(x.icon_ver || 0),
+      icon_url: iconUrlOf(x.member_id, x.icon_ver),
+    })),
+  });
+}
+
+async function addBlock(req, env, dev) {
+  const b = await readBody(req);
+  const mid = String(b.member_id || '').trim();
+  if (!mid) return bad(req, 'bad_member_id');
+  if (mid === dev.member_id) return bad(req, 'self_not_allowed');
+
+  await env.DB.batch([
+    env.DB.prepare('INSERT OR IGNORE INTO blocks (device_id,blocked_member_id,created_at) VALUES (?,?,?)')
+      .bind(dev.device_id, mid, Date.now()),
+    env.DB.prepare('DELETE FROM rivals WHERE device_id=? AND rival_member_id=?').bind(dev.device_id, mid),
+  ]);
+  return await listBlocks(req, env, dev);
+}
+
+async function delBlock(req, env, dev, mid) {
+  const id = String(mid || '').trim();
+  if (!id) return bad(req, 'bad_member_id');
+  await env.DB.prepare('DELETE FROM blocks WHERE device_id=? AND blocked_member_id=?')
+    .bind(dev.device_id, id).run();
+  return await listBlocks(req, env, dev);
+}
+
+async function addReport(req, env, dev) {
+  if (!await rateOk(env, 'report:' + dev.device_id)) return bad(req, 'rate_limited', 429);
+
+  const b = await readBody(req);
+  const target = String(b.target_id || b.member_id || '').trim();
+  if (!target) return bad(req, 'bad_member_id');
+  if (target === dev.member_id) return bad(req, 'self_not_allowed');
+
+  const reason = normReason(b.reason);        // 通報専用：最大200文字
+  if (!reason) return bad(req, 'bad_reason');
+
+  const ymd = isYmd(b.ymd) ? b.ymd : todayYmdJST();
+  await env.DB.prepare(
+    'INSERT INTO reports (reporter_id,target_id,ymd,reason,created_at,handled) VALUES (?,?,?,?,?,0)'
+  ).bind(dev.member_id, target, ymd, reason, Date.now()).run();
+
+  return json(req, { ok: true, reported: true });
+}

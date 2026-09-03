@@ -3,6 +3,10 @@ main = "worker/entry.js"
 compatibility_date = "2026-09-02"
 workers_dev = true
 
+# GitHub 連携のデプロイ（npx wrangler deploy）で
+# ダッシュボード側の変数・シークレットが消えるのを防ぐ
+keep_vars = true
+
 [assets]
 directory = "."
 binding = "ASSETS"

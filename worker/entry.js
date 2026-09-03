@@ -13,10 +13,12 @@ import { json, bad, preflight } from './lib.js';
    管理系と新規の会員系ルートだけを先に処理して、
    それ以外は従来どおり index.js の default export に丸投げする。
 
+   wrangler.toml の main = "worker/entry.js"
+
    管理トークンの取得順
      1. env.ADMIN_TOKEN（ダッシュボードの Settings > 変数とシークレット）
      2. D1 の app_config テーブル k='admin_token'
-   2 は GitHub 連携のデプロイでシークレットが消える環境向けの逃げ道。
+   2 はデプロイでシークレットが消える環境向けの予備。現在は 1 で稼働中。
    ============================================================ */
 
 const DEVICE_ID_RE = /^[A-Za-z0-9_-]{8,64}$/;      // index.js の判定と同一
@@ -42,7 +44,7 @@ async function adminToken(env) {
       tokCache = { token: v, source: 'd1' };
       return tokCache;
     }
-  } catch { /* テーブル未作成 → env 未設定として扱う */ }
+  } catch { /* テーブル未作成 → 未設定として扱う */ }
   return { token: '', source: 'none' };
 }
 
@@ -55,25 +57,6 @@ export default {
     const m = req.method;
 
     try {
-      /* 設定確認用。トークンの値は返さず、存在・型・文字数だけを報告する */
-      if (p === '/api/admin-selftest') {
-        const t = env.ADMIN_TOKEN;
-        const a = await adminToken(env);
-        return json(req, {
-          ok: true,
-          env_keys: Object.keys(env).sort(),
-          admin_token_env: {
-            present: t !== undefined && t !== null,
-            type: typeof t,
-            trimmed_length: typeof t === 'string' ? t.trim().length : null,
-          },
-          admin_token_effective: {
-            source: a.source,
-            length: a.token.length,
-          },
-        });
-      }
-
       /* ⑦ 管理画面 API：ADMIN_TOKEN のみで認証する。
          端末IDチェックより前なのでダミー device_id は不要 */
       if (p.startsWith('/api/admin/')) {

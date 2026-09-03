@@ -1,0 +1,15 @@
+{
+  "appId": "jp.lakofu.minyase",
+  "appName": "みんやせ",
+  "webDir": "www",
+  "ios": {
+    "contentInset": "always",
+    "limitsNavigationsToAppBoundDomains": false
+  },
+  "server": {
+    "androidScheme": "https",
+    "allowNavigation": [
+      "tdtd.la-kofu.workers.dev"
+    ]
+  }
+}

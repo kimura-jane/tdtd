@@ -1,0 +1,19 @@
+{
+  "name": "minyase",
+  "version": "1.0.0",
+  "private": true,
+  "description": "みんやせ - グループで体重を共有して痩せるアプリ",
+  "scripts": {
+    "build": "rm -rf www && mkdir -p www && cp index.html style.css app.js privacy.html terms.html www/",
+    "sync": "npm run build && npx cap sync ios",
+    "open:ios": "npx cap open ios"
+  },
+  "dependencies": {
+    "@capacitor/core": "^7.0.0",
+    "@capacitor/ios": "^7.0.0"
+  },
+  "devDependencies": {
+    "@capacitor/assets": "^3.0.5",
+    "@capacitor/cli": "^7.0.0"
+  }
+}

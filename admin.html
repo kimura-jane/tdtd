@@ -4,515 +4,3400 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="robots" content="noindex,nofollow">
+
 <title>みんやせ 管理画面</title>
+
 <style>
-  :root{ --line:#e6e1db; --acc:#ff5f45; --bg:#faf8f5; --ink:#2b2724; --mut:#8a8279; }
-  *{ box-sizing:border-box; }
-  body{ margin:0; background:var(--bg); color:var(--ink);
-        font:15px/1.6 -apple-system,BlinkMacSystemFont,"Hiragino Kaku Gothic ProN","Noto Sans JP",sans-serif; }
-  header{ padding:16px; border-bottom:1px solid var(--line); background:#fff; }
-  h1{ margin:0; font-size:17px; letter-spacing:.04em; }
-  main{ padding:16px; max-width:960px; margin:0 auto; }
-  section{ background:#fff; border:1px solid var(--line); border-radius:10px; padding:14px; margin-bottom:14px; }
-  h2{ font-size:14px; margin:0 0 10px; color:var(--mut); font-weight:700; }
-  label{ display:block; font-size:12px; color:var(--mut); margin:8px 0 3px; }
-  input,select,textarea,button{ font:inherit; }
-  input,select,textarea{ width:100%; padding:8px 10px; border:1px solid var(--line);
-        border-radius:8px; background:#fff; color:var(--ink); }
-  textarea{ min-height:120px; font-family:ui-monospace,Menlo,Consolas,monospace; font-size:12px; }
-  button{ padding:8px 14px; border:1px solid var(--line); border-radius:8px;
-          background:#fff; cursor:pointer; }
-  button.pri{ background:var(--acc); border-color:var(--acc); color:#fff; font-weight:700; }
-  button:disabled{ opacity:.5; cursor:default; }
-  .row{ display:flex; gap:8px; flex-wrap:wrap; align-items:flex-end; margin-top:8px; }
-  .row>*{ flex:1 1 160px; }
-  .row>button{ flex:0 0 auto; }
-  table{ width:100%; border-collapse:collapse; font-size:13px; }
-  th,td{ text-align:left; padding:7px 6px; border-bottom:1px solid var(--line);
-         font-variant-numeric:tabular-nums; }
-  th{ color:var(--mut); font-weight:700; font-size:11px; }
-  td.n,th.n{ text-align:right; }
-  .msg{ font-size:13px; min-height:1.4em; margin-top:8px; white-space:pre-wrap; }
-  .ok{ color:#3a8a5f; } .ng{ color:#c0392b; }
-  .mut{ color:var(--mut); }
-  .tag{ display:inline-block; font-size:10px; padding:1px 6px; border-radius:99px;
-        border:1px solid var(--line); color:var(--mut); margin-left:6px; }
-  .tag.pv{ border-color:#c9948a; color:#c0392b; }
-  nav{ display:flex; gap:6px; flex-wrap:wrap; margin-bottom:14px; }
-  nav button.on{ background:var(--ink); color:#fff; border-color:var(--ink); }
-  .panel[hidden]{ display:none; }
-  .warn{ border-left:3px solid var(--acc); padding-left:10px; font-size:12px; color:var(--mut); }
+  :root{
+    --line:#e6e1db;
+    --acc:#ff5f45;
+    --bg:#faf8f5;
+    --ink:#2b2724;
+    --mut:#8a8279;
+    --good:#3a8a5f;
+    --bad:#c0392b;
+  }
+
+  *{
+    box-sizing:border-box;
+  }
+
+  body{
+    margin:0;
+    background:var(--bg);
+    color:var(--ink);
+    font:15px/1.6
+      -apple-system,
+      BlinkMacSystemFont,
+      "Hiragino Kaku Gothic ProN",
+      "Noto Sans JP",
+      sans-serif;
+  }
+
+  header{
+    padding:16px;
+    border-bottom:1px solid var(--line);
+    background:#fff;
+  }
+
+  h1{
+    margin:0;
+    font-size:17px;
+    letter-spacing:.04em;
+  }
+
+  main{
+    padding:16px;
+    max-width:960px;
+    margin:0 auto;
+  }
+
+  section{
+    background:#fff;
+    border:1px solid var(--line);
+    border-radius:10px;
+    padding:14px;
+    margin-bottom:14px;
+  }
+
+  h2{
+    font-size:14px;
+    margin:0 0 10px;
+    color:var(--mut);
+    font-weight:700;
+  }
+
+  label{
+    display:block;
+    font-size:12px;
+    color:var(--mut);
+    margin:8px 0 3px;
+  }
+
+  input,
+  select,
+  textarea,
+  button{
+    font:inherit;
+  }
+
+  input,
+  select,
+  textarea{
+    width:100%;
+    padding:8px 10px;
+    border:1px solid var(--line);
+    border-radius:8px;
+    background:#fff;
+    color:var(--ink);
+  }
+
+  textarea{
+    min-height:120px;
+    font-family:ui-monospace,Menlo,Consolas,monospace;
+    font-size:12px;
+  }
+
+  button{
+    padding:8px 14px;
+    border:1px solid var(--line);
+    border-radius:8px;
+    background:#fff;
+    cursor:pointer;
+  }
+
+  button.pri{
+    background:var(--acc);
+    border-color:var(--acc);
+    color:#fff;
+    font-weight:700;
+  }
+
+  button:disabled{
+    opacity:.5;
+    cursor:default;
+  }
+
+  .row{
+    display:flex;
+    gap:8px;
+    flex-wrap:wrap;
+    align-items:flex-end;
+    margin-top:8px;
+  }
+
+  .row>*{
+    flex:1 1 160px;
+  }
+
+  .row>button{
+    flex:0 0 auto;
+  }
+
+  table{
+    width:100%;
+    border-collapse:collapse;
+    font-size:13px;
+  }
+
+  th,
+  td{
+    text-align:left;
+    padding:7px 6px;
+    border-bottom:1px solid var(--line);
+    font-variant-numeric:tabular-nums;
+    vertical-align:top;
+  }
+
+  th{
+    color:var(--mut);
+    font-weight:700;
+    font-size:11px;
+  }
+
+  td.n,
+  th.n{
+    text-align:right;
+  }
+
+  .msg{
+    font-size:13px;
+    min-height:1.4em;
+    margin-top:8px;
+    white-space:pre-wrap;
+  }
+
+  .ok{
+    color:var(--good);
+  }
+
+  .ng{
+    color:var(--bad);
+  }
+
+  .mut{
+    color:var(--mut);
+  }
+
+  .tag{
+    display:inline-block;
+    font-size:10px;
+    padding:1px 6px;
+    border-radius:99px;
+    border:1px solid var(--line);
+    color:var(--mut);
+    margin-left:6px;
+  }
+
+  .tag.pv{
+    border-color:#c9948a;
+    color:#c0392b;
+  }
+
+  .tag.good{
+    border-color:#9bc5a9;
+    color:var(--good);
+  }
+
+  .tag.wait{
+    border-color:#d8b16e;
+    color:#a56d11;
+  }
+
+  nav{
+    display:flex;
+    gap:6px;
+    flex-wrap:wrap;
+    margin-bottom:14px;
+  }
+
+  nav button.on{
+    background:var(--ink);
+    color:#fff;
+    border-color:var(--ink);
+  }
+
+  .panel[hidden]{
+    display:none;
+  }
+
+  .warn{
+    border-left:3px solid var(--acc);
+    padding-left:10px;
+    font-size:12px;
+    color:var(--mut);
+  }
+
+  .vote-counts{
+    display:flex;
+    flex-wrap:wrap;
+    gap:4px;
+    margin-top:4px;
+  }
+
+  .vote-counts span{
+    display:inline-block;
+    padding:2px 6px;
+    border-radius:99px;
+    background:#f5f1ec;
+    font-size:11px;
+    white-space:nowrap;
+  }
+
+  .vote-action{
+    display:flex;
+    gap:6px;
+    align-items:center;
+    min-width:210px;
+  }
+
+  .vote-action select{
+    min-width:105px;
+  }
+
+  .vote-action button{
+    white-space:nowrap;
+  }
+
+  .winner{
+    color:var(--good);
+    font-weight:700;
+  }
+
+  @media(max-width:700px){
+    main{
+      padding:10px;
+    }
+
+    section{
+      overflow-x:auto;
+    }
+
+    table{
+      min-width:640px;
+    }
+  }
 </style>
 </head>
+
 <body>
 
-<header><h1>みんやせ 管理画面</h1></header>
+<header>
+  <h1>みんやせ 管理画面</h1>
+</header>
 
 <main>
+
   <section id="authBox">
+
     <h2>管理トークン</h2>
-    <label for="tok">ADMIN_TOKEN</label>
-    <input id="tok" type="password" autocomplete="off" placeholder="wrangler secret put ADMIN_TOKEN で設定した値">
+
+    <label for="tok">
+      ADMIN_TOKEN
+    </label>
+
+    <input
+      id="tok"
+      type="password"
+      autocomplete="off"
+      placeholder="wrangler secret put ADMIN_TOKEN で設定した値"
+    >
+
     <div class="row">
-      <button class="pri" id="btnLogin">接続</button>
-      <button id="btnLogout">破棄</button>
+
+      <button
+        class="pri"
+        id="btnLogin"
+        type="button"
+      >
+        接続
+      </button>
+
+      <button
+        id="btnLogout"
+        type="button"
+      >
+        破棄
+      </button>
+
     </div>
-    <div class="msg" id="authMsg"></div>
-    <p class="warn">トークンはこのタブのみ（sessionStorage）に保持します。タブを閉じると消えます。</p>
+
+    <div
+      class="msg"
+      id="authMsg"
+    ></div>
+
+    <p class="warn">
+      トークンはこのタブのみ（sessionStorage）に保持します。タブを閉じると消えます。
+    </p>
+
   </section>
 
-  <div id="app" hidden>
-    <nav>
-      <button data-t="groups" class="on">グループ一覧</button>
-      <button data-t="day">日付ビュー</button>
-      <button data-t="io">書き出し / 取り込み</button>
-      <button data-t="dev">端末の差し替え</button>
-      <button data-t="rep">通報</button>
-      <button data-t="log">操作ログ</button>
+
+  <div
+    id="app"
+    hidden
+  >
+
+    <nav id="adminNav">
+
+      <button
+        data-t="groups"
+        class="on"
+        type="button"
+      >
+        グループ一覧
+      </button>
+
+      <button
+        data-t="day"
+        type="button"
+      >
+        日付ビュー
+      </button>
+
+      <button
+        data-t="io"
+        type="button"
+      >
+        書き出し / 取り込み
+      </button>
+
+      <button
+        data-t="dev"
+        type="button"
+      >
+        端末の差し替え
+      </button>
+
+      <button
+        data-t="vote"
+        type="button"
+      >
+        予想クイズ
+      </button>
+
+      <button
+        data-t="rep"
+        type="button"
+      >
+        通報
+      </button>
+
+      <button
+        data-t="log"
+        type="button"
+      >
+        操作ログ
+      </button>
+
     </nav>
 
-    <section class="panel" id="p-groups">
-      <h2>グループ一覧</h2>
+
+    <!-- =====================================================
+         グループ一覧
+         ===================================================== -->
+
+    <section
+      class="panel"
+      id="p-groups"
+    >
+
+      <h2>
+        グループ一覧
+      </h2>
+
       <div class="row">
-        <div><label for="gDate">記録率の基準日</label><input id="gDate" type="date"></div>
-        <button id="btnGroups">読み込む</button>
+
+        <div>
+
+          <label for="gDate">
+            記録率の基準日
+          </label>
+
+          <input
+            id="gDate"
+            type="date"
+          >
+
+        </div>
+
+        <button
+          id="btnGroups"
+          type="button"
+        >
+          読み込む
+        </button>
+
       </div>
-      <div class="msg" id="gMsg"></div>
+
+      <div
+        class="msg"
+        id="gMsg"
+      ></div>
+
       <table id="gTbl"></table>
+
     </section>
 
-    <section class="panel" id="p-day" hidden>
-      <h2>日付指定・全員体重と総重量</h2>
+
+    <!-- =====================================================
+         日付ビュー
+         ===================================================== -->
+
+    <section
+      class="panel"
+      id="p-day"
+      hidden
+    >
+
+      <h2>
+        日付指定・全員体重と総重量
+      </h2>
+
       <div class="row">
-        <div><label for="dGid">グループ</label><select id="dGid"></select></div>
-        <div><label for="dDate">日付</label><input id="dDate" type="date"></div>
+
+        <div>
+
+          <label for="dGid">
+            グループ
+          </label>
+
+          <select id="dGid"></select>
+
+        </div>
+
+        <div>
+
+          <label for="dDate">
+            日付
+          </label>
+
+          <input
+            id="dDate"
+            type="date"
+          >
+
+        </div>
+
       </div>
+
+
       <div class="row">
-        <div><label><input type="checkbox" id="dFill" style="width:auto"> 未記録を直近値で補完</label></div>
-        <button id="btnPrev">前日</button>
-        <button id="btnNext">翌日</button>
-        <button class="pri" id="btnDay">表示</button>
+
+        <div>
+
+          <label>
+
+            <input
+              type="checkbox"
+              id="dFill"
+              style="width:auto"
+            >
+
+            未記録を直近値で補完
+
+          </label>
+
+        </div>
+
+        <button
+          id="btnPrev"
+          type="button"
+        >
+          前日
+        </button>
+
+        <button
+          id="btnNext"
+          type="button"
+        >
+          翌日
+        </button>
+
+        <button
+          class="pri"
+          id="btnDay"
+          type="button"
+        >
+          表示
+        </button>
+
       </div>
-      <div class="msg" id="dMsg"></div>
-      <div id="dTotal" style="font-size:26px;font-weight:800;font-variant-numeric:tabular-nums"></div>
-      <div class="mut" id="dSub" style="font-size:12px"></div>
+
+
+      <div
+        class="msg"
+        id="dMsg"
+      ></div>
+
+
+      <div
+        id="dTotal"
+        style="font-size:26px;font-weight:800;font-variant-numeric:tabular-nums"
+      ></div>
+
+
+      <div
+        class="mut"
+        id="dSub"
+        style="font-size:12px"
+      ></div>
+
+
       <table id="dTbl"></table>
+
     </section>
 
-    <section class="panel" id="p-io" hidden>
-      <h2>書き出し</h2>
-      <div class="row">
-        <div><label for="xGid">グループ</label><select id="xGid"></select></div>
-        <button id="btnCsv">CSV</button>
-        <button id="btnJson">バックアップ JSON</button>
-      </div>
-      <div class="msg" id="xMsg"></div>
 
-      <h2 style="margin-top:18px">取り込み</h2>
-      <label for="imFile">CSV ファイル</label>
-      <input id="imFile" type="file" accept=".csv,text/csv">
-      <label for="imText">または内容を貼り付け</label>
-      <textarea id="imText" placeholder="date,group_id,group_name,member_id,member_name,weight_kg"></textarea>
+    <!-- =====================================================
+         CSV / JSON
+         ===================================================== -->
+
+    <section
+      class="panel"
+      id="p-io"
+      hidden
+    >
+
+      <h2>
+        書き出し
+      </h2>
+
+
       <div class="row">
-        <button id="btnDry">確認のみ（dryRun）</button>
-        <button class="pri" id="btnRun">確定して取り込む</button>
+
+        <div>
+
+          <label for="xGid">
+            グループ
+          </label>
+
+          <select id="xGid"></select>
+
+        </div>
+
+        <button
+          id="btnCsv"
+          type="button"
+        >
+          CSV
+        </button>
+
+        <button
+          id="btnJson"
+          type="button"
+        >
+          バックアップ JSON
+        </button>
+
       </div>
-      <div class="msg" id="imMsg"></div>
+
+
+      <div
+        class="msg"
+        id="xMsg"
+      ></div>
+
+
+      <h2 style="margin-top:18px">
+        取り込み
+      </h2>
+
+
+      <label for="imFile">
+        CSV ファイル
+      </label>
+
+      <input
+        id="imFile"
+        type="file"
+        accept=".csv,text/csv"
+      >
+
+
+      <label for="imText">
+        または内容を貼り付け
+      </label>
+
+
+      <textarea
+        id="imText"
+        placeholder="date,group_id,group_name,member_id,member_name,weight_kg"
+      ></textarea>
+
+
+      <div class="row">
+
+        <button
+          id="btnDry"
+          type="button"
+        >
+          確認のみ（dryRun）
+        </button>
+
+        <button
+          class="pri"
+          id="btnRun"
+          type="button"
+        >
+          確定して取り込む
+        </button>
+
+      </div>
+
+
+      <div
+        class="msg"
+        id="imMsg"
+      ></div>
+
+
       <table id="imTbl"></table>
-      <p class="warn">在籍中のメンバーのみ更新します。離脱・除名済みや未知の member_id はエラー一覧に出ます。同じ (member_id, 日付) は何度実行しても結果が変わりません。</p>
+
+
+      <p class="warn">
+        在籍中のメンバーのみ更新します。離脱・除名済みや未知の member_id はエラー一覧に出ます。同じ (member_id, 日付) は何度実行しても結果が変わりません。
+      </p>
+
     </section>
 
-    <section class="panel" id="p-dev" hidden>
-      <h2>端末の差し替え（機種変・入れ直しの復旧）</h2>
-      <p class="warn">member_id を保ったまま端末IDだけ入れ替えます。体重・アイコン・グループ・オーナー権限はそのまま残ります。CSV の取り込みでは復旧できません。</p>
+
+    <!-- =====================================================
+         端末差し替え
+         ===================================================== -->
+
+    <section
+      class="panel"
+      id="p-dev"
+      hidden
+    >
+
+      <h2>
+        端末の差し替え（機種変・入れ直しの復旧）
+      </h2>
+
+
+      <p class="warn">
+        member_id を保ったまま端末IDだけ入れ替えます。体重・アイコン・グループ・オーナー権限はそのまま残ります。CSV の取り込みでは復旧できません。
+      </p>
+
+
       <div class="row">
-        <div><label for="swMid">member_id</label><input id="swMid" placeholder="ABCDEFGHJK"></div>
-        <button id="btnLookup">照会</button>
+
+        <div>
+
+          <label for="swMid">
+            member_id
+          </label>
+
+          <input
+            id="swMid"
+            placeholder="ABCDEFGHJK"
+          >
+
+        </div>
+
+        <button
+          id="btnLookup"
+          type="button"
+        >
+          照会
+        </button>
+
       </div>
-      <div class="msg" id="swMsg"></div>
+
+
+      <div
+        class="msg"
+        id="swMsg"
+      ></div>
+
+
       <table id="swTbl"></table>
+
+
       <div class="row">
-        <div><label for="swNew">新しい端末ID（新端末のマイページ末尾に表示）</label>
-             <input id="swNew" placeholder="dev_xxxxxxxx-xxxx-..."></div>
+
+        <div>
+
+          <label for="swNew">
+            新しい端末ID（新端末のマイページ末尾に表示）
+          </label>
+
+          <input
+            id="swNew"
+            placeholder="dev_xxxxxxxx-xxxx-..."
+          >
+
+        </div>
+
       </div>
+
+
       <div class="row">
-        <div><label><input type="checkbox" id="swForce" style="width:auto"> 新端末側に記録があっても強制実行</label></div>
-        <button class="pri" id="btnSwap">差し替える</button>
+
+        <div>
+
+          <label>
+
+            <input
+              type="checkbox"
+              id="swForce"
+              style="width:auto"
+            >
+
+            新端末側に記録があっても強制実行
+
+          </label>
+
+        </div>
+
+        <button
+          class="pri"
+          id="btnSwap"
+          type="button"
+        >
+          差し替える
+        </button>
+
       </div>
-      <div class="msg" id="swMsg2"></div>
+
+
+      <div
+        class="msg"
+        id="swMsg2"
+      ></div>
+
     </section>
 
-    <section class="panel" id="p-rep" hidden>
-      <h2>通報</h2>
-      <div class="row"><button id="btnRep">読み込む</button></div>
-      <div class="msg" id="rMsg"></div>
+
+    <!-- =====================================================
+         予想クイズ
+         ===================================================== -->
+
+    <section
+      class="panel"
+      id="p-vote"
+      hidden
+    >
+
+      <h2>
+        予想クイズ
+      </h2>
+
+
+      <p class="warn">
+        毎月15日 23:59締切。翌月1日時点で最も減量しているチームを確認したあと、正解チームをここで確定します。確定後に変更した場合は、ユーザーの正解数も自動的に再計算されます。
+      </p>
+
+
+      <div class="row">
+
+        <button
+          id="btnVote"
+          type="button"
+        >
+          読み込む
+        </button>
+
+      </div>
+
+
+      <div
+        class="msg"
+        id="vMsg"
+      ></div>
+
+
+      <table id="vTbl"></table>
+
+    </section>
+
+
+    <!-- =====================================================
+         通報
+         ===================================================== -->
+
+    <section
+      class="panel"
+      id="p-rep"
+      hidden
+    >
+
+      <h2>
+        通報
+      </h2>
+
+      <div class="row">
+
+        <button
+          id="btnRep"
+          type="button"
+        >
+          読み込む
+        </button>
+
+      </div>
+
+      <div
+        class="msg"
+        id="rMsg"
+      ></div>
+
       <table id="rTbl"></table>
+
     </section>
 
-    <section class="panel" id="p-log" hidden>
-      <h2>操作ログ</h2>
-      <div class="row"><button id="btnLog">読み込む</button></div>
-      <div class="msg" id="lMsg"></div>
+
+    <!-- =====================================================
+         操作ログ
+         ===================================================== -->
+
+    <section
+      class="panel"
+      id="p-log"
+      hidden
+    >
+
+      <h2>
+        操作ログ
+      </h2>
+
+      <div class="row">
+
+        <button
+          id="btnLog"
+          type="button"
+        >
+          読み込む
+        </button>
+
+      </div>
+
+      <div
+        class="msg"
+        id="lMsg"
+      ></div>
+
       <table id="lTbl"></table>
+
     </section>
+
   </div>
+
 </main>
+
 
 <script>
 'use strict';
 
-/* API は同一オリジン。admin.html を Worker のルートに置く前提 */
-const K_TOK = 'minyase.admin_token';
-const $ = s => document.querySelector(s);
+
+/* ============================================================
+   基本
+   ============================================================ */
+
+const K_TOK =
+  'minyase.admin_token';
+
+
+const $ =
+  s =>
+    document.querySelector(
+      s
+    );
+
 
 const ERR = {
-  unauthorized: 'トークンが違います',
-  no_admin_token: 'Worker に ADMIN_TOKEN が未設定です（wrangler secret put ADMIN_TOKEN）',
-  group_not_found: 'そのグループはありません',
-  member_not_found: 'その member_id は見つかりません',
-  bad_code: 'グループIDが不正です',
-  bad_member_id: 'member_id が不正です',
-  bad_device_id: '端末IDの形式が不正です（8〜64文字の英数と _ -）',
-  bad_format: '形式は csv か json です',
-  csv_empty: 'CSV に行がありません',
-  csv_header_invalid: 'CSV のヘッダーに member_id / date / weight_kg が必要です',
-  import_too_large: 'ファイルが大きすぎます（2MBまで）',
-  new_device_not_empty: '新しい端末側に記録があります。強制実行にチェックすると続行できます',
-  nothing_to_update: '同じ端末IDです',
-  banned: '対象は利用停止中です（強制実行が必要）',
-  not_found: 'エンドポイントがありません',
-  server_error: 'サーバーエラー',
+
+  unauthorized:
+    'トークンが違います',
+
+  no_admin_token:
+    'Worker に ADMIN_TOKEN が未設定です（wrangler secret put ADMIN_TOKEN）',
+
+  group_not_found:
+    'そのグループはありません',
+
+  member_not_found:
+    'その member_id は見つかりません',
+
+  bad_code:
+    'グループIDが不正です',
+
+  bad_member_id:
+    'member_id が不正です',
+
+  bad_device_id:
+    '端末IDの形式が不正です（8〜64文字の英数と _ -）',
+
+  bad_format:
+    '形式は csv か json です',
+
+  csv_empty:
+    'CSV に行がありません',
+
+  csv_header_invalid:
+    'CSV のヘッダーに member_id / date / weight_kg が必要です',
+
+  import_too_large:
+    'ファイルが大きすぎます（2MBまで）',
+
+  new_device_not_empty:
+    '新しい端末側に記録があります。強制実行にチェックすると続行できます',
+
+  nothing_to_update:
+    '同じ端末IDです',
+
+  banned:
+    '対象は利用停止中です（強制実行が必要）',
+
+  bad_round:
+    '対象月が不正です',
+
+  bad_team:
+    'チームが不正です',
+
+  result_too_early:
+    '結果日の前なので、まだ正解を確定できません',
+
+  vote_closed:
+    '投票は締め切られています',
+
+  not_found:
+    'エンドポイントがありません',
+
+  server_error:
+    'サーバーエラー',
 };
-const emsg = e => ERR[e.message] || ('エラー（' + e.message + '）');
 
-function token() { return sessionStorage.getItem(K_TOK) || ''; }
 
-function say(node, text, ok) {
-  node.textContent = text;
-  node.className = 'msg ' + (ok ? 'ok' : 'ng');
+const emsg =
+  e =>
+    ERR[e.message] ||
+    (
+      'エラー（' +
+      e.message +
+      '）'
+    );
+
+
+function token() {
+
+  return (
+    sessionStorage.getItem(
+      K_TOK
+    ) ||
+    ''
+  );
 }
 
-async function api(path, opt = {}) {
-  const res = await fetch(path, {
-    method: opt.method || 'GET',
-    headers: Object.assign(
-      { 'authorization': 'Bearer ' + token() },
-      opt.type ? { 'content-type': opt.type } : {}
-    ),
-    body: opt.body,
-    cache: 'no-store',
-  });
-  let d = {};
-  try { d = await res.json(); } catch {}
-  if (!res.ok || d.ok === false) throw new Error(d.error || ('http_' + res.status));
+
+function say(
+  node,
+  text,
+  ok
+) {
+
+  if (!node) {
+    return;
+  }
+
+  node.textContent =
+    text || '';
+
+  node.className =
+    'msg ' +
+    (
+      ok
+        ? 'ok'
+        : 'ng'
+    );
+}
+
+
+/* ============================================================
+   API
+   ============================================================ */
+
+async function api(
+  path,
+  opt = {}
+) {
+
+  const res =
+    await fetch(
+      path,
+      {
+        method:
+          opt.method ||
+          'GET',
+
+        headers:
+          Object.assign(
+            {
+              'authorization':
+                'Bearer ' +
+                token()
+            },
+            opt.type
+              ? {
+                  'content-type':
+                    opt.type
+                }
+              : {}
+          ),
+
+        body:
+          opt.body,
+
+        cache:
+          'no-store',
+      }
+    );
+
+
+  let d =
+    {};
+
+
+  try {
+
+    d =
+      await res.json();
+
+  } catch {}
+
+
+  if (
+    !res.ok ||
+    d.ok === false
+  ) {
+
+    throw new Error(
+      d.error ||
+      (
+        'http_' +
+        res.status
+      )
+    );
+  }
+
+
   return d;
 }
 
-/* 書き出しは Authorization が必要なのでリンクではなく fetch → Blob で保存する */
-async function download(path) {
-  const res = await fetch(path, {
-    headers: { 'authorization': 'Bearer ' + token() },
-    cache: 'no-store',
-  });
-  if (!res.ok) {
-    let d = {};
-    try { d = await res.json(); } catch {}
-    throw new Error(d.error || ('http_' + res.status));
-  }
-  const cd = res.headers.get('content-disposition') || '';
-  let name = 'minyase.csv';
-  const mu = /filename\*=UTF-8''([^;]+)/i.exec(cd);
-  const ma = /filename="([^"]+)"/i.exec(cd);
-  if (mu) { try { name = decodeURIComponent(mu[1]); } catch { name = mu[1]; } }
-  else if (ma) name = ma[1];
 
-  const blob = await res.blob();
-  const u = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = u; a.download = name;
-  document.body.appendChild(a); a.click(); a.remove();
-  setTimeout(() => URL.revokeObjectURL(u), 1000);
+/* ============================================================
+   ダウンロード
+   ============================================================ */
+
+async function download(
+  path
+) {
+
+  const res =
+    await fetch(
+      path,
+      {
+        headers: {
+          'authorization':
+            'Bearer ' +
+            token()
+        },
+
+        cache:
+          'no-store',
+      }
+    );
+
+
+  if (!res.ok) {
+
+    let d =
+      {};
+
+
+    try {
+
+      d =
+        await res.json();
+
+    } catch {}
+
+
+    throw new Error(
+      d.error ||
+      (
+        'http_' +
+        res.status
+      )
+    );
+  }
+
+
+  const cd =
+    res.headers.get(
+      'content-disposition'
+    ) ||
+    '';
+
+
+  let name =
+    'minyase.csv';
+
+
+  const mu =
+    /filename\*=UTF-8''([^;]+)/i
+      .exec(
+        cd
+      );
+
+
+  const ma =
+    /filename="([^"]+)"/i
+      .exec(
+        cd
+      );
+
+
+  if (mu) {
+
+    try {
+
+      name =
+        decodeURIComponent(
+          mu[1]
+        );
+
+    } catch {
+
+      name =
+        mu[1];
+    }
+
+  } else if (ma) {
+
+    name =
+      ma[1];
+  }
+
+
+  const blob =
+    await res.blob();
+
+
+  const u =
+    URL.createObjectURL(
+      blob
+    );
+
+
+  const a =
+    document.createElement(
+      'a'
+    );
+
+
+  a.href =
+    u;
+
+
+  a.download =
+    name;
+
+
+  document.body
+    .appendChild(
+      a
+    );
+
+
+  a.click();
+
+
+  a.remove();
+
+
+  setTimeout(
+    () =>
+      URL.revokeObjectURL(
+        u
+      ),
+    1000
+  );
+
+
   return name;
 }
 
-function table(node, cols, rows) {
-  node.innerHTML = '';
+
+/* ============================================================
+   テーブル
+   ============================================================ */
+
+function table(
+  node,
+  cols,
+  rows
+) {
+
+  node.innerHTML =
+    '';
+
+
   if (!rows.length) {
-    node.innerHTML = '<tr><td class="mut">対象がありません</td></tr>';
+
+    node.innerHTML =
+      '<tr><td class="mut">対象がありません</td></tr>';
+
     return;
   }
-  const tr = document.createElement('tr');
-  for (const c of cols) {
-    const th = document.createElement('th');
-    th.textContent = c.h;
-    if (c.n) th.className = 'n';
-    tr.appendChild(th);
-  }
-  node.appendChild(tr);
-  for (const r of rows) {
-    const t = document.createElement('tr');
-    for (const c of cols) {
-      const td = document.createElement('td');
-      if (c.n) td.className = 'n';
-      const v = c.f(r);
-      if (v instanceof Node) td.appendChild(v); else td.textContent = v;
-      t.appendChild(td);
+
+
+  const tr =
+    document.createElement(
+      'tr'
+    );
+
+
+  for (
+    const c of
+    cols
+  ) {
+
+    const th =
+      document.createElement(
+        'th'
+      );
+
+
+    th.textContent =
+      c.h;
+
+
+    if (c.n) {
+
+      th.className =
+        'n';
     }
-    node.appendChild(t);
+
+
+    tr.appendChild(
+      th
+    );
+  }
+
+
+  node.appendChild(
+    tr
+  );
+
+
+  for (
+    const r of
+    rows
+  ) {
+
+    const t =
+      document.createElement(
+        'tr'
+      );
+
+
+    for (
+      const c of
+      cols
+    ) {
+
+      const td =
+        document.createElement(
+          'td'
+        );
+
+
+      if (c.n) {
+
+        td.className =
+          'n';
+      }
+
+
+      const v =
+        c.f(r);
+
+
+      if (
+        v instanceof Node
+      ) {
+
+        td.appendChild(
+          v
+        );
+
+      } else {
+
+        td.textContent =
+          v;
+      }
+
+
+      t.appendChild(
+        td
+      );
+    }
+
+
+    node.appendChild(
+      t
+    );
   }
 }
 
-const kg = v => (v === null || v === undefined) ? '—' : Number(v).toFixed(1);
-const ts = v => v ? new Date(Number(v)).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' }) : '—';
 
-/* ---------- 接続 ---------- */
-let GROUPS = [];
+const kg =
+  v =>
+    (
+      v === null ||
+      v === undefined
+    )
+      ? '—'
+      : Number(v)
+          .toFixed(1);
+
+
+const ts =
+  v =>
+    v
+      ? new Date(
+          Number(v)
+        )
+          .toLocaleString(
+            'ja-JP',
+            {
+              timeZone:
+                'Asia/Tokyo'
+            }
+          )
+      : '—';
+
+
+/* ============================================================
+   接続
+   ============================================================ */
+
+let GROUPS =
+  [];
+
 
 async function connect() {
-  const v = $('#tok').value.trim();
-  if (!v) { say($('#authMsg'), 'トークンを入力してください', false); return; }
-  sessionStorage.setItem(K_TOK, v);
+
+  const v =
+    $('#tok')
+      .value
+      .trim();
+
+
+  if (!v) {
+
+    say(
+      $('#authMsg'),
+      'トークンを入力してください',
+      false
+    );
+
+    return;
+  }
+
+
+  sessionStorage.setItem(
+    K_TOK,
+    v
+  );
+
+
   try {
+
     await loadGroups();
-    $('#app').hidden = false;
-    $('#tok').value = '';
-    say($('#authMsg'), '接続しました', true);
+
+
+    $('#app').hidden =
+      false;
+
+
+    $('#tok').value =
+      '';
+
+
+    say(
+      $('#authMsg'),
+      '接続しました',
+      true
+    );
+
+
   } catch (e) {
-    sessionStorage.removeItem(K_TOK);
-    $('#app').hidden = true;
-    say($('#authMsg'), emsg(e), false);
+
+    sessionStorage.removeItem(
+      K_TOK
+    );
+
+
+    $('#app').hidden =
+      true;
+
+
+    say(
+      $('#authMsg'),
+      emsg(e),
+      false
+    );
   }
 }
+
+
+/* ============================================================
+   グループ一覧
+   ============================================================ */
 
 async function loadGroups() {
-  const date = $('#gDate').value || '';
-  const d = await api('/api/admin/groups' + (date ? '?date=' + encodeURIComponent(date) : ''));
-  GROUPS = d.groups || [];
 
-  for (const sel of [$('#dGid'), $('#xGid')]) {
-    const keep = sel.value;
-    sel.innerHTML = '';
-    for (const g of GROUPS) {
-      const o = document.createElement('option');
-      o.value = g.id;
-      o.textContent = g.name + '（' + g.members + '人' + (g.show_weight ? '' : '・非公開') + '）';
-      sel.appendChild(o);
+  const date =
+    $('#gDate').value ||
+    '';
+
+
+  const d =
+    await api(
+      '/api/admin/groups' +
+      (
+        date
+          ? '?date=' +
+            encodeURIComponent(
+              date
+            )
+          : ''
+      )
+    );
+
+
+  GROUPS =
+    d.groups ||
+    [];
+
+
+  for (
+    const sel of
+    [
+      $('#dGid'),
+      $('#xGid')
+    ]
+  ) {
+
+    const keep =
+      sel.value;
+
+
+    sel.innerHTML =
+      '';
+
+
+    for (
+      const g of
+      GROUPS
+    ) {
+
+      const o =
+        document.createElement(
+          'option'
+        );
+
+
+      o.value =
+        g.id;
+
+
+      o.textContent =
+        g.name +
+        '（' +
+        g.members +
+        '人' +
+        (
+          g.show_weight
+            ? ''
+            : '・非公開'
+        ) +
+        '）';
+
+
+      sel.appendChild(
+        o
+      );
     }
-    if (keep) sel.value = keep;
+
+
+    if (keep) {
+
+      sel.value =
+        keep;
+    }
   }
 
-  table($('#gTbl'), [
-    { h: '名前', f: g => {
-        const w = document.createElement('span');
-        w.textContent = g.name;
-        if (!g.show_weight) {
-          const t = document.createElement('span');
-          t.className = 'tag pv'; t.textContent = '非公開';
-          w.appendChild(t);
-        }
-        return w;
-      } },
-    { h: 'コード', f: g => g.code },
-    { h: '人数', n: 1, f: g => g.members },
-    { h: '記録', n: 1, f: g => g.recorded + ' / ' + g.members },
-    { h: '記録率', n: 1, f: g => g.rate + '%' },
-    { h: '合計kg', n: 1, f: g => kg(g.total) },
-    { h: 'スタート', f: g => g.start_ymd || '—' },
-  ], GROUPS);
 
-  say($('#gMsg'), GROUPS.length + '件（基準日 ' + d.date + '）', true);
+  table(
+    $('#gTbl'),
+    [
+
+      {
+        h:
+          '名前',
+
+        f:
+          g => {
+
+            const w =
+              document.createElement(
+                'span'
+              );
+
+
+            w.textContent =
+              g.name;
+
+
+            if (
+              !g.show_weight
+            ) {
+
+              const t =
+                document.createElement(
+                  'span'
+                );
+
+
+              t.className =
+                'tag pv';
+
+
+              t.textContent =
+                '非公開';
+
+
+              w.appendChild(
+                t
+              );
+            }
+
+
+            return w;
+          }
+      },
+
+      {
+        h:
+          'コード',
+
+        f:
+          g =>
+            g.code
+      },
+
+      {
+        h:
+          '人数',
+
+        n:
+          1,
+
+        f:
+          g =>
+            g.members
+      },
+
+      {
+        h:
+          '記録',
+
+        n:
+          1,
+
+        f:
+          g =>
+            g.recorded +
+            ' / ' +
+            g.members
+      },
+
+      {
+        h:
+          '記録率',
+
+        n:
+          1,
+
+        f:
+          g =>
+            g.rate +
+            '%'
+      },
+
+      {
+        h:
+          '合計kg',
+
+        n:
+          1,
+
+        f:
+          g =>
+            kg(
+              g.total
+            )
+      },
+
+      {
+        h:
+          'スタート',
+
+        f:
+          g =>
+            g.start_ymd ||
+            '—'
+      },
+
+    ],
+    GROUPS
+  );
+
+
+  say(
+    $('#gMsg'),
+    GROUPS.length +
+    '件（基準日 ' +
+    d.date +
+    '）',
+    true
+  );
 }
 
-/* ---------- ⑤ 日付ビュー ---------- */
+
+/* ============================================================
+   日付ビュー
+   ============================================================ */
+
 async function loadDay() {
-  const gid = $('#dGid').value;
-  if (!gid) { say($('#dMsg'), 'グループを選んでください', false); return; }
-  const q = new URLSearchParams({ gid, date: $('#dDate').value || '' });
-  if ($('#dFill').checked) q.set('fill', 'last');
-  try {
-    const d = await api('/api/admin/group/day?' + q.toString());
-    $('#dTotal').textContent = d.total === null ? '—' : kg(d.total) + ' kg';
-    $('#dSub').textContent =
-      d.group.name + ' ／ ' + d.date + ' ／ 記録 ' + d.recorded + ' / ' + d.count + '人'
-      + (d.show_weight ? '' : ' ／ 体重非公開グループ')
-      + (d.filled ? ' ／ 補完 ' + (d.filled_ids || []).length + '人' : '');
 
-    table($('#dTbl'), [
-      { h: '名前', f: r => r.name || '名前未設定' },
-      { h: 'member_id', f: r => r.id },
-      { h: '体重', n: 1, f: r => {
-          const s = document.createElement('span');
-          s.textContent = kg(r.weight);
-          if (r.weight === null) s.className = 'mut';
-          if (r.filled) { s.className = 'mut'; s.textContent = kg(r.weight) + '（' + r.ymd + '）'; }
-          return s;
-        } },
-      { h: '更新', f: r => ts(r.recordedAt) },
-    ], d.members || []);
-    say($('#dMsg'), '', true);
-  } catch (e) { say($('#dMsg'), emsg(e), false); }
+  const gid =
+    $('#dGid').value;
+
+
+  if (!gid) {
+
+    say(
+      $('#dMsg'),
+      'グループを選んでください',
+      false
+    );
+
+    return;
+  }
+
+
+  const q =
+    new URLSearchParams({
+      gid,
+      date:
+        $('#dDate').value ||
+        ''
+    });
+
+
+  if (
+    $('#dFill').checked
+  ) {
+
+    q.set(
+      'fill',
+      'last'
+    );
+  }
+
+
+  try {
+
+    const d =
+      await api(
+        '/api/admin/group/day?' +
+        q.toString()
+      );
+
+
+    $('#dTotal').textContent =
+      d.total === null
+        ? '—'
+        : kg(
+            d.total
+          ) +
+          ' kg';
+
+
+    $('#dSub').textContent =
+      d.group.name +
+      ' ／ ' +
+      d.date +
+      ' ／ 記録 ' +
+      d.recorded +
+      ' / ' +
+      d.count +
+      '人' +
+      (
+        d.show_weight
+          ? ''
+          : ' ／ 体重非公開グループ'
+      ) +
+      (
+        d.filled
+          ? ' ／ 補完 ' +
+            (
+              d.filled_ids ||
+              []
+            ).length +
+            '人'
+          : ''
+      );
+
+
+    table(
+      $('#dTbl'),
+      [
+
+        {
+          h:
+            '名前',
+
+          f:
+            r =>
+              r.name ||
+              '名前未設定'
+        },
+
+        {
+          h:
+            'member_id',
+
+          f:
+            r =>
+              r.id
+        },
+
+        {
+          h:
+            '体重',
+
+          n:
+            1,
+
+          f:
+            r => {
+
+              const s =
+                document.createElement(
+                  'span'
+                );
+
+
+              s.textContent =
+                kg(
+                  r.weight
+                );
+
+
+              if (
+                r.weight === null
+              ) {
+
+                s.className =
+                  'mut';
+              }
+
+
+              if (
+                r.filled
+              ) {
+
+                s.className =
+                  'mut';
+
+
+                s.textContent =
+                  kg(
+                    r.weight
+                  ) +
+                  '（' +
+                  r.ymd +
+                  '）';
+              }
+
+
+              return s;
+            }
+        },
+
+        {
+          h:
+            '更新',
+
+          f:
+            r =>
+              ts(
+                r.recordedAt
+              )
+        },
+
+      ],
+      d.members ||
+      []
+    );
+
+
+    say(
+      $('#dMsg'),
+      '',
+      true
+    );
+
+
+  } catch (e) {
+
+    say(
+      $('#dMsg'),
+      emsg(e),
+      false
+    );
+  }
 }
 
-function shiftDay(n) {
-  const cur = $('#dDate').value || new Date().toISOString().slice(0, 10);
-  const t = Date.parse(cur + 'T00:00:00+09:00') + n * 86400000;
-  $('#dDate').value = new Date(t).toISOString().slice(0, 10);
+
+function shiftDay(
+  n
+) {
+
+  const cur =
+    $('#dDate').value ||
+    new Date()
+      .toISOString()
+      .slice(
+        0,
+        10
+      );
+
+
+  const t =
+    Date.parse(
+      cur +
+      'T00:00:00+09:00'
+    ) +
+    n *
+    86400000;
+
+
+  $('#dDate').value =
+    new Date(
+      t
+    )
+      .toISOString()
+      .slice(
+        0,
+        10
+      );
+
+
   loadDay();
 }
 
-/* ---------- ⑥ 取り込み ---------- */
-async function doImport(dry) {
-  const gid = $('#xGid').value;
-  if (!gid) { say($('#imMsg'), 'グループを選んでください', false); return; }
 
-  let text = $('#imText').value;
-  const f = $('#imFile').files && $('#imFile').files[0];
-  if (f) text = await f.text();
-  if (!text || !text.trim()) { say($('#imMsg'), 'CSV を選ぶか貼り付けてください', false); return; }
+/* ============================================================
+   取り込み
+   ============================================================ */
 
-  if (!dry && !confirm('取り込みを確定します。既存の記録が上書きされます。よろしいですか？')) return;
+async function doImport(
+  dry
+) {
+
+  const gid =
+    $('#xGid').value;
+
+
+  if (!gid) {
+
+    say(
+      $('#imMsg'),
+      'グループを選んでください',
+      false
+    );
+
+    return;
+  }
+
+
+  let text =
+    $('#imText').value;
+
+
+  const f =
+    $('#imFile').files &&
+    $('#imFile').files[0];
+
+
+  if (f) {
+
+    text =
+      await f.text();
+  }
+
+
+  if (
+    !text ||
+    !text.trim()
+  ) {
+
+    say(
+      $('#imMsg'),
+      'CSV を選ぶか貼り付けてください',
+      false
+    );
+
+    return;
+  }
+
+
+  if (
+    !dry &&
+    !confirm(
+      '取り込みを確定します。既存の記録が上書きされます。よろしいですか？'
+    )
+  ) {
+
+    return;
+  }
+
 
   try {
-    const d = await api('/api/admin/import?gid=' + encodeURIComponent(gid) + (dry ? '&dryRun=1' : ''), {
-      method: 'POST', type: 'text/csv; charset=utf-8', body: text,
-    });
-    say($('#imMsg'),
-      (d.dryRun ? '【確認のみ・未反映】' : '【反映しました】')
-      + ' 追加 ' + d.add + ' ／ 更新 ' + d.update + ' ／ 変化なし ' + d.skip
-      + ' ／ 対象行 ' + d.rows
-      + (d.applied !== undefined ? ' ／ 書込 ' + d.applied : '')
-      + ' ／ エラー ' + (d.errors || []).length, true);
 
-    table($('#imTbl'), [
-      { h: '行', n: 1, f: r => r.line },
-      { h: 'member_id', f: r => r.member_id || '—' },
-      { h: '日付', f: r => r.date || '—' },
-      { h: '内容', f: r => ERR[r.error] || r.error },
-    ], d.errors || []);
-  } catch (e) { say($('#imMsg'), emsg(e), false); }
-}
+    const d =
+      await api(
+        '/api/admin/import?gid=' +
+        encodeURIComponent(
+          gid
+        ) +
+        (
+          dry
+            ? '&dryRun=1'
+            : ''
+        ),
+        {
+          method:
+            'POST',
 
-/* ---------- 端末の差し替え ---------- */
-async function lookup() {
-  const mid = $('#swMid').value.trim();
-  if (!mid) { say($('#swMsg'), 'member_id を入力してください', false); return; }
-  try {
-    const d = await api('/api/admin/device/lookup?member_id=' + encodeURIComponent(mid));
-    const v = d.device;
-    table($('#swTbl'), [
-      { h: '項目', f: r => r[0] },
-      { h: '値', f: r => r[1] },
-    ], [
-      ['ニックネーム', v.nickname || '名前未設定'],
-      ['現在の端末ID', v.device_id_masked],
-      ['記録数', String(v.weights) + '件'],
-      ['記録の範囲', (v.first_ymd || '—') + ' 〜 ' + (v.last_ymd || '—')],
-      ['グループ', v.group ? (v.group.name + (v.group.is_owner ? '（オーナー）' : '')) : '未所属'],
-      ['最終アクセス', ts(v.last_seen_at)],
-      ['利用停止', v.banned ? 'はい' : 'いいえ'],
-    ]);
-    say($('#swMsg'), '照会しました', true);
+          type:
+            'text/csv; charset=utf-8',
+
+          body:
+            text,
+        }
+      );
+
+
+    say(
+      $('#imMsg'),
+      (
+        d.dryRun
+          ? '【確認のみ・未反映】'
+          : '【反映しました】'
+      ) +
+      ' 追加 ' +
+      d.add +
+      ' ／ 更新 ' +
+      d.update +
+      ' ／ 変化なし ' +
+      d.skip +
+      ' ／ 対象行 ' +
+      d.rows +
+      (
+        d.applied !==
+        undefined
+          ? ' ／ 書込 ' +
+            d.applied
+          : ''
+      ) +
+      ' ／ エラー ' +
+      (
+        d.errors ||
+        []
+      ).length,
+      true
+    );
+
+
+    table(
+      $('#imTbl'),
+      [
+
+        {
+          h:
+            '行',
+
+          n:
+            1,
+
+          f:
+            r =>
+              r.line
+        },
+
+        {
+          h:
+            'member_id',
+
+          f:
+            r =>
+              r.member_id ||
+              '—'
+        },
+
+        {
+          h:
+            '日付',
+
+          f:
+            r =>
+              r.date ||
+              '—'
+        },
+
+        {
+          h:
+            '内容',
+
+          f:
+            r =>
+              ERR[
+                r.error
+              ] ||
+              r.error
+        },
+
+      ],
+      d.errors ||
+      []
+    );
+
+
   } catch (e) {
-    $('#swTbl').innerHTML = '';
-    say($('#swMsg'), emsg(e), false);
+
+    say(
+      $('#imMsg'),
+      emsg(e),
+      false
+    );
   }
 }
 
-async function swap() {
-  const mid = $('#swMid').value.trim();
-  const nd = $('#swNew').value.trim();
-  if (!mid || !nd) { say($('#swMsg2'), 'member_id と新しい端末IDの両方が必要です', false); return; }
-  if (!confirm('この member_id を新しい端末IDに載せ替えます。\n元の端末からは操作できなくなります。よろしいですか？')) return;
+
+/* ============================================================
+   端末差し替え
+   ============================================================ */
+
+async function lookup() {
+
+  const mid =
+    $('#swMid')
+      .value
+      .trim();
+
+
+  if (!mid) {
+
+    say(
+      $('#swMsg'),
+      'member_id を入力してください',
+      false
+    );
+
+    return;
+  }
+
+
   try {
-    const d = await api('/api/admin/device/swap', {
-      method: 'POST', type: 'application/json',
-      body: JSON.stringify({ member_id: mid, new_device_id: nd, force: $('#swForce').checked }),
-    });
-    say($('#swMsg2'),
-      '差し替えました。' + d.old_device_id_masked + ' → ' + d.new_device_id_masked
-      + ' ／ 記録 ' + d.weights + '件'
-      + (d.removed_stale ? ' ／ 新端末側の空アカウント（' + d.removed_stale.member_id + '）を削除' : ''), true);
-    lookup();
-  } catch (e) { say($('#swMsg2'), emsg(e), false); }
+
+    const d =
+      await api(
+        '/api/admin/device/lookup?member_id=' +
+        encodeURIComponent(
+          mid
+        )
+      );
+
+
+    const v =
+      d.device;
+
+
+    table(
+      $('#swTbl'),
+      [
+
+        {
+          h:
+            '項目',
+
+          f:
+            r =>
+              r[0]
+        },
+
+        {
+          h:
+            '値',
+
+          f:
+            r =>
+              r[1]
+        },
+
+      ],
+      [
+
+        [
+          'ニックネーム',
+          v.nickname ||
+          '名前未設定'
+        ],
+
+        [
+          '現在の端末ID',
+          v.device_id_masked
+        ],
+
+        [
+          '記録数',
+          String(
+            v.weights
+          ) +
+          '件'
+        ],
+
+        [
+          '記録の範囲',
+          (
+            v.first_ymd ||
+            '—'
+          ) +
+          ' 〜 ' +
+          (
+            v.last_ymd ||
+            '—'
+          )
+        ],
+
+        [
+          'グループ',
+          v.group
+            ? (
+                v.group.name +
+                (
+                  v.group.is_owner
+                    ? '（オーナー）'
+                    : ''
+                )
+              )
+            : '未所属'
+        ],
+
+        [
+          '最終アクセス',
+          ts(
+            v.last_seen_at
+          )
+        ],
+
+        [
+          '利用停止',
+          v.banned
+            ? 'はい'
+            : 'いいえ'
+        ],
+
+      ]
+    );
+
+
+    say(
+      $('#swMsg'),
+      '照会しました',
+      true
+    );
+
+
+  } catch (e) {
+
+    $('#swTbl').innerHTML =
+      '';
+
+
+    say(
+      $('#swMsg'),
+      emsg(e),
+      false
+    );
+  }
 }
 
-/* ---------- 通報・ログ ---------- */
-async function loadReports() {
+
+async function swap() {
+
+  const mid =
+    $('#swMid')
+      .value
+      .trim();
+
+
+  const nd =
+    $('#swNew')
+      .value
+      .trim();
+
+
+  if (
+    !mid ||
+    !nd
+  ) {
+
+    say(
+      $('#swMsg2'),
+      'member_id と新しい端末IDの両方が必要です',
+      false
+    );
+
+    return;
+  }
+
+
+  if (
+    !confirm(
+      'この member_id を新しい端末IDに載せ替えます。\n元の端末からは操作できなくなります。よろしいですか？'
+    )
+  ) {
+
+    return;
+  }
+
+
   try {
-    const d = await api('/api/admin/reports?limit=100');
-    table($('#rTbl'), [
-      { h: '日時', f: r => ts(r.created_at) },
-      { h: '通報者', f: r => r.reporter_name || r.reporter_id },
-      { h: '対象', f: r => r.target_name || r.target_id },
-      { h: '理由', f: r => r.reason || '' },
-      { h: '対応', f: r => Number(r.handled) ? '済' : '未' },
-    ], d.reports || []);
-    say($('#rMsg'), (d.reports || []).length + '件', true);
-  } catch (e) { say($('#rMsg'), emsg(e), false); }
+
+    const d =
+      await api(
+        '/api/admin/device/swap',
+        {
+          method:
+            'POST',
+
+          type:
+            'application/json',
+
+          body:
+            JSON.stringify({
+              member_id:
+                mid,
+
+              new_device_id:
+                nd,
+
+              force:
+                $('#swForce')
+                  .checked
+            }),
+        }
+      );
+
+
+    say(
+      $('#swMsg2'),
+      '差し替えました。' +
+      d.old_device_id_masked +
+      ' → ' +
+      d.new_device_id_masked +
+      ' ／ 記録 ' +
+      d.weights +
+      '件' +
+      (
+        d.removed_stale
+          ? ' ／ 新端末側の空アカウント（' +
+            d.removed_stale
+              .member_id +
+            '）を削除'
+          : ''
+      ),
+      true
+    );
+
+
+    lookup();
+
+
+  } catch (e) {
+
+    say(
+      $('#swMsg2'),
+      emsg(e),
+      false
+    );
+  }
 }
+
+
+/* ============================================================
+   予想クイズ
+   ============================================================ */
+
+const VOTE_TEAMS = [
+
+  {
+    id:
+      'tsudamomo',
+
+    name:
+      'つだもも'
+  },
+
+  {
+    id:
+      'sakomitsu',
+
+    name:
+      'さこみつ'
+  },
+
+  {
+    id:
+      'gotomei',
+
+    name:
+      'ゴトめい'
+  },
+
+];
+
+
+function voteTeamName(
+  id
+) {
+
+  const t =
+    VOTE_TEAMS.find(
+      x =>
+        x.id ===
+        id
+    );
+
+
+  return t
+    ? t.name
+    : '—';
+}
+
+
+function fmtYmdJp(
+  ymd
+) {
+
+  if (!ymd) {
+    return '—';
+  }
+
+
+  const [
+    y,
+    m,
+    d
+  ] =
+    String(
+      ymd
+    )
+      .split('-')
+      .map(Number);
+
+
+  return (
+    y +
+    '/' +
+    m +
+    '/' +
+    d
+  );
+}
+
+
+function fmtVoteDeadline(
+  ms
+) {
+
+  if (!ms) {
+    return '—';
+  }
+
+
+  return new Date(
+    Number(ms)
+  )
+    .toLocaleString(
+      'ja-JP',
+      {
+        timeZone:
+          'Asia/Tokyo',
+
+        month:
+          'numeric',
+
+        day:
+          'numeric',
+
+        hour:
+          '2-digit',
+
+        minute:
+          '2-digit',
+
+        hourCycle:
+          'h23'
+      }
+    );
+}
+
+
+function voteCountNode(
+  r
+) {
+
+  const wrap =
+    document.createElement(
+      'div'
+    );
+
+
+  const total =
+    document.createElement(
+      'div'
+    );
+
+
+  total.style.fontWeight =
+    '700';
+
+
+  total.textContent =
+    '合計 ' +
+    Number(
+      r.voters ||
+      0
+    ) +
+    '票';
+
+
+  const list =
+    document.createElement(
+      'div'
+    );
+
+
+  list.className =
+    'vote-counts';
+
+
+  for (
+    const team of
+    VOTE_TEAMS
+  ) {
+
+    const span =
+      document.createElement(
+        'span'
+      );
+
+
+    span.textContent =
+      team.name +
+      ' ' +
+      Number(
+        (
+          r.counts &&
+          r.counts[
+            team.id
+          ]
+        ) ||
+        0
+      ) +
+      '票';
+
+
+    list.appendChild(
+      span
+    );
+  }
+
+
+  wrap.append(
+    total,
+    list
+  );
+
+
+  return wrap;
+}
+
+
+function voteWinnerNode(
+  r
+) {
+
+  const span =
+    document.createElement(
+      'span'
+    );
+
+
+  if (
+    r.finalized
+  ) {
+
+    span.textContent =
+      r.winner_name ||
+      voteTeamName(
+        r.winner_team
+      );
+
+
+    span.className =
+      'winner';
+
+  } else {
+
+    span.textContent =
+      r.can_finalize
+        ? '未確定'
+        : '結果待ち';
+
+
+    span.className =
+      r.can_finalize
+        ? 'tag wait'
+        : 'mut';
+  }
+
+
+  return span;
+}
+
+
+function voteActionNode(
+  r
+) {
+
+  const wrap =
+    document.createElement(
+      'div'
+    );
+
+
+  wrap.className =
+    'vote-action';
+
+
+  const select =
+    document.createElement(
+      'select'
+    );
+
+
+  for (
+    const team of
+    VOTE_TEAMS
+  ) {
+
+    const option =
+      document.createElement(
+        'option'
+      );
+
+
+    option.value =
+      team.id;
+
+
+    option.textContent =
+      team.name;
+
+
+    if (
+      r.winner_team ===
+      team.id
+    ) {
+
+      option.selected =
+        true;
+    }
+
+
+    select.appendChild(
+      option
+    );
+  }
+
+
+  const button =
+    document.createElement(
+      'button'
+    );
+
+
+  button.type =
+    'button';
+
+
+  button.className =
+    'pri';
+
+
+  button.textContent =
+    r.finalized
+      ? '正解を変更'
+      : '正解を確定';
+
+
+  button.disabled =
+    !r.can_finalize;
+
+
+  button.onclick =
+    async () => {
+
+      const teamId =
+        select.value;
+
+
+      const teamName =
+        voteTeamName(
+          teamId
+        );
+
+
+      const text =
+        r.finalized
+          ? (
+              fmtYmdJp(
+                r.target_date
+              ) +
+              ' の正解を「' +
+              teamName +
+              '」へ変更します。\nユーザーの正解数も再計算されます。よろしいですか？'
+            )
+          : (
+              fmtYmdJp(
+                r.target_date
+              ) +
+              ' の正解を「' +
+              teamName +
+              '」で確定しますか？'
+            );
+
+
+      if (
+        !confirm(
+          text
+        )
+      ) {
+
+        return;
+      }
+
+
+      button.disabled =
+        true;
+
+
+      try {
+
+        await api(
+          '/api/admin/vote/result',
+          {
+            method:
+              'POST',
+
+            type:
+              'application/json',
+
+            body:
+              JSON.stringify({
+                round_key:
+                  r.round_key,
+
+                winner_team:
+                  teamId,
+              }),
+          }
+        );
+
+
+        say(
+          $('#vMsg'),
+          fmtYmdJp(
+            r.target_date
+          ) +
+          ' の正解を「' +
+          teamName +
+          '」に設定しました',
+          true
+        );
+
+
+        await loadVotes();
+
+
+      } catch (e) {
+
+        button.disabled =
+          false;
+
+
+        say(
+          $('#vMsg'),
+          emsg(e),
+          false
+        );
+      }
+    };
+
+
+  wrap.append(
+    select,
+    button
+  );
+
+
+  return wrap;
+}
+
+
+async function loadVotes() {
+
+  try {
+
+    const d =
+      await api(
+        '/api/admin/vote/rounds?limit=60'
+      );
+
+
+    const rows =
+      d.rounds ||
+      [];
+
+
+    table(
+      $('#vTbl'),
+      [
+
+        {
+          h:
+            '結果日',
+
+          f:
+            r =>
+              fmtYmdJp(
+                r.target_date
+              )
+        },
+
+        {
+          h:
+            '締切',
+
+          f:
+            r =>
+              fmtVoteDeadline(
+                r.deadline_at
+              )
+        },
+
+        {
+          h:
+            '投票',
+
+          f:
+            r =>
+              voteCountNode(
+                r
+              )
+        },
+
+        {
+          h:
+            '正解',
+
+          f:
+            r =>
+              voteWinnerNode(
+                r
+              )
+        },
+
+        {
+          h:
+            '操作',
+
+          f:
+            r =>
+              voteActionNode(
+                r
+              )
+        },
+
+      ],
+      rows
+    );
+
+
+    say(
+      $('#vMsg'),
+      rows.length +
+      '問を読み込みました',
+      true
+    );
+
+
+  } catch (e) {
+
+    $('#vTbl').innerHTML =
+      '';
+
+
+    say(
+      $('#vMsg'),
+      emsg(e),
+      false
+    );
+  }
+}
+
+
+/* ============================================================
+   通報
+   ============================================================ */
+
+async function loadReports() {
+
+  try {
+
+    const d =
+      await api(
+        '/api/admin/reports?limit=100'
+      );
+
+
+    table(
+      $('#rTbl'),
+      [
+
+        {
+          h:
+            '日時',
+
+          f:
+            r =>
+              ts(
+                r.created_at
+              )
+        },
+
+        {
+          h:
+            '通報者',
+
+          f:
+            r =>
+              r.reporter_name ||
+              r.reporter_id
+        },
+
+        {
+          h:
+            '対象',
+
+          f:
+            r =>
+              r.target_name ||
+              r.target_id
+        },
+
+        {
+          h:
+            '理由',
+
+          f:
+            r =>
+              r.reason ||
+              ''
+        },
+
+        {
+          h:
+            '対応',
+
+          f:
+            r =>
+              Number(
+                r.handled
+              )
+                ? '済'
+                : '未'
+        },
+
+      ],
+      d.reports ||
+      []
+    );
+
+
+    say(
+      $('#rMsg'),
+      (
+        d.reports ||
+        []
+      ).length +
+      '件',
+      true
+    );
+
+
+  } catch (e) {
+
+    say(
+      $('#rMsg'),
+      emsg(e),
+      false
+    );
+  }
+}
+
+
+/* ============================================================
+   操作ログ
+   ============================================================ */
 
 async function loadLog() {
+
   try {
-    const d = await api('/api/admin/log?limit=200');
-    table($('#lTbl'), [
-      { h: '日時', f: r => ts(r.ts) },
-      { h: '実行者', f: r => r.actor || '—' },
-      { h: '操作', f: r => r.action || '—' },
-      { h: 'グループ', f: r => r.group_id || '—' },
-      { h: '詳細', f: r => r.detail || '' },
-    ], d.log || []);
-    say($('#lMsg'), (d.log || []).length + '件', true);
-  } catch (e) { say($('#lMsg'), emsg(e), false); }
+
+    const d =
+      await api(
+        '/api/admin/log?limit=200'
+      );
+
+
+    table(
+      $('#lTbl'),
+      [
+
+        {
+          h:
+            '日時',
+
+          f:
+            r =>
+              ts(
+                r.ts
+              )
+        },
+
+        {
+          h:
+            '実行者',
+
+          f:
+            r =>
+              r.actor ||
+              '—'
+        },
+
+        {
+          h:
+            '操作',
+
+          f:
+            r =>
+              r.action ||
+              '—'
+        },
+
+        {
+          h:
+            'グループ',
+
+          f:
+            r =>
+              r.group_id ||
+              '—'
+        },
+
+        {
+          h:
+            '詳細',
+
+          f:
+            r =>
+              r.detail ||
+              ''
+        },
+
+      ],
+      d.log ||
+      []
+    );
+
+
+    say(
+      $('#lMsg'),
+      (
+        d.log ||
+        []
+      ).length +
+      '件',
+      true
+    );
+
+
+  } catch (e) {
+
+    say(
+      $('#lMsg'),
+      emsg(e),
+      false
+    );
+  }
 }
 
-/* ---------- 配線 ---------- */
-const today = new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10);
-$('#gDate').value = today;
-$('#dDate').value = today;
 
-$('#btnLogin').onclick = connect;
-$('#tok').onkeydown = e => { if (e.key === 'Enter') connect(); };
-$('#btnLogout').onclick = () => {
-  sessionStorage.removeItem(K_TOK);
-  $('#app').hidden = true;
-  say($('#authMsg'), 'トークンを破棄しました', true);
-};
+/* ============================================================
+   初期値
+   ============================================================ */
 
-document.querySelector('nav').onclick = e => {
-  const b = e.target.closest('button[data-t]');
-  if (!b) return;
-  [...e.currentTarget.children].forEach(x => x.classList.toggle('on', x === b));
-  ['groups', 'day', 'io', 'dev', 'rep', 'log']
-    .forEach(t => { $('#p-' + t).hidden = (t !== b.dataset.t); });
-};
+const today =
+  new Date(
+    Date.now() +
+    9 *
+    3600000
+  )
+    .toISOString()
+    .slice(
+      0,
+      10
+    );
 
-$('#btnGroups').onclick = () => loadGroups().catch(e => say($('#gMsg'), emsg(e), false));
-$('#btnDay').onclick = loadDay;
-$('#btnPrev').onclick = () => shiftDay(-1);
-$('#btnNext').onclick = () => shiftDay(1);
-$('#dFill').onchange = loadDay;
 
-$('#btnCsv').onclick = async () => {
-  const gid = $('#xGid').value;
-  if (!gid) { say($('#xMsg'), 'グループを選んでください', false); return; }
-  try { say($('#xMsg'), await download('/api/admin/export?format=csv&gid=' + encodeURIComponent(gid)) + ' を保存しました', true); }
-  catch (e) { say($('#xMsg'), emsg(e), false); }
-};
-$('#btnJson').onclick = async () => {
-  const gid = $('#xGid').value;
-  if (!gid) { say($('#xMsg'), 'グループを選んでください', false); return; }
-  try { say($('#xMsg'), await download('/api/admin/export?format=json&gid=' + encodeURIComponent(gid)) + ' を保存しました', true); }
-  catch (e) { say($('#xMsg'), emsg(e), false); }
-};
+$('#gDate').value =
+  today;
 
-$('#btnDry').onclick = () => doImport(true);
-$('#btnRun').onclick = () => doImport(false);
-$('#btnLookup').onclick = lookup;
-$('#btnSwap').onclick = swap;
-$('#btnRep').onclick = loadReports;
-$('#btnLog').onclick = loadLog;
 
-if (token()) connect();
+$('#dDate').value =
+  today;
+
+
+/* ============================================================
+   配線
+   ============================================================ */
+
+$('#btnLogin').onclick =
+  connect;
+
+
+$('#tok').onkeydown =
+  e => {
+
+    if (
+      e.key ===
+      'Enter'
+    ) {
+
+      connect();
+    }
+  };
+
+
+$('#btnLogout').onclick =
+  () => {
+
+    sessionStorage.removeItem(
+      K_TOK
+    );
+
+
+    $('#app').hidden =
+      true;
+
+
+    say(
+      $('#authMsg'),
+      'トークンを破棄しました',
+      true
+    );
+  };
+
+
+$('#adminNav').onclick =
+  e => {
+
+    const b =
+      e.target.closest(
+        'button[data-t]'
+      );
+
+
+    if (!b) {
+      return;
+    }
+
+
+    [
+      ...e.currentTarget
+        .children
+    ].forEach(
+      x =>
+        x.classList.toggle(
+          'on',
+          x === b
+        )
+    );
+
+
+    const tabs = [
+      'groups',
+      'day',
+      'io',
+      'dev',
+      'vote',
+      'rep',
+      'log',
+    ];
+
+
+    tabs.forEach(
+      t => {
+
+        $('#p-' + t).hidden =
+          t !==
+          b.dataset.t;
+      }
+    );
+
+
+    /*
+     * 予想タブを開いたら最新情報を読む。
+     */
+    if (
+      b.dataset.t ===
+      'vote'
+    ) {
+
+      loadVotes();
+    }
+  };
+
+
+$('#btnGroups').onclick =
+  () =>
+    loadGroups()
+      .catch(
+        e =>
+          say(
+            $('#gMsg'),
+            emsg(e),
+            false
+          )
+      );
+
+
+$('#btnDay').onclick =
+  loadDay;
+
+
+$('#btnPrev').onclick =
+  () =>
+    shiftDay(
+      -1
+    );
+
+
+$('#btnNext').onclick =
+  () =>
+    shiftDay(
+      1
+    );
+
+
+$('#dFill').onchange =
+  loadDay;
+
+
+/* ---------- CSV ---------- */
+
+$('#btnCsv').onclick =
+  async () => {
+
+    const gid =
+      $('#xGid').value;
+
+
+    if (!gid) {
+
+      say(
+        $('#xMsg'),
+        'グループを選んでください',
+        false
+      );
+
+      return;
+    }
+
+
+    try {
+
+      const name =
+        await download(
+          '/api/admin/export?format=csv&gid=' +
+          encodeURIComponent(
+            gid
+          )
+        );
+
+
+      say(
+        $('#xMsg'),
+        name +
+        ' を保存しました',
+        true
+      );
+
+
+    } catch (e) {
+
+      say(
+        $('#xMsg'),
+        emsg(e),
+        false
+      );
+    }
+  };
+
+
+$('#btnJson').onclick =
+  async () => {
+
+    const gid =
+      $('#xGid').value;
+
+
+    if (!gid) {
+
+      say(
+        $('#xMsg'),
+        'グループを選んでください',
+        false
+      );
+
+      return;
+    }
+
+
+    try {
+
+      const name =
+        await download(
+          '/api/admin/export?format=json&gid=' +
+          encodeURIComponent(
+            gid
+          )
+        );
+
+
+      say(
+        $('#xMsg'),
+        name +
+        ' を保存しました',
+        true
+      );
+
+
+    } catch (e) {
+
+      say(
+        $('#xMsg'),
+        emsg(e),
+        false
+      );
+    }
+  };
+
+
+$('#btnDry').onclick =
+  () =>
+    doImport(
+      true
+    );
+
+
+$('#btnRun').onclick =
+  () =>
+    doImport(
+      false
+    );
+
+
+$('#btnLookup').onclick =
+  lookup;
+
+
+$('#btnSwap').onclick =
+  swap;
+
+
+/* ---------- 予想 ---------- */
+
+$('#btnVote').onclick =
+  loadVotes;
+
+
+/* ---------- 通報・ログ ---------- */
+
+$('#btnRep').onclick =
+  loadReports;
+
+
+$('#btnLog').onclick =
+  loadLog;
+
+
+/* ============================================================
+   セッションにトークンが残っている場合
+   ============================================================ */
+
+if (
+  token()
+) {
+
+  connect();
+}
+
 </script>
+
 </body>
 </html>

@@ -3,26 +3,36 @@
 /* ============================================================
    みんやせ / notify.js
 
-   iOSローカル通知
+   iOS ローカル通知
    ------------------------------------------------------------
-   ・最終体重記録を起点に通知を予約
-   ・3日設定:
-       3 / 6 / 9 / 12日目
-       13日目 休眠予告
-       14日目 休眠入り
-   ・7日設定:
+   ・最終体重記録を起点に通知
+   ・3日設定
+       3日目
+       6日目
+       9日目
+       12日目
+       13日目 おやすみ中予告
+       14日目 おやすみ中入り
+   ・7日設定
        7日目
-       13日目 休眠予告
-       14日目 休眠入り
-   ・14日以降は通知しない
-   ・体重保存成功後に予約を組み直す
-   ・最新記録削除後も予約を組み直す
-   ・通知OFFで全キャンセル
-   ・通知許可を拒否されたらサーバー側も自動でOFF
-   ・Web版では動作しない
+       13日目 おやすみ中予告
+       14日目 おやすみ中入り
+   ・14日以降は通知停止
+   ・体重保存成功後に予約を再作成
+   ・体重削除成功後にも予約を再計算
+   ・通知設定変更成功後に予約を再作成
+   ・通知OFFで予約を全削除
+   ・通知拒否時はサーバー側 notify_on も false に戻す
+   ・Web版では表示しない
+   ・通知許可ダイアログはユーザーが通知設定を保存した時だけ
    ============================================================ */
 
 (() => {
+
+  /* ==========================================================
+     基本設定
+     ========================================================== */
+
   const API =
     (typeof window !== 'undefined' &&
       window.MINYASE_API_BASE) ||
@@ -32,16 +42,18 @@
     'tsudatsu.device_id.v1';
 
   /*
-   * notify.js 自身のAPI通信はこれを使う。
-   * 後から window.fetch を監視用に差し替えても、
-   * notify.js 内部の通信が再び監視に引っかからないようにする。
+   * notify.js 内部通信専用。
+   *
+   * 後から window.fetch を監視用に差し替えるため、
+   * notify.js 自身の通信まで監視対象に入らないよう
+   * 元の fetch を保持する。
    */
   const baseFetch =
     window.fetch.bind(window);
 
+
   /*
-   * みんやせ専用の通知ID。
-   * 他機能のローカル通知とぶつからない範囲を使う。
+   * みんやせ専用のローカル通知ID。
    */
   const IDS = {
     3: 730003,
@@ -56,28 +68,37 @@
   const ALL_IDS =
     Object.values(IDS);
 
+
   let LocalNotifications =
     null;
 
   let syncing =
     false;
 
+  let queuedSync =
+    null;
+
   let fetchPatched =
     false;
 
-  /* ------------------------------------------------------------
+
+  /* ==========================================================
      DOM
-     ------------------------------------------------------------ */
+     ========================================================== */
 
   function $(id) {
     return document.getElementById(id);
   }
 
-  function msg(text, ok) {
+
+  function message(text, ok) {
+
     const n =
       $('nmsg');
 
-    if (!n) return;
+    if (!n) {
+      return;
+    }
 
     n.textContent =
       text || '';
@@ -87,7 +108,54 @@
       (ok ? 'ok' : 'ng');
   }
 
-  function setUiOff() {
+
+  function notificationCard() {
+
+    const on =
+      $('notifyOn');
+
+    if (!on) {
+      return null;
+    }
+
+    return on.closest(
+      '.card'
+    );
+  }
+
+
+  function updateControls() {
+
+    const on =
+      $('notifyOn');
+
+    const days =
+      $('notifyDays');
+
+    const hour =
+      $('notifyHour');
+
+    if (!on) {
+      return;
+    }
+
+    const disabled =
+      !on.checked;
+
+    if (days) {
+      days.disabled =
+        disabled;
+    }
+
+    if (hour) {
+      hour.disabled =
+        disabled;
+    }
+  }
+
+
+  function applySettingsToUi(settings) {
+
     const on =
       $('notifyOn');
 
@@ -99,25 +167,57 @@
 
     if (on) {
       on.checked =
-        false;
+        !!settings.on;
     }
 
     if (days) {
-      days.disabled =
-        true;
+      days.value =
+        String(
+          settings.days === 7
+            ? 7
+            : 3
+        );
     }
 
     if (hour) {
-      hour.disabled =
-        true;
+
+      const h =
+        Number.isInteger(
+          settings.hour
+        ) &&
+        settings.hour >= 0 &&
+        settings.hour <= 23
+          ? settings.hour
+          : 20;
+
+      hour.value =
+        String(h);
     }
+
+    updateControls();
   }
 
-  /* ------------------------------------------------------------
+
+  function setUiOff() {
+
+    const on =
+      $('notifyOn');
+
+    if (on) {
+      on.checked =
+        false;
+    }
+
+    updateControls();
+  }
+
+
+  /* ==========================================================
      Capacitor
-     ------------------------------------------------------------ */
+     ========================================================== */
 
   function isNative() {
+
     const c =
       window.Capacitor;
 
@@ -132,11 +232,31 @@
       return c.isNativePlatform();
     }
 
-    return !!c.getPlatform &&
-      c.getPlatform() !== 'web';
+    if (
+      typeof c.getPlatform ===
+      'function'
+    ) {
+      return (
+        c.getPlatform() !==
+        'web'
+      );
+    }
+
+    return false;
   }
 
+
+  /*
+   * Capacitor iOS は登録済みネイティブプラグインを
+   * window.Capacitor.Plugins に公開する。
+   *
+   * そのためバンドラーを使わない現在の構成では
+   * Plugins.LocalNotifications を最優先で使う。
+   *
+   * registerPlugin は互換用フォールバック。
+   */
   function plugin() {
+
     if (LocalNotifications) {
       return LocalNotifications;
     }
@@ -144,28 +264,53 @@
     const c =
       window.Capacitor;
 
-    if (
-      !c ||
-      typeof c.registerPlugin !==
-        'function'
-    ) {
+    if (!c) {
       return null;
     }
 
-    LocalNotifications =
-      c.registerPlugin(
-        'LocalNotifications'
-      );
+    if (
+      c.Plugins &&
+      c.Plugins.LocalNotifications
+    ) {
 
-    return LocalNotifications;
+      LocalNotifications =
+        c.Plugins.LocalNotifications;
+
+      return LocalNotifications;
+    }
+
+    if (
+      typeof c.registerPlugin ===
+      'function'
+    ) {
+
+      try {
+
+        LocalNotifications =
+          c.registerPlugin(
+            'LocalNotifications'
+          );
+
+        return LocalNotifications;
+
+      } catch (e) {
+
+        console.error(
+          'notify_register_plugin',
+          e
+        );
+      }
+    }
+
+    return null;
   }
 
-  /* ------------------------------------------------------------
-     日付
-     アプリ本体と同じくJSTを基準にする
-     ------------------------------------------------------------ */
 
-  const JST_FMT =
+  /* ==========================================================
+     日付
+     ========================================================== */
+
+  const JST_DATE_FMT =
     new Intl.DateTimeFormat(
       'en-CA',
       {
@@ -183,17 +328,45 @@
       }
     );
 
+
+  const JST_DISPLAY_FMT =
+    new Intl.DateTimeFormat(
+      'ja-JP',
+      {
+        timeZone:
+          'Asia/Tokyo',
+
+        month:
+          'numeric',
+
+        day:
+          'numeric',
+
+        hour:
+          '2-digit',
+
+        minute:
+          '2-digit',
+
+        hourCycle:
+          'h23',
+      }
+    );
+
+
   function todayYmdJST() {
-    const p =
-      JST_FMT.formatToParts(
-        new Date()
-      );
+
+    const parts =
+      JST_DATE_FMT
+        .formatToParts(
+          new Date()
+        );
 
     const get =
       type =>
-        p.find(
-          x =>
-            x.type === type
+        parts.find(
+          p =>
+            p.type === type
         ).value;
 
     return (
@@ -205,66 +378,83 @@
     );
   }
 
-  function addDaysAtHour(
+
+  /*
+   * YYYY-MM-DD の基準日に add 日を加え、
+   * JSTの指定時刻を絶対時刻の Date に変換する。
+   *
+   * 端末タイムゾーンが変わっても、
+   * みんやせのJST基準を維持する。
+   */
+  function addDaysAtHourJST(
     ymd,
     add,
     hour
   ) {
-    const parts =
+
+    const [
+      year,
+      month,
+      day
+    ] =
       String(ymd)
         .split('-')
         .map(Number);
 
-    const y =
-      parts[0];
-
-    const m =
-      parts[1];
-
-    const d =
-      parts[2];
+    if (
+      !Number.isInteger(year) ||
+      !Number.isInteger(month) ||
+      !Number.isInteger(day)
+    ) {
+      throw new Error(
+        'bad_base_date'
+      );
+    }
 
     /*
-     * iPhoneのローカル時刻として予約する。
-     * 日本で利用する前提ではJSTの指定時刻になる。
+     * JST = UTC+9
      */
     return new Date(
-      y,
-      m - 1,
-      d + add,
-      hour,
-      0,
-      0,
-      0
+      Date.UTC(
+        year,
+        month - 1,
+        day + add,
+        hour - 9,
+        0,
+        0,
+        0
+      )
     );
   }
 
-  function fmtDate(d) {
-    return (
-      (d.getMonth() + 1) +
-      '月' +
-      d.getDate() +
-      '日 ' +
-      String(
-        d.getHours()
-      ).padStart(2, '0') +
-      ':00'
-    );
+
+  function formatJST(date) {
+
+    return JST_DISPLAY_FMT
+      .format(date);
   }
 
-  /* ------------------------------------------------------------
+
+  /* ==========================================================
      API
-     ------------------------------------------------------------ */
+     ========================================================== */
 
   function deviceId() {
+
     return (
       localStorage.getItem(
         K_DEV
-      ) || ''
+      ) ||
+      ''
     );
   }
 
-  async function getJson(path) {
+
+  async function requestJson(
+    path,
+    options = {}
+  ) {
+
     const did =
       deviceId();
 
@@ -274,266 +464,360 @@
       );
     }
 
+    const method =
+      options.method ||
+      'GET';
+
+    const headers = {
+      'content-type':
+        'application/json',
+
+      'x-device-id':
+        did,
+    };
+
+    const fetchOptions = {
+      method,
+      headers,
+      cache:
+        'no-store',
+    };
+
+    if (
+      options.body !==
+      undefined
+    ) {
+
+      fetchOptions.body =
+        JSON.stringify(
+          options.body
+        );
+    }
+
     const res =
       await baseFetch(
         API + path,
-        {
-          method:
-            'GET',
-
-          headers: {
-            'content-type':
-              'application/json',
-
-            'x-device-id':
-              did,
-          },
-
-          cache:
-            'no-store',
-        }
+        fetchOptions
       );
 
     let data =
       {};
 
     try {
+
       data =
         await res.json();
-    } catch {}
+
+    } catch (_) {
+
+      data =
+        {};
+    }
 
     if (
       !res.ok ||
       data.ok === false
     ) {
+
       throw new Error(
         data.error ||
-        'http_' +
+        (
+          'http_' +
           res.status
+        )
       );
     }
 
     return data;
   }
 
-  /*
-   * iOS側で通知を拒否された場合、
-   * サーバー側の notify_on=true を残さない。
-   *
-   * baseFetch を直接使うので、
-   * patchFetch の通知設定監視には再び入らない。
-   */
+
   async function turnNotifyOffOnServer() {
-    const did =
-      deviceId();
 
-    if (!did) {
-      throw new Error(
-        'no_device'
-      );
-    }
+    await requestJson(
+      '/api/me',
+      {
+        method:
+          'PATCH',
 
-    const res =
-      await baseFetch(
-        API + '/api/me',
-        {
-          method:
-            'PATCH',
-
-          headers: {
-            'content-type':
-              'application/json',
-
-            'x-device-id':
-              did,
-          },
-
-          body:
-            JSON.stringify({
-              notify_on: false,
-            }),
-
-          cache:
-            'no-store',
-        }
-      );
-
-    let data =
-      {};
-
-    try {
-      data =
-        await res.json();
-    } catch {}
-
-    if (
-      !res.ok ||
-      data.ok === false
-    ) {
-      throw new Error(
-        data.error ||
-        'http_' +
-          res.status
-      );
-    }
+        body: {
+          notify_on:
+            false,
+        },
+      }
+    );
 
     return true;
   }
 
+
   async function getSettingsAndLatest() {
+
     const [
       meData,
-      weightsData,
+      weightsData
     ] =
       await Promise.all([
-        getJson('/api/me'),
-        getJson('/api/weights'),
+        requestJson(
+          '/api/me'
+        ),
+
+        requestJson(
+          '/api/weights'
+        ),
       ]);
 
+
     const me =
-      meData.me || {};
+      meData.me ||
+      {};
+
 
     const weights =
-      weightsData.weights || [];
+      Array.isArray(
+        weightsData.weights
+      )
+        ? weightsData.weights
+        : [];
+
 
     let latest =
       null;
 
-    for (const row of weights) {
+
+    for (
+      const row of
+      weights
+    ) {
+
       if (
-        row &&
-        row.ymd &&
-        (
-          latest === null ||
-          row.ymd > latest
-        )
+        !row ||
+        typeof row.ymd !==
+          'string'
       ) {
+        continue;
+      }
+
+      if (
+        !/^\d{4}-\d{2}-\d{2}$/
+          .test(
+            row.ymd
+          )
+      ) {
+        continue;
+      }
+
+      if (
+        latest === null ||
+        row.ymd > latest
+      ) {
+
         latest =
           row.ymd;
       }
     }
 
+
+    const rawDays =
+      Number(
+        me.notify_days
+      );
+
+
+    const rawHour =
+      Number(
+        me.notify_hour
+      );
+
+
     return {
+
       on:
         !!me.notify_on,
 
       days:
-        Number(
-          me.notify_days || 3
-        ),
+        rawDays === 7
+          ? 7
+          : 3,
 
       hour:
-        Number(
-          me.notify_hour == null
-            ? 20
-            : me.notify_hour
-        ),
+        Number.isInteger(
+          rawHour
+        ) &&
+        rawHour >= 0 &&
+        rawHour <= 23
+          ? rawHour
+          : 20,
 
-      latest:
-        latest,
+      latest,
     };
   }
 
-  /* ------------------------------------------------------------
-     Permission
-     ------------------------------------------------------------ */
+
+  /* ==========================================================
+     通知権限
+     ========================================================== */
 
   async function permission(
-    request
+    shouldRequest
   ) {
+
     const p =
       plugin();
 
-    if (!p) {
+    if (
+      !p ||
+      typeof p.checkPermissions !==
+        'function'
+    ) {
+
       return {
-        granted: false,
-        status: 'unavailable',
+        granted:
+          false,
+
+        status:
+          'unavailable',
       };
     }
 
+
     try {
-      let s =
-        await p.checkPermissions();
+
+      let state =
+        await p
+          .checkPermissions();
+
 
       if (
-        s.display ===
-        'granted'
+        state &&
+        state.display ===
+          'granted'
       ) {
+
         return {
-          granted: true,
-          status: 'granted',
+          granted:
+            true,
+
+          status:
+            'granted',
         };
       }
 
+
       /*
-       * 起動時には勝手に許可ダイアログを出さない。
-       * 現在の状態だけ返す。
+       * アプリ起動だけでは
+       * 通知許可ダイアログを出さない。
        */
-      if (!request) {
+      if (!shouldRequest) {
+
         return {
-          granted: false,
+          granted:
+            false,
+
           status:
-            s.display ||
+            (
+              state &&
+              state.display
+            ) ||
             'prompt',
         };
       }
 
+
+      if (
+        typeof p.requestPermissions !==
+        'function'
+      ) {
+
+        return {
+          granted:
+            false,
+
+          status:
+            'unavailable',
+        };
+      }
+
+
       /*
-       * 「通知設定を保存」を押した時だけ
-       * iOSの許可ダイアログを表示する。
+       * 「通知設定を保存」を
+       * ユーザーが押した場合のみ許可を要求。
        */
-      s =
-        await p.requestPermissions();
+      state =
+        await p
+          .requestPermissions();
+
 
       return {
+
         granted:
-          s.display ===
-          'granted',
+          !!(
+            state &&
+            state.display ===
+              'granted'
+          ),
 
         status:
-          s.display ||
+          (
+            state &&
+            state.display
+          ) ||
           'denied',
       };
 
+
     } catch (e) {
+
       console.error(
         'notify_permission',
         e
       );
 
       return {
-        granted: false,
-        status: 'error',
+        granted:
+          false,
+
+        status:
+          'error',
       };
     }
   }
 
-  /* ------------------------------------------------------------
-     Cancel
-     ------------------------------------------------------------ */
+
+  /* ==========================================================
+     通知キャンセル
+     ========================================================== */
 
   async function cancelAll() {
+
     const p =
       plugin();
 
-    if (!p) {
+    if (
+      !p ||
+      typeof p.cancel !==
+        'function'
+    ) {
       return;
     }
 
+
     try {
+
       await p.cancel({
         notifications:
           ALL_IDS.map(
             id => ({
-              id,
+              id
             })
           ),
       });
 
     } catch (e) {
+
       /*
-       * 予約が存在しない場合などは
-       * 本体処理を止めない。
+       * まだ予約されていないIDを含む場合などでも、
+       * アプリ本体は止めない。
        */
       console.warn(
         'notify_cancel',
@@ -542,25 +826,31 @@
     }
   }
 
-  /* ------------------------------------------------------------
-     通知内容
-     ------------------------------------------------------------ */
+
+  /* ==========================================================
+     通知文章
+     ========================================================== */
 
   function normalBody() {
+
     return (
       '最近体重を記録してないよ。' +
       '今日の体重を記録しよう！'
     );
   }
 
+
   function beforeSleepBody() {
+
     return (
       '明日でおやすみ中になります。' +
       '体重を記録すると継続できます。'
     );
   }
 
+
   function sleepBody() {
+
     return (
       '14日間記録がないため、' +
       'おやすみ中になりました。' +
@@ -568,7 +858,9 @@
     );
   }
 
+
   function bodyForDay(day) {
+
     if (day === 13) {
       return beforeSleepBody();
     }
@@ -580,68 +872,94 @@
     return normalBody();
   }
 
-  /* ------------------------------------------------------------
-     予約作成
-     ------------------------------------------------------------ */
 
   function targetDays(interval) {
-    const normal =
-      interval === 7
-        ? [7]
-        : [3, 6, 9, 12];
+
+    if (interval === 7) {
+
+      return [
+        7,
+        13,
+        14,
+      ];
+    }
 
     return [
-      ...normal,
+      3,
+      6,
+      9,
+      12,
       13,
       14,
     ];
   }
+
+
+  /* ==========================================================
+     通知予約
+     ========================================================== */
 
   async function scheduleFrom(
     baseYmd,
     interval,
     hour
   ) {
+
     const p =
       plugin();
 
-    if (!p) {
+    if (
+      !p ||
+      typeof p.schedule !==
+        'function'
+    ) {
+
       throw new Error(
         'plugin_missing'
       );
     }
 
+
     await cancelAll();
 
+
     const now =
-      new Date();
+      Date.now();
+
 
     const notifications =
       [];
 
+
     for (
       const day of
-      targetDays(interval)
+      targetDays(
+        interval
+      )
     ) {
+
       const at =
-        addDaysAtHour(
+        addDaysAtHourJST(
           baseYmd,
           day,
           hour
         );
 
+
       /*
-       * すでに過ぎている通知は
-       * 今さら鳴らさない。
+       * 過去になった通知を
+       * 後からまとめて鳴らさない。
        */
       if (
         at.getTime() <=
-        now.getTime()
+        now
       ) {
         continue;
       }
 
+
       notifications.push({
+
         id:
           IDS[day],
 
@@ -655,6 +973,26 @@
           at,
         },
 
+        /*
+         * Capacitor 7では
+         * iOSでsound未指定だと無音。
+         *
+         * 空文字は「サウンドファイルが見つからない」
+         * 扱いとなり、iOSのデフォルト通知音を使用する。
+         */
+        sound:
+          '',
+
+        /*
+         * foregroundでも
+         * 通知自体を抑制しない。
+         */
+        silent:
+          false,
+
+        threadIdentifier:
+          'minyase-reminder',
+
         extra: {
           minyase:
             true,
@@ -665,50 +1003,118 @@
       });
     }
 
+
     if (
-      notifications.length
+      notifications.length >
+      0
     ) {
+
       await p.schedule({
         notifications,
       });
     }
 
+
     return notifications;
   }
 
-  /* ------------------------------------------------------------
-     同期
-     requestPermission:
-       true  = ユーザーが通知設定を保存したとき
-       false = 起動時など
-     ------------------------------------------------------------ */
+
+  /* ==========================================================
+     通知同期
+     ========================================================== */
 
   async function sync(
     requestPermission,
     showMessage
   ) {
-    if (
-      syncing ||
-      !isNative()
-    ) {
+
+    if (!isNative()) {
       return;
     }
+
+
+    /*
+     * 同期中に体重保存などが発生した場合は、
+     * その同期要求を捨てずに後でもう一度実行する。
+     */
+    if (syncing) {
+
+      if (!queuedSync) {
+
+        queuedSync = {
+          requestPermission:
+            !!requestPermission,
+
+          showMessage:
+            !!showMessage,
+        };
+
+      } else {
+
+        queuedSync
+          .requestPermission =
+          (
+            queuedSync
+              .requestPermission ||
+            !!requestPermission
+          );
+
+        queuedSync
+          .showMessage =
+          (
+            queuedSync
+              .showMessage ||
+            !!showMessage
+          );
+      }
+
+      return;
+    }
+
 
     syncing =
       true;
 
+
     try {
-      const s =
+
+      const p =
+        plugin();
+
+
+      if (!p) {
+
+        if (showMessage) {
+
+          message(
+            '通知機能を読み込めませんでした',
+            false
+          );
+        }
+
+        return;
+      }
+
+
+      const settings =
         await getSettingsAndLatest();
 
+
+      applySettingsToUi(
+        settings
+      );
+
+
       /*
-       * OFFなら予約を全部消す。
+       * 通知OFF
        */
-      if (!s.on) {
+      if (!settings.on) {
+
         await cancelAll();
 
         if (showMessage) {
-          msg(
+
+          message(
             '通知をオフにしました',
             true
           );
@@ -717,345 +1123,605 @@
         return;
       }
 
+
+      /*
+       * OS通知権限
+       */
       const perm =
         await permission(
           !!requestPermission
         );
 
+
       if (!perm.granted) {
+
         /*
-         * 明示的に拒否済みなら、
-         * 端末側の予約を消し、
-         * サーバー側のnotify_onもfalseへ戻す。
-         *
-         * 起動時にまだ一度も尋ねていない
-         * prompt状態の場合は勝手にOFFにはしない。
+         * iOS設定ですでに拒否されている場合。
          */
         if (
           perm.status ===
           'denied'
         ) {
+
           await cancelAll();
 
+
           try {
+
             await turnNotifyOffOnServer();
 
-            setUiOff();
-
-            if (showMessage) {
-              msg(
-                'iPhoneの通知が許可されなかったため、通知をオフに戻しました',
-                false
-              );
-            }
-
           } catch (e) {
+
             console.error(
-              'notify_auto_off',
+              'notify_auto_off_server',
               e
             );
+          }
 
-            setUiOff();
 
-            if (showMessage) {
-              msg(
-                '通知が許可されていません。通知設定をオフにしてください',
-                false
-              );
-            }
+          setUiOff();
+
+
+          if (showMessage) {
+
+            message(
+              'iPhoneの通知が許可されていないため、通知をオフに戻しました。iPhoneの設定から「みんやせ」の通知を許可すると再度オンにできます',
+              false
+            );
           }
 
           return;
         }
 
+
         /*
-         * requestPermissionsを呼んでいない起動時の
-         * prompt状態では何もしない。
+         * 初回起動時の prompt 状態。
+         * 勝手に許可ダイアログは出さない。
          */
+        if (
+          !requestPermission &&
+          (
+            perm.status ===
+              'prompt' ||
+            perm.status ===
+              'prompt-with-rationale'
+          )
+        ) {
+
+          return;
+        }
+
+
         if (showMessage) {
-          msg(
-            'iPhoneの通知を許可してから、もう一度通知設定を保存してください',
-            false
+
+          if (
+            perm.status ===
+            'unavailable'
+          ) {
+
+            message(
+              'この端末では通知機能を利用できません',
+              false
+            );
+
+          } else {
+
+            message(
+              '通知を許可できませんでした',
+              false
+            );
+          }
+        }
+
+        return;
+      }
+
+
+      /*
+       * まだ体重を一度も記録していない場合。
+       *
+       * 「最終体重記録」が存在しないので、
+       * 勝手に今日を起点として毎回リセットせず、
+       * 最初の体重記録が成功した時から通知を開始する。
+       */
+      if (!settings.latest) {
+
+        await cancelAll();
+
+        if (showMessage) {
+
+          message(
+            '通知をオンにしました。最初の体重を記録すると通知が始まります',
+            true
           );
         }
 
         return;
       }
 
-      const interval =
-        s.days === 7
-          ? 7
-          : 3;
-
-      const hour =
-        Number.isInteger(
-          s.hour
-        ) &&
-        s.hour >= 0 &&
-        s.hour <= 23
-          ? s.hour
-          : 20;
-
-      /*
-       * まだ一度も記録していない場合は、
-       * 通知設定を有効にした今日を起点にする。
-       */
-      const base =
-        s.latest ||
-        todayYmdJST();
 
       const list =
         await scheduleFrom(
-          base,
-          interval,
-          hour
+          settings.latest,
+          settings.days,
+          settings.hour
         );
 
+
       if (showMessage) {
+
         if (
-          list.length
+          list.length >
+          0
         ) {
-          msg(
+
+          message(
             '通知を設定しました。次回は ' +
-              fmtDate(
-                list[0]
-                  .schedule
-                  .at
-              ) +
-              ' です',
+            formatJST(
+              list[0]
+                .schedule
+                .at
+            ) +
+            ' です',
             true
           );
 
         } else {
+
           /*
-           * 最終記録から14日以上経過済み。
+           * 最終記録から14日目の通知時刻も
+           * すでに経過している。
            */
-          msg(
-            '現在おやすみ中のため、通知は停止しています。体重を記録すると再開します',
+          message(
+            '現在おやすみ中のため、通知は停止しています。体重を記録するとすぐ再開します',
             true
           );
         }
       }
 
+
     } catch (e) {
+
       console.error(
         'notify_sync',
         e
       );
 
+
       if (showMessage) {
-        msg(
+
+        message(
           '通知の設定に失敗しました',
           false
         );
       }
 
+
     } finally {
+
       syncing =
         false;
+
+
+      /*
+       * 同期中に別の同期要求が来ていた場合。
+       */
+      if (queuedSync) {
+
+        const next =
+          queuedSync;
+
+        queuedSync =
+          null;
+
+
+        setTimeout(
+          () => {
+            sync(
+              next
+                .requestPermission,
+              next
+                .showMessage
+            );
+          },
+          0
+        );
+      }
     }
   }
 
-  /* ------------------------------------------------------------
-     fetch監視
 
-     app.jsのAPIが成功した「あと」にだけ通知を組み直す。
-     これにより、
-       ・保存失敗なのに通知だけリセット
-       ・通知設定保存失敗なのに通知だけ有効化
-     を防ぐ。
-     ------------------------------------------------------------ */
+  /* ==========================================================
+     fetch監視
+     ========================================================== */
+
+  function parseRequestMethod(
+    input,
+    init
+  ) {
+
+    if (
+      init &&
+      init.method
+    ) {
+
+      return String(
+        init.method
+      ).toUpperCase();
+    }
+
+
+    if (
+      typeof Request !==
+        'undefined' &&
+      input instanceof Request
+    ) {
+
+      return String(
+        input.method ||
+        'GET'
+      ).toUpperCase();
+    }
+
+
+    return 'GET';
+  }
+
+
+  function parseRequestUrl(
+    input
+  ) {
+
+    if (
+      typeof input ===
+      'string'
+    ) {
+
+      return input;
+    }
+
+
+    if (
+      typeof URL !==
+        'undefined' &&
+      input instanceof URL
+    ) {
+
+      return input.href;
+    }
+
+
+    if (
+      input &&
+      typeof input.url ===
+        'string'
+    ) {
+
+      return input.url;
+    }
+
+
+    return '';
+  }
+
+
+  async function responseSucceeded(
+    response
+  ) {
+
+    if (
+      !response ||
+      !response.ok
+    ) {
+
+      return false;
+    }
+
+
+    try {
+
+      const data =
+        await response.json();
+
+
+      if (
+        data &&
+        data.ok === false
+      ) {
+
+        return false;
+      }
+
+
+    } catch (_) {
+
+      /*
+       * JSONではない成功レスポンスも
+       * HTTP成功なら成功扱い。
+       */
+    }
+
+
+    return true;
+  }
+
+
+  function readJsonBody(
+    init
+  ) {
+
+    if (
+      !init ||
+      typeof init.body !==
+        'string'
+    ) {
+
+      return null;
+    }
+
+
+    try {
+
+      return JSON.parse(
+        init.body
+      );
+
+    } catch (_) {
+
+      return null;
+    }
+  }
+
+
+  async function handleFetchResult(
+    response,
+    input,
+    init
+  ) {
+
+    try {
+
+      if (
+        !await responseSucceeded(
+          response
+        )
+      ) {
+
+        return;
+      }
+
+
+      const rawUrl =
+        parseRequestUrl(
+          input
+        );
+
+
+      if (!rawUrl) {
+        return;
+      }
+
+
+      const url =
+        new URL(
+          rawUrl,
+          location.href
+        );
+
+
+      const path =
+        url.pathname;
+
+
+      const method =
+        parseRequestMethod(
+          input,
+          init
+        );
+
+
+      /*
+       * 体重保存成功
+       */
+      if (
+        path ===
+          '/api/weights' &&
+        method ===
+          'POST'
+      ) {
+
+        setTimeout(
+          () =>
+            sync(
+              false,
+              false
+            ),
+          100
+        );
+
+        return;
+      }
+
+
+      /*
+       * 体重削除成功
+       *
+       * 最新記録を削除した可能性があるため
+       * 全記録から改めて最新日を計算する。
+       */
+      if (
+        path.startsWith(
+          '/api/weights/'
+        ) &&
+        method ===
+          'DELETE'
+      ) {
+
+        setTimeout(
+          () =>
+            sync(
+              false,
+              false
+            ),
+          100
+        );
+
+        return;
+      }
+
+
+      /*
+       * 通知設定保存成功
+       */
+      if (
+        path ===
+          '/api/me' &&
+        method ===
+          'PATCH'
+      ) {
+
+        const body =
+          readJsonBody(
+            init
+          );
+
+
+        if (
+          body &&
+          Object.prototype
+            .hasOwnProperty
+            .call(
+              body,
+              'notify_on'
+            )
+        ) {
+
+          /*
+           * この操作だけはユーザー操作起点なので、
+           * iOS通知許可ダイアログを出してよい。
+           */
+          setTimeout(
+            () =>
+              sync(
+                true,
+                true
+              ),
+            150
+          );
+        }
+
+        return;
+      }
+
+
+      /*
+       * 利用データ削除成功
+       */
+      if (
+        path ===
+          '/api/me' &&
+        method ===
+          'DELETE'
+      ) {
+
+        setTimeout(
+          () =>
+            cancelAll(),
+          0
+        );
+      }
+
+
+    } catch (e) {
+
+      console.warn(
+        'notify_fetch_hook',
+        e
+      );
+    }
+  }
+
 
   function patchFetch() {
-    if (
-      fetchPatched
-    ) {
+
+    if (fetchPatched) {
       return;
     }
+
 
     fetchPatched =
       true;
 
+
     window.fetch =
-      async function (
+      async function(
         input,
         init
       ) {
-        const res =
+
+        const response =
           await baseFetch(
             input,
             init
           );
 
+
+        /*
+         * アプリ本体へ返すResponseはそのまま残し、
+         * clone側だけで成功判定する。
+         */
         try {
-          const rawUrl =
-            typeof input ===
-              'string'
-              ? input
-              : input.url;
 
-          const url =
-            new URL(
-              rawUrl,
-              location.href
-            );
+          const cloned =
+            response.clone();
 
-          const method =
-            String(
-              (
-                init &&
-                init.method
-              ) ||
-              (
-                input &&
-                input.method
-              ) ||
-              'GET'
-            )
-              .toUpperCase();
 
-          const path =
-            url.pathname;
-
-          if (res.ok) {
-            /*
-             * 体重を正常保存
-             */
-            if (
-              path ===
-                '/api/weights' &&
-              method ===
-                'POST'
-            ) {
-              setTimeout(
-                () =>
-                  sync(
-                    false,
-                    false
-                  ),
-                100
-              );
-            }
-
-            /*
-             * 体重削除。
-             * 最新記録を消した可能性があるので再計算。
-             */
-            if (
-              path.startsWith(
-                '/api/weights/'
-              ) &&
-              method ===
-                'DELETE'
-            ) {
-              setTimeout(
-                () =>
-                  sync(
-                    false,
-                    false
-                  ),
-                100
-              );
-            }
-
-            /*
-             * 通知設定保存。
-             * この操作のときだけ
-             * iOSの通知許可ダイアログを出してよい。
-             */
-            if (
-              path ===
-                '/api/me' &&
-              method ===
-                'PATCH'
-            ) {
-              let body =
-                null;
-
-              if (
-                init &&
-                typeof init.body ===
-                  'string'
-              ) {
-                try {
-                  body =
-                    JSON.parse(
-                      init.body
-                    );
-                } catch {}
-              }
-
-              if (
-                body &&
-                Object.prototype
-                  .hasOwnProperty
-                  .call(
-                    body,
-                    'notify_on'
-                  )
-              ) {
-                setTimeout(
-                  () =>
-                    sync(
-                      true,
-                      true
-                    ),
-                  150
-                );
-              }
-            }
-
-            /*
-             * 利用データ削除
-             */
-            if (
-              path ===
-                '/api/me' &&
-              method ===
-                'DELETE'
-            ) {
-              setTimeout(
-                () =>
-                  cancelAll(),
-                0
-              );
-            }
-          }
+          handleFetchResult(
+            cloned,
+            input,
+            init
+          );
 
         } catch (e) {
+
           console.warn(
-            'notify_fetch_hook',
+            'notify_fetch_clone',
             e
           );
         }
 
-        return res;
+
+        return response;
       };
   }
 
-  /* ------------------------------------------------------------
+
+  /* ==========================================================
      UI
-     ------------------------------------------------------------ */
+     ========================================================== */
 
   function setupUi() {
+
     const on =
       $('notifyOn');
+
 
     if (!on) {
       return;
     }
 
+
     const card =
-      on.closest(
-        '.card'
-      );
+      notificationCard();
+
 
     /*
-     * Webブラウザではローカル通知機能を出さない。
-     * iOSアプリでだけ表示する。
+     * Web版では通知設定を表示しない。
      */
     if (!isNative()) {
+
       if (card) {
+
         card.hidden =
           true;
       }
@@ -1063,73 +1729,75 @@
       return;
     }
 
+
+    /*
+     * iOSアプリでは表示。
+     */
     if (card) {
+
       card.hidden =
         false;
     }
 
-    /*
-     * ON/OFFに応じて選択欄を見やすくする。
-     */
-    const update =
-      () => {
-        const disabled =
-          !on.checked;
-
-        const days =
-          $('notifyDays');
-
-        const hour =
-          $('notifyHour');
-
-        if (days) {
-          days.disabled =
-            disabled;
-        }
-
-        if (hour) {
-          hour.disabled =
-            disabled;
-        }
-      };
 
     on.addEventListener(
       'change',
-      update
+      updateControls
     );
 
-    update();
+
+    updateControls();
   }
 
-  /* ------------------------------------------------------------
+
+  /* ==========================================================
      起動
-     ------------------------------------------------------------ */
+     ========================================================== */
 
   function start() {
+
     setupUi();
+
     patchFetch();
 
+
     /*
-     * app.jsのbootが完了するのを待つ。
+     * app.js の登録・bootを待ってから同期。
      *
-     * すでに通知ONのユーザーの場合は、
-     * OS許可済みなら予約だけ再同期する。
-     * 起動しただけでは許可ダイアログは出さない。
+     * 起動時は通知許可ダイアログを絶対に出さない。
      */
     setTimeout(
-      () =>
+      () => {
         sync(
           false,
           false
-        ),
-      1800
+        );
+      },
+      1500
+    );
+
+
+    /*
+     * ネットワークや初回登録が遅かった場合の
+     * 再同期。
+     */
+    setTimeout(
+      () => {
+        sync(
+          false,
+          false
+        );
+      },
+      4500
     );
   }
 
+
   if (
     document.readyState ===
-      'loading'
+    'loading'
   ) {
+
     document.addEventListener(
       'DOMContentLoaded',
       start,
@@ -1140,6 +1808,8 @@
     );
 
   } else {
+
     start();
   }
+
 })();

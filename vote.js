@@ -2,7 +2,6 @@
 
 /* ============================================================
    みんやせ / vote.js
-
    月間チーム予想クイズ
    ============================================================ */
 
@@ -10,52 +9,25 @@
 
   const API =
     (
-      typeof window !==
-        'undefined' &&
+      typeof window !== 'undefined' &&
       window.MINYASE_API_BASE
-    ) ||
-    '';
+    ) || '';
 
-
-  const K_DEV =
-    'tsudatsu.device_id.v1';
-
+  const K_DEV = 'tsudatsu.device_id.v1';
 
   const ERR = {
-
-    vote_closed:
-      '今月の投票は締め切りました',
-
-    bad_team:
-      'チームを選んでください',
-
-    bad_device_id:
-      '端末IDを確認できませんでした',
-
-    not_registered:
-      'アプリの読み込みがまだ完了していません',
-
-    banned:
-      'このアカウントは利用できません',
-
-    network_error:
-      '通信できませんでした',
-
-    server_error:
-      'サーバーエラーが発生しました',
+    vote_closed: '今月の投票は締め切りました',
+    bad_team: 'チームを選んでください',
+    bad_device_id: '端末IDを確認できませんでした',
+    not_registered: 'アプリの読み込みがまだ完了していません',
+    banned: 'このアカウントは利用できません',
+    network_error: '通信できませんでした',
+    server_error: 'サーバーエラーが発生しました',
   };
 
-
-  let currentData =
-    null;
-
-
-  let loadingCurrent =
-    false;
-
-
-  let loadingHistory =
-    false;
+  let currentData = null;
+  let loadingCurrent = false;
+  let loadingHistory = false;
 
 
   /* ==========================================================
@@ -63,120 +35,70 @@
      ========================================================== */
 
   function deviceId() {
-
-    return (
-      localStorage.getItem(
-        K_DEV
-      ) ||
-      ''
-    );
+    return localStorage.getItem(K_DEV) || '';
   }
 
+  async function api(path, options = {}) {
 
-  async function api(
-    path,
-    options = {}
-  ) {
-
-    const did =
-      deviceId();
-
+    const did = deviceId();
 
     if (!did) {
-
-      throw new Error(
-        'not_registered'
-      );
+      throw new Error('not_registered');
     }
-
 
     let res;
 
-
     try {
 
-      res =
-        await fetch(
-          API + path,
-          {
-            method:
-              options.method ||
-              'GET',
+      res = await fetch(
+        API + path,
+        {
+          method: options.method || 'GET',
 
-            headers: {
-              'content-type':
-                'application/json',
+          headers: {
+            'content-type': 'application/json',
+            'x-device-id': did,
+          },
 
-              'x-device-id':
-                did,
-            },
+          body:
+            options.body !== undefined
+              ? JSON.stringify(options.body)
+              : undefined,
 
-            body:
-              options.body !==
-              undefined
-                ? JSON.stringify(
-                    options.body
-                  )
-                : undefined,
-
-            cache:
-              'no-store',
-          }
-        );
+          cache: 'no-store',
+        }
+      );
 
     } catch (_) {
-
-      throw new Error(
-        'network_error'
-      );
+      throw new Error('network_error');
     }
 
-
-    let data =
-      {};
-
+    let data = {};
 
     try {
-
-      data =
-        await res.json();
-
+      data = await res.json();
     } catch {}
 
-
-    if (
-      !res.ok ||
-      data.ok === false
-    ) {
-
+    if (!res.ok || data.ok === false) {
       throw new Error(
         data.error ||
-        (
-          'http_' +
-          res.status
-        )
+        ('http_' + res.status)
       );
     }
-
 
     return data;
   }
 
-
   function emsg(e) {
 
     const code =
-      e &&
-      e.message
+      e && e.message
         ? e.message
         : 'unknown_error';
 
-
     return (
       ERR[code] ||
-      'エラー（' +
-        code +
-        '）'
+      'エラー（' + code + '）'
     );
   }
 
@@ -185,68 +107,34 @@
      日付
      ========================================================== */
 
-  function targetText(
-    ymd
-  ) {
+  function targetText(ymd) {
 
-    if (!ymd) {
-      return '';
-    }
+    if (!ymd) return '';
 
-
-    const [
-      y,
-      m,
-      d
-    ] =
-      ymd
-        .split('-')
-        .map(Number);
-
+    const [y, m, d] =
+      ymd.split('-').map(Number);
 
     return (
-      y +
-      '年' +
-      m +
-      '月' +
-      d +
-      '日'
+      y + '年' +
+      m + '月' +
+      d + '日'
     );
   }
 
+  function deadlineText(ms) {
 
-  function deadlineText(
-    ms
-  ) {
+    if (!ms) return '';
 
-    if (!ms) {
-      return '';
-    }
-
-
-    return new Date(
-      Number(ms)
-    )
+    return new Date(Number(ms))
       .toLocaleString(
         'ja-JP',
         {
-          timeZone:
-            'Asia/Tokyo',
-
-          month:
-            'numeric',
-
-          day:
-            'numeric',
-
-          hour:
-            '2-digit',
-
-          minute:
-            '2-digit',
-
-          hourCycle:
-            'h23',
+          timeZone: 'Asia/Tokyo',
+          month: 'numeric',
+          day: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit',
+          hourCycle: 'h23',
         }
       );
   }
@@ -258,24 +146,14 @@
 
   function addStyle() {
 
-    if (
-      document.getElementById(
-        'voteStyle'
-      )
-    ) {
+    if (document.getElementById('voteStyle')) {
       return;
     }
 
-
     const s =
-      document.createElement(
-        'style'
-      );
+      document.createElement('style');
 
-
-    s.id =
-      'voteStyle';
-
+    s.id = 'voteStyle';
 
     s.textContent = `
       .vote-title{
@@ -400,28 +278,28 @@
       }
 
       .vote-score{
-        display:flex;
-        align-items:flex-end;
-        gap:6px;
-        margin:5px 0 4px;
+        margin:4px 0 4px;
+        font-size:15px;
+        font-weight:700;
       }
 
       .vote-score strong{
-        font-size:30px;
+        font-size:28px;
         line-height:1;
         font-weight:900;
       }
 
-      .vote-score span{
-        color:#777067;
-        font-size:14px;
-        font-weight:700;
-      }
-
       .vote-rate{
-        margin:0 0 12px;
+        margin:7px 0 12px;
         color:#777067;
         font-size:12px;
+      }
+
+      .vote-history-title{
+        margin:16px 0 5px;
+        color:#777067;
+        font-size:12px;
+        font-weight:700;
       }
 
       .vote-history{
@@ -434,15 +312,15 @@
         display:flex;
         gap:10px;
         align-items:flex-start;
-        padding:9px 0;
+        padding:10px 0;
         border-top:1px solid #eee8e1;
         font-size:13px;
       }
 
       .vote-history-mark{
-        width:24px;
-        flex:0 0 24px;
-        font-size:17px;
+        width:26px;
+        flex:0 0 26px;
+        font-size:18px;
         font-weight:900;
         text-align:center;
       }
@@ -477,53 +355,30 @@
       }
     `;
 
-
-    document.head
-      .appendChild(
-        s
-      );
+    document.head.appendChild(s);
   }
 
 
   /* ==========================================================
-     DOM作成
+     トップページ 投票カード
      ========================================================== */
 
   function buildVoteCard() {
 
-    if (
-      document.getElementById(
-        'voteCard'
-      )
-    ) {
+    if (document.getElementById('voteCard')) {
       return;
     }
-
 
     const view =
-      document.getElementById(
-        'view-log'
-      );
+      document.getElementById('view-log');
 
-
-    if (!view) {
-      return;
-    }
-
+    if (!view) return;
 
     const card =
-      document.createElement(
-        'section'
-      );
+      document.createElement('section');
 
-
-    card.className =
-      'card';
-
-
-    card.id =
-      'voteCard';
-
+    card.className = 'card';
+    card.id = 'voteCard';
 
     card.innerHTML = `
       <h2 class="vote-title">
@@ -592,16 +447,10 @@
       ></div>
     `;
 
-
-    view.appendChild(
-      card
-    );
-
+    view.appendChild(card);
 
     document
-      .getElementById(
-        'voteSubmit'
-      )
+      .getElementById('voteSubmit')
       .addEventListener(
         'click',
         submitVote
@@ -609,41 +458,26 @@
   }
 
 
+  /* ==========================================================
+     マイページ 成績カード
+     ========================================================== */
+
   function buildScoreCard() {
 
-    if (
-      document.getElementById(
-        'voteScoreCard'
-      )
-    ) {
+    if (document.getElementById('voteScoreCard')) {
       return;
     }
-
 
     const view =
-      document.getElementById(
-        'view-my'
-      );
+      document.getElementById('view-my');
 
-
-    if (!view) {
-      return;
-    }
-
+    if (!view) return;
 
     const card =
-      document.createElement(
-        'section'
-      );
+      document.createElement('section');
 
-
-    card.className =
-      'card';
-
-
-    card.id =
-      'voteScoreCard';
-
+    card.className = 'card';
+    card.id = 'voteScoreCard';
 
     card.innerHTML = `
       <h2 class="h2">
@@ -651,20 +485,20 @@
       </h2>
 
       <div class="vote-score">
-        <strong id="voteScoreCorrect">0</strong>
-        <span>
-          問正解 ／
-          <b id="voteScoreTotal">0</b>
-          問中
-        </span>
+        <strong id="voteScoreTotal">0</strong>問中
+        <strong id="voteScoreCorrect">0</strong>問正解
       </div>
 
       <p
         class="vote-rate"
         id="voteScoreRate"
       >
-        まだ結果はありません
+        結果が確定した問題はまだありません
       </p>
+
+      <div class="vote-history-title">
+        予想履歴
+      </div>
 
       <ul
         class="vote-history"
@@ -672,31 +506,16 @@
       ></ul>
     `;
 
-
-    /*
-     * マイページ上部に近い位置へ置く。
-     */
     const first =
-      view.querySelector(
-        '.card'
-      );
+      view.querySelector('.card');
 
-
-    if (
-      first &&
-      first.nextSibling
-    ) {
-
-      view.insertBefore(
-        card,
-        first.nextSibling
-      );
-
-    } else {
-
-      view.appendChild(
+    if (first) {
+      first.insertAdjacentElement(
+        'afterend',
         card
       );
+    } else {
+      view.appendChild(card);
     }
   }
 
@@ -705,241 +524,148 @@
      表示
      ========================================================== */
 
-  function setVoteMessage(
-    text,
-    ok
-  ) {
+  function setVoteMessage(text, ok) {
 
     const n =
-      document.getElementById(
-        'voteMsg'
-      );
+      document.getElementById('voteMsg');
 
+    if (!n) return;
 
-    if (!n) {
-      return;
-    }
-
-
-    n.textContent =
-      text || '';
-
+    n.textContent = text || '';
 
     n.className =
       'vote-msg ' +
-      (
-        ok
-          ? 'ok'
-          : 'ng'
-      );
+      (ok ? 'ok' : 'ng');
   }
 
 
-  function renderCurrent(
-    data
-  ) {
+  function renderCurrent(data) {
 
-    currentData =
-      data;
+    currentData = data;
 
-
-    const round =
-      data.round;
-
+    const round = data.round;
 
     const question =
-      document.getElementById(
-        'voteQuestion'
-      );
-
+      document.getElementById('voteQuestion');
 
     const deadline =
-      document.getElementById(
-        'voteDeadline'
-      );
-
+      document.getElementById('voteDeadline');
 
     const submit =
-      document.getElementById(
-        'voteSubmit'
-      );
-
+      document.getElementById('voteSubmit');
 
     const current =
-      document.getElementById(
-        'voteCurrent'
-      );
+      document.getElementById('voteCurrent');
 
-
-    if (
-      question
-    ) {
-
+    if (question) {
       question.textContent =
-        targetText(
-          round.target_date
-        ) +
+        targetText(round.target_date) +
         '時点で、一番減量しているのはどのチーム？';
     }
 
-
-    if (
-      deadline
-    ) {
-
+    if (deadline) {
       deadline.textContent =
         '投票締切：' +
-        deadlineText(
-          round.deadline_at
-        );
+        deadlineText(round.deadline_at);
     }
-
 
     const radios =
       [
-        ...document
-          .querySelectorAll(
-            'input[name="minyaseVote"]'
-          )
+        ...document.querySelectorAll(
+          'input[name="minyaseVote"]'
+        )
       ];
 
-
-    for (
-      const radio of
-      radios
-    ) {
+    for (const radio of radios) {
 
       radio.disabled =
         !round.open;
 
-
       radio.checked =
         !!(
           data.vote &&
-          data.vote.team_id ===
-            radio.value
+          data.vote.team_id === radio.value
         );
     }
 
-
-    if (
-      submit
-    ) {
+    if (submit) {
 
       submit.disabled =
         !round.open;
 
-
       if (!round.open) {
-
         submit.textContent =
           '今月の投票は締め切りました';
 
-      } else if (
-        data.vote
-      ) {
-
+      } else if (data.vote) {
         submit.textContent =
           '予想を変更する';
 
       } else {
-
         submit.textContent =
           'このチームに投票';
       }
     }
 
+    if (current) {
 
-    if (
-      current
-    ) {
+      if (data.vote) {
 
-      if (
-        data.vote
-      ) {
-
-        current.hidden =
-          false;
-
+        current.hidden = false;
 
         current.textContent =
-          'あなたの予想：' +
+          '投票済み　あなたの予想：' +
           data.vote.team_name +
           (
             round.open
-              ? '　※締切までは変更できます'
+              ? '　※15日の締切までは変更できます'
               : ''
           );
 
       } else {
 
-        current.hidden =
-          true;
-
-        current.textContent =
-          '';
+        current.hidden = true;
+        current.textContent = '';
       }
     }
   }
 
 
-  function renderHistory(
-    data
-  ) {
+  function renderHistory(data) {
 
     const correct =
       document.getElementById(
         'voteScoreCorrect'
       );
 
-
     const total =
       document.getElementById(
         'voteScoreTotal'
       );
-
 
     const rate =
       document.getElementById(
         'voteScoreRate'
       );
 
-
     const list =
       document.getElementById(
         'voteHistory'
       );
 
-
-    if (
-      correct
-    ) {
-
+    if (correct) {
       correct.textContent =
-        String(
-          data.stats.correct
-        );
+        String(data.stats.correct || 0);
     }
 
-
-    if (
-      total
-    ) {
-
+    if (total) {
       total.textContent =
-        String(
-          data.stats.answered
-        );
+        String(data.stats.answered || 0);
     }
 
+    if (rate) {
 
-    if (
-      rate
-    ) {
-
-      if (
-        data.stats.answered
-      ) {
+      if (data.stats.answered) {
 
         rate.textContent =
           '正解率 ' +
@@ -953,127 +679,105 @@
       }
     }
 
+    if (!list) return;
 
-    if (!list) {
-      return;
-    }
+    list.innerHTML = '';
 
-
-    list.innerHTML =
-      '';
-
-
+    /*
+     * 全履歴を表示する。
+     * slice() は使わない。
+     */
     const rows =
-      (
-        data.history ||
-        []
-      ).slice(
-        0,
-        8
-      );
+      data.history || [];
 
-
-    if (
-      !rows.length
-    ) {
+    if (!rows.length) {
 
       const li =
-        document.createElement(
-          'li'
-        );
-
+        document.createElement('li');
 
       li.innerHTML = `
         <div class="vote-history-main">
-          <span>まだ予想履歴がありません</span>
-        </div>
-      `;
-
-
-      list.appendChild(
-        li
-      );
-
-
-      return;
-    }
-
-
-    for (
-      const row of
-      rows
-    ) {
-
-      const li =
-        document.createElement(
-          'li'
-        );
-
-
-      let mark =
-        '…';
-
-
-      let cls =
-        'vote-pending';
-
-
-      let detail =
-        '結果待ち';
-
-
-      if (
-        row.finalized
-      ) {
-
-        if (
-          row.correct
-        ) {
-
-          mark =
-            '○';
-
-          cls =
-            'vote-correct';
-
-          detail =
-            '正解';
-
-        } else {
-
-          mark =
-            '×';
-
-          cls =
-            'vote-wrong';
-
-          detail =
-            '正解は ' +
-            row.winner_name;
-        }
-      }
-
-
-      li.innerHTML = `
-        <div class="vote-history-mark ${cls}">
-          ${mark}
-        </div>
-
-        <div class="vote-history-main">
-          <b>
-            ${targetText(row.target_date)}
-            ：${row.team_name}
-          </b>
-          <span class="${cls}">
-            ${detail}
+          <span>
+            まだ予想履歴がありません
           </span>
         </div>
       `;
 
+      list.appendChild(li);
+      return;
+    }
 
-      list.appendChild(
-        li
+    for (const row of rows) {
+
+      const li =
+        document.createElement('li');
+
+      let mark = '…';
+      let cls = 'vote-pending';
+      let detail = '結果待ち';
+
+      if (row.finalized) {
+
+        if (row.correct) {
+
+          mark = '○';
+          cls = 'vote-correct';
+          detail = '正解';
+
+        } else {
+
+          mark = '×';
+          cls = 'vote-wrong';
+
+          detail =
+            '不正解　正解：' +
+            row.winner_name;
+        }
+      }
+
+      const markEl =
+        document.createElement('div');
+
+      markEl.className =
+        'vote-history-mark ' + cls;
+
+      markEl.textContent = mark;
+
+
+      const main =
+        document.createElement('div');
+
+      main.className =
+        'vote-history-main';
+
+
+      const title =
+        document.createElement('b');
+
+      title.textContent =
+        targetText(row.target_date) +
+        '　予想：' +
+        row.team_name;
+
+
+      const sub =
+        document.createElement('span');
+
+      sub.className = cls;
+      sub.textContent = detail;
+
+
+      main.append(
+        title,
+        sub
       );
+
+      li.append(
+        markEl,
+        main
+      );
+
+      list.appendChild(li);
     }
   }
 
@@ -1084,14 +788,9 @@
 
   async function loadCurrent() {
 
-    if (loadingCurrent) {
-      return;
-    }
+    if (loadingCurrent) return;
 
-
-    loadingCurrent =
-      true;
-
+    loadingCurrent = true;
 
     try {
 
@@ -1100,24 +799,15 @@
           '/api/vote/current'
         );
 
-
-      renderCurrent(
-        data
-      );
-
+      renderCurrent(data);
 
       setVoteMessage(
         '',
         true
       );
 
-
     } catch (e) {
 
-      /*
-       * app.js の register がまだ終わっていない場合は
-       * 起動時に一度だけ起こり得る。
-       */
       if (
         e.message !==
         'not_registered'
@@ -1129,25 +819,18 @@
         );
       }
 
-
     } finally {
 
-      loadingCurrent =
-        false;
+      loadingCurrent = false;
     }
   }
 
 
   async function loadHistory() {
 
-    if (loadingHistory) {
-      return;
-    }
+    if (loadingHistory) return;
 
-
-    loadingHistory =
-      true;
-
+    loadingHistory = true;
 
     try {
 
@@ -1156,22 +839,15 @@
           '/api/vote/history'
         );
 
-
-      renderHistory(
-        data
-      );
-
+      renderHistory(data);
 
     } catch (_) {
-
       /*
-       * 起動直後は未登録の可能性があるので
-       * マイページにはエラーを出さない。
+       * 起動直後はregister前の場合がある。
        */
     } finally {
 
-      loadingHistory =
-        false;
+      loadingHistory = false;
     }
   }
 
@@ -1195,12 +871,10 @@
       return;
     }
 
-
     const checked =
       document.querySelector(
         'input[name="minyaseVote"]:checked'
       );
-
 
     if (!checked) {
 
@@ -1212,22 +886,15 @@
       return;
     }
 
-
     const btn =
       document.getElementById(
         'voteSubmit'
       );
 
-
     if (btn) {
-
-      btn.disabled =
-        true;
-
-      btn.textContent =
-        '投票中…';
+      btn.disabled = true;
+      btn.textContent = '投票中…';
     }
-
 
     try {
 
@@ -1235,16 +902,13 @@
         await api(
           '/api/vote/current',
           {
-            method:
-              'POST',
+            method: 'POST',
 
             body: {
-              team_id:
-                checked.value,
+              team_id: checked.value,
             },
           }
         );
-
 
       setVoteMessage(
         data.team_name +
@@ -1252,12 +916,8 @@
         true
       );
 
-
-      await Promise.all([
-        loadCurrent(),
-        loadHistory(),
-      ]);
-
+      await loadCurrent();
+      await loadHistory();
 
     } catch (e) {
 
@@ -1265,7 +925,6 @@
         emsg(e),
         false
       );
-
 
       await loadCurrent();
     }
@@ -1279,14 +938,11 @@
   function start() {
 
     addStyle();
-
     buildVoteCard();
-
     buildScoreCard();
 
-
     /*
-     * app.js の register を待つ。
+     * app.js のregister完了待ち。
      */
     setTimeout(
       () => {
@@ -1296,7 +952,6 @@
       1800
     );
 
-
     setTimeout(
       () => {
         loadCurrent();
@@ -1305,9 +960,8 @@
       4500
     );
 
-
     /*
-     * 記録 / マイページへ移ったとき最新状態を取得。
+     * タブを開いた時に最新状態へ更新。
      */
     document.addEventListener(
       'click',
@@ -1318,16 +972,9 @@
             '.tabbtn[data-v]'
           );
 
+        if (!btn) return;
 
-        if (!btn) {
-          return;
-        }
-
-
-        if (
-          btn.dataset.v ===
-          'log'
-        ) {
+        if (btn.dataset.v === 'log') {
 
           setTimeout(
             loadCurrent,
@@ -1335,11 +982,7 @@
           );
         }
 
-
-        if (
-          btn.dataset.v ===
-          'my'
-        ) {
+        if (btn.dataset.v === 'my') {
 
           setTimeout(
             loadHistory,
@@ -1352,16 +995,14 @@
 
 
   if (
-    document.readyState ===
-    'loading'
+    document.readyState === 'loading'
   ) {
 
     document.addEventListener(
       'DOMContentLoaded',
       start,
       {
-        once:
-          true,
+        once: true,
       }
     );
 

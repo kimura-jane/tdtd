@@ -6,12 +6,13 @@
    体重保存成功後に、
    前回記録との増減率に応じて津田さんがリアクションする。
 
-   ・app.js は変更しない
    ・window.saveWeight をラップする
+   ・Cloudflareへの保存成功を待ってから演出する
    ・今日の入力 / 過去入力のみ対象
    ・履歴編集や削除では表示しない
    ・初回記録は表示しない
    ・増減率 0% は表示しない
+   ・保存失敗時は演出しない
    ・演出でエラーが出ても保存処理には影響させない
    ============================================================ */
 
@@ -21,10 +22,17 @@
      画像
      ============================================================ */
 
-  const LOCAL_DIR = './gazo/';
+  const LOCAL_DIR =
+    './gazo/';
 
   const REMOTE_DIR =
-    ((typeof window !== 'undefined' && window.MINYASE_API_BASE) || '') +
+    (
+      (
+        typeof window !== 'undefined' &&
+        window.MINYASE_API_BASE
+      ) ||
+      ''
+    ) +
     '/gazo/';
 
   const F_BEST =
@@ -56,52 +64,101 @@
   const STAGES = {
 
     best: {
-      file: F_BEST,
-      text: 'かなりつだつだしてるねー',
-      hold: 2500,
-      spark: true
+      file:
+        F_BEST,
+
+      text:
+        'かなりつだつだしてるねー',
+
+      hold:
+        2500,
+
+      spark:
+        true
     },
 
     good: {
-      file: F_GOOD,
-      text: 'つだつだしてるぜ',
-      hold: 2250,
-      spark: false
+      file:
+        F_GOOD,
+
+      text:
+        'つだつだしてるぜ',
+
+      hold:
+        2250,
+
+      spark:
+        false
     },
 
     ok: {
-      file: F_OK,
-      text: 'その調子',
-      hold: 2100,
-      spark: false
+      file:
+        F_OK,
+
+      text:
+        'その調子',
+
+      hold:
+        2100,
+
+      spark:
+        false
     },
 
     tiny: {
-      file: F_TINY,
-      text: 'その調子',
-      hold: 2000,
-      spark: false
+      file:
+        F_TINY,
+
+      text:
+        'その調子',
+
+      hold:
+        2000,
+
+      spark:
+        false
     },
 
     up0: {
-      file: F_UP0,
-      text: 'もっと頑張ろう',
-      hold: 2050,
-      spark: false
+      file:
+        F_UP0,
+
+      text:
+        'もっと頑張ろう',
+
+      hold:
+        2050,
+
+      spark:
+        false
     },
 
     up1: {
-      file: F_UP1,
-      text: '気合い入れて',
-      hold: 2150,
-      spark: false
+      file:
+        F_UP1,
+
+      text:
+        '気合い入れて',
+
+      hold:
+        2150,
+
+      spark:
+        false
     },
 
     up2: {
-      file: F_UP2,
-      text: '俺みたいになるよ',
-      hold: 2350,
-      spark: false
+      file:
+        F_UP2,
+
+      text:
+        '俺みたいになるよ',
+
+      hold:
+        2350,
+
+      spark:
+        false
     }
 
   };
@@ -113,34 +170,58 @@
 
   function stageIdOf(rate) {
 
-    if (!isFinite(rate)) return null;
-
-    if (Math.abs(rate) < 1e-9) {
+    if (
+      !isFinite(rate)
+    ) {
       return null;
     }
 
-    if (rate < 0) {
+    if (
+      Math.abs(rate) <
+      1e-9
+    ) {
+      return null;
+    }
 
-      if (rate <= -1.5) {
+    if (
+      rate < 0
+    ) {
+
+      if (
+        rate <=
+        -1.5
+      ) {
         return 'best';
       }
 
-      if (rate <= -0.8) {
+      if (
+        rate <=
+        -0.8
+      ) {
         return 'good';
       }
 
-      if (rate <= -0.3) {
+      if (
+        rate <=
+        -0.3
+      ) {
         return 'ok';
       }
 
       return 'tiny';
     }
 
-    if (rate < 0.3) {
+    if (
+      rate <
+      0.3
+    ) {
       return 'up0';
     }
 
-    if (rate < 0.8) {
+    if (
+      rate <
+      0.8
+    ) {
       return 'up1';
     }
 
@@ -155,31 +236,46 @@
   function prevRecord(ymd) {
 
     if (
-      typeof store === 'undefined' ||
+      typeof store ===
+        'undefined' ||
       !store ||
-      typeof store.all !== 'function'
+      typeof store.all !==
+        'function'
     ) {
       return null;
     }
 
-    const all = store.all();
+    const all =
+      store.all();
 
     if (!all) {
       return null;
     }
 
-    let bestYmd = null;
+    let bestYmd =
+      null;
 
-    for (const k of Object.keys(all)) {
+    for (
+      const k of
+      Object.keys(all)
+    ) {
 
       /* 同日と未来は除外 */
-      if (k >= ymd) {
+      if (
+        k >= ymd
+      ) {
         continue;
       }
 
-      const v = Number(all[k]);
+      const v =
+        Number(
+          all[k]
+        );
 
-      if (!isFinite(v) || v <= 0) {
+      if (
+        !isFinite(v) ||
+        v <= 0
+      ) {
         continue;
       }
 
@@ -187,17 +283,28 @@
         bestYmd === null ||
         k > bestYmd
       ) {
-        bestYmd = k;
+        bestYmd =
+          k;
       }
     }
 
-    if (bestYmd === null) {
+    if (
+      bestYmd ===
+      null
+    ) {
       return null;
     }
 
     return {
-      ymd: bestYmd,
-      kg: Number(all[bestYmd])
+      ymd:
+        bestYmd,
+
+      kg:
+        Number(
+          all[
+            bestYmd
+          ]
+        )
     };
   }
 
@@ -208,16 +315,27 @@
 
   function signed(value, digits) {
 
-    const n = Number(value);
+    const n =
+      Number(value);
 
-    if (!isFinite(n)) {
+    if (
+      !isFinite(n)
+    ) {
       return '';
     }
 
-    const fixed = n.toFixed(digits);
+    const fixed =
+      n.toFixed(
+        digits
+      );
 
-    if (n > 0) {
-      return '+' + fixed;
+    if (
+      n > 0
+    ) {
+      return (
+        '+' +
+        fixed
+      );
     }
 
     return fixed;
@@ -227,15 +345,32 @@
   function subText(rate, base, now) {
 
     const percent =
-      signed(rate, 2) + '%';
+      signed(
+        rate,
+        2
+      ) +
+      '%';
 
     const diff =
-      Math.round((now - base) * 10) / 10;
+      Math.round(
+        (
+          now -
+          base
+        ) *
+        10
+      ) /
+      10;
 
     const kg =
-      signed(diff, 1) + 'kg';
+      signed(
+        diff,
+        1
+      ) +
+      'kg';
 
-    return `前回比 ${percent} · ${kg}`;
+    return (
+      `前回比 ${percent} · ${kg}`
+    );
   }
 
 
@@ -250,7 +385,9 @@
       return !!(
         window.matchMedia &&
         window
-          .matchMedia('(prefers-reduced-motion: reduce)')
+          .matchMedia(
+            '(prefers-reduced-motion: reduce)'
+          )
           .matches
       );
 
@@ -265,7 +402,8 @@
      閉じる
      ============================================================ */
 
-  let closeTimer = null;
+  let closeTimer =
+    null;
 
   function close(node) {
 
@@ -276,17 +414,28 @@
       return;
     }
 
-    clearTimeout(closeTimer);
+    clearTimeout(
+      closeTimer
+    );
 
-    node.classList.add('tsuda-fx-out');
+    node.classList.add(
+      'tsuda-fx-out'
+    );
 
-    setTimeout(() => {
+    setTimeout(
+      () => {
 
-      if (node.parentNode) {
-        node.parentNode.removeChild(node);
-      }
+        if (
+          node.parentNode
+        ) {
+          node.parentNode.removeChild(
+            node
+          );
+        }
 
-    }, 280);
+      },
+      280
+    );
   }
 
 
@@ -297,48 +446,85 @@
   function appendSparks(wrap) {
 
     const field =
-      document.createElement('div');
+      document.createElement(
+        'div'
+      );
 
     field.className =
       'tsuda-fx-sparks';
 
-    for (let i = 0; i < 16; i++) {
+    for (
+      let i = 0;
+      i < 16;
+      i++
+    ) {
 
       const spark =
-        document.createElement('i');
+        document.createElement(
+          'i'
+        );
 
       spark.className =
         'tsuda-fx-spark';
 
       spark.style.setProperty(
         '--x',
-        (8 + Math.random() * 84).toFixed(2) + '%'
+        (
+          8 +
+          Math.random() *
+          84
+        ).toFixed(2) +
+        '%'
       );
 
       spark.style.setProperty(
         '--dx',
-        (Math.random() * 120 - 60).toFixed(1) + 'px'
+        (
+          Math.random() *
+          120 -
+          60
+        ).toFixed(1) +
+        'px'
       );
 
       spark.style.setProperty(
         '--d',
-        (0.04 + Math.random() * 0.42).toFixed(2) + 's'
+        (
+          0.04 +
+          Math.random() *
+          0.42
+        ).toFixed(2) +
+        's'
       );
 
       spark.style.setProperty(
         '--t',
-        (1.05 + Math.random() * 0.65).toFixed(2) + 's'
+        (
+          1.05 +
+          Math.random() *
+          0.65
+        ).toFixed(2) +
+        's'
       );
 
       spark.style.setProperty(
         '--sz',
-        (5 + Math.random() * 5).toFixed(1) + 'px'
+        (
+          5 +
+          Math.random() *
+          5
+        ).toFixed(1) +
+        'px'
       );
 
-      field.appendChild(spark);
+      field.appendChild(
+        spark
+      );
     }
 
-    wrap.appendChild(field);
+    wrap.appendChild(
+      field
+    );
   }
 
 
@@ -356,7 +542,9 @@
 
     /* 既存演出があれば閉じる */
     const old =
-      document.querySelector('.tsuda-fx');
+      document.querySelector(
+        '.tsuda-fx'
+      );
 
     if (old) {
       close(old);
@@ -366,14 +554,20 @@
     /* ---------- 全画面 ---------- */
 
     const wrap =
-      document.createElement('div');
+      document.createElement(
+        'div'
+      );
 
     wrap.className =
       'tsuda-fx ' +
-      'tsuda-fx-' + id + ' ' +
-      (rate < 0
-        ? 'tsuda-fx-down'
-        : 'tsuda-fx-up');
+      'tsuda-fx-' +
+      id +
+      ' ' +
+      (
+        rate < 0
+          ? 'tsuda-fx-down'
+          : 'tsuda-fx-up'
+      );
 
     wrap.setAttribute(
       'role',
@@ -389,7 +583,9 @@
     /* ---------- 中身 ---------- */
 
     const card =
-      document.createElement('div');
+      document.createElement(
+        'div'
+      );
 
     card.className =
       'tsuda-fx-card';
@@ -398,56 +594,69 @@
     /* ---------- キャラクター ---------- */
 
     const stageBox =
-      document.createElement('div');
+      document.createElement(
+        'div'
+      );
 
     stageBox.className =
       'tsuda-fx-stage';
 
 
     const halo =
-      document.createElement('span');
+      document.createElement(
+        'span'
+      );
 
     halo.className =
       'tsuda-fx-halo';
 
 
     const img =
-      document.createElement('img');
+      document.createElement(
+        'img'
+      );
 
     img.className =
       'tsuda-fx-img';
 
-    img.alt = '';
+    img.alt =
+      '';
 
     img.decoding =
       'async';
 
     img.src =
-      LOCAL_DIR + stage.file;
+      LOCAL_DIR +
+      stage.file;
 
 
     /* ローカル画像が無ければWorkerから取得 */
-    let retried = false;
+    let retried =
+      false;
 
-    img.onerror = () => {
+    img.onerror =
+      () => {
 
-      if (
-        !retried &&
-        REMOTE_DIR !== LOCAL_DIR
-      ) {
+        if (
+          !retried &&
+          REMOTE_DIR !==
+            LOCAL_DIR
+        ) {
 
-        retried = true;
+          retried =
+            true;
 
-        img.src =
-          REMOTE_DIR + stage.file;
+          img.src =
+            REMOTE_DIR +
+            stage.file;
 
-        return;
-      }
+          return;
+        }
 
-      img.classList.add(
-        'tsuda-fx-noimg'
-      );
-    };
+        img.classList.add(
+          'tsuda-fx-noimg'
+        );
+      };
 
 
     stageBox.append(
@@ -459,14 +668,18 @@
     /* ---------- 吹き出し ---------- */
 
     const bubble =
-      document.createElement('div');
+      document.createElement(
+        'div'
+      );
 
     bubble.className =
       'tsuda-fx-bubble';
 
 
     const msg =
-      document.createElement('div');
+      document.createElement(
+        'div'
+      );
 
     msg.className =
       'tsuda-fx-msg';
@@ -475,13 +688,17 @@
       stage.text;
 
 
-    bubble.appendChild(msg);
+    bubble.appendChild(
+      msg
+    );
 
 
     /* ---------- 前回比 ---------- */
 
     const sub =
-      document.createElement('div');
+      document.createElement(
+        'div'
+      );
 
     sub.className =
       'tsuda-fx-sub';
@@ -497,16 +714,22 @@
     /* ---------- タイマー線 ---------- */
 
     const bar =
-      document.createElement('div');
+      document.createElement(
+        'div'
+      );
 
     bar.className =
       'tsuda-fx-bar';
 
 
     const fill =
-      document.createElement('span');
+      document.createElement(
+        'span'
+      );
 
-    bar.appendChild(fill);
+    bar.appendChild(
+      fill
+    );
 
 
     /* ---------- 組み立て ---------- */
@@ -518,7 +741,9 @@
       bar
     );
 
-    wrap.appendChild(card);
+    wrap.appendChild(
+      card
+    );
 
 
     /* ---------- 最高評価だけ紙吹雪 ---------- */
@@ -528,7 +753,9 @@
       !reduced()
     ) {
 
-      appendSparks(wrap);
+      appendSparks(
+        wrap
+      );
     }
 
 
@@ -541,25 +768,34 @@
 
 
     fill.style.animationDuration =
-      hold + 'ms';
+      hold +
+      'ms';
 
 
     /* ---------- タップで閉じる ---------- */
 
     wrap.addEventListener(
       'click',
-      () => close(wrap)
+      () =>
+        close(
+          wrap
+        )
     );
 
 
     /* ---------- 表示 ---------- */
 
-    document.body.appendChild(wrap);
+    document.body.appendChild(
+      wrap
+    );
 
 
     closeTimer =
       setTimeout(
-        () => close(wrap),
+        () =>
+          close(
+            wrap
+          ),
         hold
       );
   }
@@ -569,7 +805,8 @@
      通常入力からの保存だけ対象にする
      ============================================================ */
 
-  let armed = false;
+  let armed =
+    false;
 
   document.addEventListener(
     'click',
@@ -593,13 +830,19 @@
         return;
       }
 
-      armed = true;
+      armed =
+        true;
 
 
-      /* saveWeightに到達しなかった場合に解除 */
+      /*
+       * saveWeightに到達しなかった場合に解除。
+       * async saveWeight は最初の await より前に
+       * armed を読み取るため、この0ms解除で問題ない。
+       */
       setTimeout(
         () => {
-          armed = false;
+          armed =
+            false;
         },
         0
       );
@@ -610,6 +853,10 @@
 
   /* ============================================================
      saveWeight ラップ
+
+     app.js の saveWeight は Promise<boolean> を返す。
+     true = Cloudflare側への保存成功
+     false = 入力エラーまたは保存失敗
      ============================================================ */
 
   const originalSaveWeight =
@@ -626,9 +873,13 @@
 
 
   window.saveWeight =
-    function (ymd, kg) {
+    async function (
+      ymd,
+      kg
+    ) {
 
-      let prev = null;
+      let prev =
+        null;
 
       const fire =
         armed;
@@ -638,8 +889,11 @@
 
 
       /*
-       * 保存前に前回記録を取得
-       * 保存後だと同日の値がキャッシュに入るため
+       * 保存前に前回記録を取得する。
+       *
+       * app.js はサーバー成功後に
+       * cache.weights を更新するため、
+       * この時点では確実に保存前の状態。
        */
       if (fire) {
 
@@ -647,19 +901,26 @@
 
           prev =
             prevRecord(
-              String(ymd)
+              String(
+                ymd
+              )
             );
 
         } catch (_) {
 
-          prev = null;
+          prev =
+            null;
         }
       }
 
 
-      /* 本来の保存 */
+      /*
+       * 本来の保存。
+       *
+       * ここでCloudflare側の応答まで待つ。
+       */
       const ok =
-        originalSaveWeight
+        await originalSaveWeight
           .apply(
             this,
             arguments
@@ -667,10 +928,20 @@
 
 
       /*
-       * 保存成功時だけ演出
+       * 保存失敗なら何も表示しない。
+       * app.js側にエラーコードが表示される。
        */
       if (
-        ok === true &&
+        ok !== true
+      ) {
+        return false;
+      }
+
+
+      /*
+       * Cloudflare保存成功時だけ演出。
+       */
+      if (
         fire &&
         prev
       ) {
@@ -678,10 +949,14 @@
         try {
 
           const base =
-            Number(prev.kg);
+            Number(
+              prev.kg
+            );
 
           const raw =
-            Number(kg);
+            Number(
+              kg
+            );
 
 
           if (
@@ -695,8 +970,10 @@
              */
             const now =
               Math.round(
-                raw * 10
-              ) / 10;
+                raw *
+                10
+              ) /
+              10;
 
 
             /*
@@ -704,13 +981,19 @@
              */
             const rate =
               (
-                (now - base) /
+                (
+                  now -
+                  base
+                ) /
                 base
-              ) * 100;
+              ) *
+              100;
 
 
             const id =
-              stageIdOf(rate);
+              stageIdOf(
+                rate
+              );
 
 
             if (id) {
@@ -735,7 +1018,7 @@
       }
 
 
-      return ok;
+      return true;
     };
 
 
@@ -749,7 +1032,9 @@
 
       for (
         const key
-        of Object.keys(STAGES)
+        of Object.keys(
+          STAGES
+        )
       ) {
 
         const img =
@@ -757,7 +1042,9 @@
 
         img.src =
           LOCAL_DIR +
-          STAGES[key].file;
+          STAGES[
+            key
+          ].file;
       }
 
     } catch (_) {
@@ -774,7 +1061,8 @@
     requestIdleCallback(
       preload,
       {
-        timeout:4000
+        timeout:
+          4000
       }
     );
 

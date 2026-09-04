@@ -176,6 +176,7 @@
       </div>
       <p class="note">他のメンバーに表示されます。本名や連絡先は入れないでください。</p>
     </div>
+
     <div class="field">
       <label class="lbl" for="goalInput">目標体重</label>
       <div class="past-row">
@@ -184,18 +185,18 @@
       </div>
       <p class="note">グラフに点線で表示されます。ランキングには使いません。</p>
     </div>
+
     <p class="msg" id="mmsg"></p>
   </section>
 
-  <!-- 通知はサーバ側が未実装のため、機能が動くまで非表示にしている。
-       app.js が #notifyOn / #notifyDays / #notifyHour / #saveNotify / #nmsg を
-       参照するため、要素そのものは残す。実装後に hidden を外す。 -->
-  <section class="card" hidden>
+  <section class="card">
     <h2 class="h2">通知</h2>
+
     <label class="chk">
       <input type="checkbox" id="notifyOn">
       <span>未入力が続いたら知らせる</span>
     </label>
+
     <div class="field">
       <label class="lbl" for="notifyDays">間隔</label>
       <select id="notifyDays">
@@ -203,12 +204,18 @@
         <option value="7">7日ごと</option>
       </select>
     </div>
+
     <div class="field">
       <label class="lbl" for="notifyHour">時刻</label>
       <select id="notifyHour"></select>
     </div>
+
     <button class="ghost sm" id="saveNotify" type="button">通知設定を保存</button>
-    <p class="note">この機能は準備中です。</p>
+
+    <p class="note">
+      最終記録から設定した間隔で通知します。13日目におやすみ中の予告、14日目におやすみ中になったことを通知し、その後は停止します。
+    </p>
+
     <p class="msg" id="nmsg"></p>
   </section>
 
@@ -219,15 +226,18 @@
 
   <section class="card">
     <h2 class="h2">サポート情報</h2>
+
     <div class="field">
       <span class="lbl">メンバーID</span>
       <div class="mono" id="myMemberId">—</div>
     </div>
+
     <div class="field">
       <span class="lbl">端末ID</span>
       <div class="mono small" id="myDeviceId">—</div>
       <p class="note">問い合わせのときに伝えてください。</p>
     </div>
+
     <button class="ghost sm" id="copyDeviceId" type="button">端末IDをコピー</button>
   </section>
 
@@ -250,6 +260,7 @@
     <p class="note">不具合のご報告、違反行為のご連絡、データの削除のご依頼は下記へお送りください。メンバーIDを添えていただけると調査が早く進みます。</p>
     <p><a href="mailto:jomon@jomonkusama.com">jomon@jomonkusama.com</a></p>
   </section>
+
 </div>
 </main>
 
@@ -258,15 +269,18 @@
   <div class="sheet">
     <h2 class="h2">位置を決める</h2>
     <p class="note">ドラッグで位置、スライダーかピンチで大きさを調整します。</p>
+
     <div class="cropstage">
       <canvas id="cropCv"></canvas>
       <div class="cropmask"></div>
     </div>
+
     <div class="croprow">
       <span class="zi">−</span>
       <input type="range" id="cropZoom" min="100" max="400" step="1" value="100">
       <span class="zi">＋</span>
     </div>
+
     <div class="past-row">
       <button class="primary sm" id="cropOk" type="button">これにする</button>
       <button class="ghost sm" id="cropCancel" type="button">やめる</button>
@@ -282,15 +296,21 @@
 
 <!-- APIの宛先。ブラウザ（本番ドメイン）なら同一オリジン、
      アプリ（capacitor://localhost, https://localhost）なら絶対URL。
-     app.js 側は  const API = window.MINYASE_API_BASE || '';  にする。 -->
+     app.js 側は const API = window.MINYASE_API_BASE || ''; にする。 -->
 <script>
   window.MINYASE_API_BASE =
     location.hostname === 'tdtd.la-kofu.workers.dev'
       ? ''
       : 'https://tdtd.la-kofu.workers.dev';
 </script>
+
 <script src="./app.js?v=20260903d"></script>
-<!-- 保存後の演出。app.js の saveWeight を包むので、必ず app.js より後に読む。 -->
+
+<!-- 保存後の津田さん演出。必ず app.js より後 -->
 <script src="./tsuda-fx.js?v=2"></script>
+
+<!-- iOSローカル通知 -->
+<script src="./notify.js?v=1"></script>
+
 </body>
 </html>

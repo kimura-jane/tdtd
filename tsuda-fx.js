@@ -11,13 +11,13 @@
      （履歴の編集・削除では出さない）
    ・初回記録と増減率0%は出さない
    ・演出内で例外が出ても保存処理は止めない
+   ・動きは transform / opacity のみ。レイアウトを触らない
    ============================================================ */
 
 (function () {
 
   /* ===== 設定 ===== */
 
-  const HOLD_MS = 1800;          /* 自動で閉じるまで */
   const LOCAL_DIR = './gazo/';   /* アプリに同梱されている場合 */
 
   /* 画像が同梱されていないときの取得先。
@@ -34,18 +34,21 @@
   const F_UP1  = 'E9ECE02D-1B3F-4021-ADC0-205B877A2A46.png'; /* E9E */
   const F_UP2  = '210929BF-D402-446F-8BE4-90FC71F893CE.png'; /* 210 */
 
-  /* 段階の定義。上から順に判定する。 */
-  const STAGES = [
-    { id: 'best', max: -1.5, file: F_BEST, text: 'かなりつだつだしてるねー' },
-    { id: 'good', max: -0.8, file: F_GOOD, text: 'つだつだしてるぜ' },
-    { id: 'ok',   max: -0.3, file: F_OK,   text: 'その調子' },
-    { id: 'tiny', max:  0,   file: F_TINY, text: 'その調子' },
-    { id: 'up0',  max:  0.3, file: F_UP0,  text: 'もっと頑張ろう' },
-    { id: 'up1',  max:  0.8, file: F_UP1,  text: '気合い入れて' },
-    { id: 'up2',  max:  Infinity, file: F_UP2, text: '俺みたいになるよ' },
-  ];
+  /* 段階の定義。
+       hold   … 自動で閉じるまでの時間(ms)。派手なものは少し長く見せる
+       spark  … 光の粒を舞わせるか
+       label  … 補足行の頭に付ける短い評価 */
+  const STAGES = {
+    best: { file: F_BEST, text: 'かなりつだつだしてるねー', hold: 2400, spark: true,  label: '最高' },
+    good: { file: F_GOOD, text: 'つだつだしてるぜ',         hold: 2100, spark: false, label: 'いい調子' },
+    ok:   { file: F_OK,   text: 'その調子',                 hold: 1900, spark: false, label: '順調' },
+    tiny: { file: F_TINY, text: 'その調子',                 hold: 1800, spark: false, label: '前進' },
+    up0:  { file: F_UP0,  text: 'もっと頑張ろう',           hold: 1800, spark: false, label: 'ふむ' },
+    up1:  { file: F_UP1,  text: '気合い入れて',             hold: 1900, spark: false, label: '注意' },
+    up2:  { file: F_UP2,  text: '俺みたいになるよ',         hold: 2100, spark: false, label: '警報' },
+  };
 
-  /* 増減率(%) から段階を選ぶ。0%（および極小の誤差）は null。
+  /* 増減率(%) から段階IDを選ぶ。0%（および極小の誤差）は null。
        rate <= -1.5            → best
      -1.5 <  rate <= -0.8      → good
      -0.8 <  rate <= -0.3      → ok
@@ -53,20 +56,20 @@
         0 <  rate <   0.3      → up0
       0.3 <= rate <   0.8      → up1
       0.8 <= rate             → up2                        */
-  function stageOf(rate) {
+  function stageIdOf(rate) {
     if (!isFinite(rate)) return null;
     if (Math.abs(rate) < 1e-9) return null;
 
     if (rate < 0) {
-      if (rate <= -1.5) return STAGES[0];
-      if (rate <= -0.8) return STAGES[1];
-      if (rate <= -0.3) return STAGES[2];
-      return STAGES[3];
+      if (rate <= -1.5) return 'best';
+      if (rate <= -0.8) return 'good';
+      if (rate <= -0.3) return 'ok';
+      return 'tiny';
     }
 
-    if (rate < 0.3) return STAGES[4];
-    if (rate < 0.8) return STAGES[5];
-    return STAGES[6];
+    if (rate < 0.3) return 'up0';
+    if (rate < 0.8) return 'up1';
+    return 'up2';
   }
 
   /* ===== 前回記録の取得 =====
@@ -90,8 +93,19 @@
     return bestYmd === null ? null : { ymd: bestYmd, kg: Number(all[bestYmd]) };
   }
 
-  function fmtRate(rate) {
-    return '前回比 ' + (rate > 0 ? '+' : '') + rate.toFixed(2) + '%';
+  /* 「前進 ／ 前回比 -0.82% ／ 68.4 → 67.8kg」 */
+  function subText(stage, rate, base, now) {
+    const r = (rate > 0 ? '+' : '') + rate.toFixed(2) + '%';
+    return `${stage.label} ／ 前回比 ${r} ／ ${base.toFixed(1)} → ${now.toFixed(1)}kg`;
+  }
+
+  /* 動きを控えるべき環境かどうか */
+  function reduced() {
+    try {
+      return !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+    } catch (_) {
+      return false;
+    }
   }
 
   /* ===== 表示 ===== */
@@ -100,22 +114,30 @@
 
   function close(node) {
     if (!node || !node.parentNode) return;
+    clearTimeout(closeTimer);
     node.classList.add('tsuda-fx-out');
-    setTimeout(() => { if (node.parentNode) node.parentNode.removeChild(node); }, 220);
+    setTimeout(() => { if (node.parentNode) node.parentNode.removeChild(node); }, 260);
   }
 
-  function show(stage, rate) {
+  function show(id, stage, rate, base, now) {
     /* 前の演出が残っていれば片付ける */
     const old = document.querySelector('.tsuda-fx');
-    if (old) { clearTimeout(closeTimer); close(old); }
+    if (old) close(old);
 
     const wrap = document.createElement('div');
-    wrap.className = 'tsuda-fx tsuda-fx-' + stage.id;
+    wrap.className = 'tsuda-fx tsuda-fx-' + id + (rate < 0 ? ' tsuda-fx-down' : ' tsuda-fx-up');
     wrap.setAttribute('role', 'status');
     wrap.setAttribute('aria-live', 'polite');
 
     const card = document.createElement('div');
     card.className = 'tsuda-fx-card';
+
+    /* 画像とその背後の光の輪 */
+    const stageBox = document.createElement('div');
+    stageBox.className = 'tsuda-fx-stage';
+
+    const halo = document.createElement('span');
+    halo.className = 'tsuda-fx-halo';
 
     const img = document.createElement('img');
     img.className = 'tsuda-fx-img';
@@ -123,7 +145,7 @@
     img.decoding = 'async';
     img.src = LOCAL_DIR + stage.file;
 
-    /* 同梱されていなければサーバーから取り直す。それも失敗したら画像だけ消す。 */
+    /* 同梱されていなければサーバーから取り直す。それも失敗したら枠だけ残す。 */
     let retried = false;
     img.onerror = () => {
       if (!retried && REMOTE_DIR !== LOCAL_DIR) {
@@ -131,8 +153,10 @@
         img.src = REMOTE_DIR + stage.file;
         return;
       }
-      img.remove();
+      img.classList.add('tsuda-fx-noimg');
     };
+
+    stageBox.append(halo, img);
 
     const msg = document.createElement('div');
     msg.className = 'tsuda-fx-msg';
@@ -140,15 +164,46 @@
 
     const sub = document.createElement('div');
     sub.className = 'tsuda-fx-sub';
-    sub.textContent = fmtRate(rate);
+    sub.textContent = subText(stage, rate, base, now);
 
-    card.append(img, msg, sub);
+    /* 残り時間の細い線 */
+    const bar = document.createElement('div');
+    bar.className = 'tsuda-fx-bar';
+    const fill = document.createElement('span');
+    bar.appendChild(fill);
+
+    card.append(stageBox, msg, sub, bar);
     wrap.appendChild(card);
 
-    wrap.addEventListener('click', () => { clearTimeout(closeTimer); close(wrap); });
+    /* 1番痩せたときだけ光の粒を舞わせる */
+    if (stage.spark && !reduced()) {
+      const field = document.createElement('div');
+      field.className = 'tsuda-fx-sparks';
+
+      for (let i = 0; i < 12; i++) {
+        const s = document.createElement('i');
+        s.className = 'tsuda-fx-spark';
+        /* 位置・方向・速さを個別に散らす */
+        s.style.setProperty('--x', (8 + Math.random() * 84).toFixed(2) + '%');
+        s.style.setProperty('--dx', (Math.random() * 60 - 30).toFixed(1) + 'px');
+        s.style.setProperty('--d', (0.05 + Math.random() * 0.5).toFixed(2) + 's');
+        s.style.setProperty('--t', (1.1 + Math.random() * 0.7).toFixed(2) + 's');
+        s.style.setProperty('--sz', (5 + Math.random() * 5).toFixed(1) + 'px');
+        field.appendChild(s);
+      }
+
+      wrap.appendChild(field);
+    }
+
+    const hold = reduced() ? 1400 : stage.hold;
+
+    /* 線のアニメーション時間を hold に合わせる */
+    fill.style.animationDuration = hold + 'ms';
+
+    wrap.addEventListener('click', () => close(wrap));
 
     document.body.appendChild(wrap);
-    closeTimer = setTimeout(() => close(wrap), HOLD_MS);
+    closeTimer = setTimeout(() => close(wrap), hold);
   }
 
   /* ===== 発火元の限定 =====
@@ -190,15 +245,15 @@
 
     if (ok === true && fire && prev) {
       try {
-        const now = Number(kg);
         const base = Number(prev.kg);
+        const raw = Number(kg);
 
-        if (isFinite(now) && isFinite(base) && base > 0) {
+        if (isFinite(raw) && isFinite(base) && base > 0) {
           /* app.js の normKg と同じ丸め方に揃える */
-          const v = Math.round(now * 10) / 10;
-          const rate = (v - base) / base * 100;
-          const stage = stageOf(rate);
-          if (stage) show(stage, rate);
+          const now = Math.round(raw * 10) / 10;
+          const rate = (now - base) / base * 100;
+          const id = stageIdOf(rate);
+          if (id) show(id, STAGES[id], rate, base, now);
         }
       } catch (_) {
         /* 演出の失敗は保存結果に影響させない */
@@ -212,9 +267,9 @@
      画像が大きいので、手が空いたときに温めておく。失敗しても無視。 */
   function preload() {
     try {
-      for (const s of STAGES) {
+      for (const k of Object.keys(STAGES)) {
         const im = new Image();
-        im.src = LOCAL_DIR + s.file;
+        im.src = LOCAL_DIR + STAGES[k].file;
       }
     } catch (_) {}
   }

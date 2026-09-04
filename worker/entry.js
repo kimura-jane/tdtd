@@ -19,28 +19,26 @@ import {
   cleanupVotesForMember
 } from './vote.js';
 
+import {
+  memberPushRoute,
+  cleanupPushForMember,
+  sendDuePushes
+} from './push.js';
 
 /* ============================================================
    みんやせ / worker/entry.js
-
-   管理API・投票APIを先に振り分け、
+   管理API・投票API・Push APIを先に振り分け、
    既存APIは worker/index.js へ渡す。
    ============================================================ */
-
 
 const DEVICE_ID_RE =
   /^[A-Za-z0-9_-]{8,64}$/;
 
-
-/*
- * admin.js が担当する既存の一般会員用ルート
- */
 const MEMBER_PATHS = [
   '/api/group/day',
   '/api/export',
   '/api/import',
 ];
-
 
 let tokCache =
   null;
@@ -51,17 +49,14 @@ let tokCache =
    ============================================================ */
 
 async function adminToken(env) {
-
   const fromEnv =
     env.ADMIN_TOKEN;
-
 
   if (
     typeof fromEnv ===
       'string' &&
     fromEnv.trim()
   ) {
-
     return {
       token:
         fromEnv.trim(),
@@ -71,15 +66,11 @@ async function adminToken(env) {
     };
   }
 
-
   if (tokCache) {
-
     return tokCache;
   }
 
-
   try {
-
     const r =
       await env.DB
         .prepare(`
@@ -89,7 +80,6 @@ async function adminToken(env) {
         `)
         .first();
 
-
     const v =
       r &&
       typeof r.v ===
@@ -97,9 +87,7 @@ async function adminToken(env) {
         ? r.v.trim()
         : '';
 
-
     if (v) {
-
       tokCache = {
         token:
           v,
@@ -108,12 +96,9 @@ async function adminToken(env) {
           'd1',
       };
 
-
       return tokCache;
     }
-
   } catch {}
-
 
   return {
     token:
@@ -133,7 +118,6 @@ async function getMember(
   req,
   env
 ) {
-
   const deviceId =
     (
       req.headers.get(
@@ -142,13 +126,11 @@ async function getMember(
       ''
     ).trim();
 
-
   if (
     !DEVICE_ID_RE.test(
       deviceId
     )
   ) {
-
     return {
       error:
         bad(
@@ -157,7 +139,6 @@ async function getMember(
         ),
     };
   }
-
 
   const dev =
     await env.DB
@@ -171,9 +152,7 @@ async function getMember(
       )
       .first();
 
-
   if (!dev) {
-
     return {
       error:
         bad(
@@ -184,13 +163,11 @@ async function getMember(
     };
   }
 
-
   if (
     Number(
       dev.banned
     ) === 1
   ) {
-
     return {
       error:
         bad(
@@ -200,7 +177,6 @@ async function getMember(
         ),
     };
   }
-
 
   return {
     dev,
@@ -213,29 +189,24 @@ async function getMember(
    ============================================================ */
 
 export default {
-
   async fetch(
     req,
     env,
     ctx
   ) {
-
     if (
       req.method ===
-      'OPTIONS'
+        'OPTIONS'
     ) {
-
       return preflight(
         req
       );
     }
 
-
     const url =
       new URL(
         req.url
       );
-
 
     const p =
       url.pathname
@@ -245,39 +216,70 @@ export default {
         ) ||
       '/';
 
-
     const m =
       req.method;
 
-
     try {
+      /* ---------- Push 一般API ---------- */
 
-      /* --------------------------------------------------------
-         投票 管理API
-         -------------------------------------------------------- */
+      if (
+        p.startsWith(
+          '/api/push/'
+        )
+      ) {
+        const member =
+          await getMember(
+            req,
+            env
+          );
+
+        if (
+          member.error
+        ) {
+          return member.error;
+        }
+
+        const res =
+          await memberPushRoute(
+            req,
+            env,
+            member.dev,
+            p,
+            m
+          );
+
+        return (
+          res ||
+          bad(
+            req,
+            'not_found',
+            404
+          )
+        );
+      }
+
+
+      /* ---------- 投票 管理API ---------- */
 
       if (
         p.startsWith(
           '/api/admin/vote/'
         )
       ) {
-
         const a =
           await adminToken(
             env
           );
 
-
         const e2 =
           a.source ===
-          'env'
+            'env'
             ? env
             : {
                 ...env,
                 ADMIN_TOKEN:
                   a.token,
               };
-
 
         return await adminVoteRoute(
           req,
@@ -289,32 +291,27 @@ export default {
       }
 
 
-      /* --------------------------------------------------------
-         既存 管理API
-         -------------------------------------------------------- */
+      /* ---------- 既存 管理API ---------- */
 
       if (
         p.startsWith(
           '/api/admin/'
         )
       ) {
-
         const a =
           await adminToken(
             env
           );
 
-
         const e2 =
           a.source ===
-          'env'
+            'env'
             ? env
             : {
                 ...env,
                 ADMIN_TOKEN:
                   a.token,
               };
-
 
         return await adminRoute(
           req,
@@ -326,16 +323,13 @@ export default {
       }
 
 
-      /* --------------------------------------------------------
-         投票 一般API
-         -------------------------------------------------------- */
+      /* ---------- 投票 一般API ---------- */
 
       if (
         p.startsWith(
           '/api/vote/'
         )
       ) {
-
         return await memberVoteRoute(
           req,
           env,
@@ -346,12 +340,7 @@ export default {
       }
 
 
-      /* --------------------------------------------------------
-         アカウント削除
-
-         index.jsで本体データを削除した後、
-         投票データも削除する。
-         -------------------------------------------------------- */
+      /* ---------- アカウント削除 ---------- */
 
       if (
         p ===
@@ -359,17 +348,12 @@ export default {
         m ===
           'DELETE'
       ) {
-
         const member =
           await getMember(
             req,
             env
           );
 
-
-        /*
-         * 既存Workerへ処理を渡す。
-         */
         const res =
           await worker.fetch(
             req,
@@ -377,26 +361,17 @@ export default {
             ctx
           );
 
-
         if (
           res.ok &&
           member.dev &&
           member.dev.member_id
         ) {
-
           try {
-
             await cleanupVotesForMember(
               env,
               member.dev.member_id
             );
-
           } catch (e) {
-
-            /*
-             * 本体削除が成功しているので
-             * cleanup失敗でレスポンスを失敗には戻さない。
-             */
             console.error(
               'vote_cleanup_error',
               member.dev.member_id,
@@ -407,37 +382,47 @@ export default {
               e
             );
           }
-        }
 
+          try {
+            await cleanupPushForMember(
+              env,
+              member.dev.member_id
+            );
+          } catch (e) {
+            console.error(
+              'push_cleanup_error',
+              member.dev.member_id,
+              (
+                e &&
+                e.stack
+              ) ||
+              e
+            );
+          }
+        }
 
         return res;
       }
 
 
-      /* --------------------------------------------------------
-         admin.js の既存一般API
-         -------------------------------------------------------- */
+      /* ---------- admin.js の既存一般API ---------- */
 
       if (
         MEMBER_PATHS.includes(
           p
         )
       ) {
-
         const member =
           await getMember(
             req,
             env
           );
 
-
         if (
           member.error
         ) {
-
           return member.error;
         }
-
 
         const res =
           await memberRoute(
@@ -449,15 +434,12 @@ export default {
             m
           );
 
-
         if (res) {
           return res;
         }
       }
 
-
     } catch (e) {
-
       console.error(
         'entry_error',
         p,
@@ -468,7 +450,6 @@ export default {
         ) ||
         e
       );
-
 
       return json(
         req,
@@ -483,14 +464,48 @@ export default {
       );
     }
 
-
-    /*
-     * 既存API / 静的ファイルは従来どおり。
-     */
     return worker.fetch(
       req,
       env,
       ctx
+    );
+  },
+
+
+  /* ---------- Android Web Push Cron ---------- */
+
+  async scheduled(
+    controller,
+    env,
+    ctx
+  ) {
+    ctx.waitUntil(
+      sendDuePushes(
+        env
+      )
+        .then(
+          result => {
+            console.log(
+              'push_cron',
+              controller.cron,
+              JSON.stringify(
+                result
+              )
+            );
+          }
+        )
+        .catch(
+          e => {
+            console.error(
+              'push_cron_error',
+              (
+                e &&
+                e.stack
+              ) ||
+              e
+            );
+          }
+        )
     );
   },
 };

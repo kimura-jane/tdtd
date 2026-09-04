@@ -16,6 +16,21 @@
   content="みんやせは、グループのみんなで体重を記録して一緒に痩せるアプリです。"
 >
 
+<meta
+  name="theme-color"
+  content="#ff5f45"
+>
+
+<link
+  rel="manifest"
+  href="./manifest.webmanifest"
+>
+
+<link
+  rel="icon"
+  href="./resources/icon.png"
+>
+
 <link
   rel="stylesheet"
   href="./style.css?v=20260904a"
@@ -1217,6 +1232,36 @@
 <script src="./notify.js?v=2"></script>
 
 <script src="./vote.js?v=1"></script>
+
+
+<script>
+
+  if (
+    'serviceWorker' in
+    navigator
+  ) {
+
+    window.addEventListener(
+      'load',
+      () => {
+
+        navigator
+          .serviceWorker
+          .register(
+            './sw.js'
+          )
+          .catch(
+            err =>
+              console.error(
+                'service_worker_register',
+                err
+              )
+          );
+      }
+    );
+  }
+
+</script>
 
 
 </body>

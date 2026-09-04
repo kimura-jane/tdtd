@@ -125,7 +125,10 @@ workflows:
       app_store_connect:
         auth: integration
 
-        # まずTestFlightへアップロードして実機確認する。
-        # App Store審査への提出はApp Store Connectから手動で行う。
-        submit_to_testflight: true
+        # IPAはApp Store Connectへアップロードするが、
+        # TestFlight Beta App Reviewへの提出は自動で行わない。
+        # 初回はApp Store Connectの画面から手動で外部テスト審査へ出す。
+        submit_to_testflight: false
+
+        # App Store本審査への提出も手動で行う。
         submit_to_app_store: false

@@ -18,6 +18,7 @@
    ・体重保存成功後に予約を組み直す
    ・最新記録削除後も予約を組み直す
    ・通知OFFで全キャンセル
+   ・通知許可を拒否されたらサーバー側も自動でOFF
    ・Web版では動作しない
    ============================================================ */
 
@@ -31,14 +32,22 @@
     'tsudatsu.device_id.v1';
 
   /*
+   * notify.js 自身のAPI通信はこれを使う。
+   * 後から window.fetch を監視用に差し替えても、
+   * notify.js 内部の通信が再び監視に引っかからないようにする。
+   */
+  const baseFetch =
+    window.fetch.bind(window);
+
+  /*
    * みんやせ専用の通知ID。
    * 他機能のローカル通知とぶつからない範囲を使う。
    */
   const IDS = {
-    3:  730003,
-    6:  730006,
-    7:  730007,
-    9:  730009,
+    3: 730003,
+    6: 730006,
+    7: 730007,
+    9: 730009,
     12: 730012,
     13: 730013,
     14: 730014,
@@ -76,6 +85,32 @@
     n.className =
       'msg ' +
       (ok ? 'ok' : 'ng');
+  }
+
+  function setUiOff() {
+    const on =
+      $('notifyOn');
+
+    const days =
+      $('notifyDays');
+
+    const hour =
+      $('notifyHour');
+
+    if (on) {
+      on.checked =
+        false;
+    }
+
+    if (days) {
+      days.disabled =
+        true;
+    }
+
+    if (hour) {
+      hour.disabled =
+        true;
+    }
   }
 
   /* ------------------------------------------------------------
@@ -240,7 +275,7 @@
     }
 
     const res =
-      await window.fetch(
+      await baseFetch(
         API + path,
         {
           method:
@@ -279,6 +314,70 @@
     }
 
     return data;
+  }
+
+  /*
+   * iOS側で通知を拒否された場合、
+   * サーバー側の notify_on=true を残さない。
+   *
+   * baseFetch を直接使うので、
+   * patchFetch の通知設定監視には再び入らない。
+   */
+  async function turnNotifyOffOnServer() {
+    const did =
+      deviceId();
+
+    if (!did) {
+      throw new Error(
+        'no_device'
+      );
+    }
+
+    const res =
+      await baseFetch(
+        API + '/api/me',
+        {
+          method:
+            'PATCH',
+
+          headers: {
+            'content-type':
+              'application/json',
+
+            'x-device-id':
+              did,
+          },
+
+          body:
+            JSON.stringify({
+              notify_on: false,
+            }),
+
+          cache:
+            'no-store',
+        }
+      );
+
+    let data =
+      {};
+
+    try {
+      data =
+        await res.json();
+    } catch {}
+
+    if (
+      !res.ok ||
+      data.ok === false
+    ) {
+      throw new Error(
+        data.error ||
+        'http_' +
+          res.status
+      );
+    }
+
+    return true;
   }
 
   async function getSettingsAndLatest() {
@@ -346,7 +445,10 @@
       plugin();
 
     if (!p) {
-      return false;
+      return {
+        granted: false,
+        status: 'unavailable',
+      };
     }
 
     try {
@@ -355,22 +457,43 @@
 
       if (
         s.display ===
-          'granted'
+        'granted'
       ) {
-        return true;
+        return {
+          granted: true,
+          status: 'granted',
+        };
       }
 
+      /*
+       * 起動時には勝手に許可ダイアログを出さない。
+       * 現在の状態だけ返す。
+       */
       if (!request) {
-        return false;
+        return {
+          granted: false,
+          status:
+            s.display ||
+            'prompt',
+        };
       }
 
+      /*
+       * 「通知設定を保存」を押した時だけ
+       * iOSの許可ダイアログを表示する。
+       */
       s =
         await p.requestPermissions();
 
-      return (
-        s.display ===
-        'granted'
-      );
+      return {
+        granted:
+          s.display ===
+          'granted',
+
+        status:
+          s.display ||
+          'denied',
+      };
 
     } catch (e) {
       console.error(
@@ -378,7 +501,10 @@
         e
       );
 
-      return false;
+      return {
+        granted: false,
+        status: 'error',
+      };
     }
   }
 
@@ -591,15 +717,64 @@
         return;
       }
 
-      const allowed =
+      const perm =
         await permission(
           !!requestPermission
         );
 
-      if (!allowed) {
+      if (!perm.granted) {
+        /*
+         * 明示的に拒否済みなら、
+         * 端末側の予約を消し、
+         * サーバー側のnotify_onもfalseへ戻す。
+         *
+         * 起動時にまだ一度も尋ねていない
+         * prompt状態の場合は勝手にOFFにはしない。
+         */
+        if (
+          perm.status ===
+          'denied'
+        ) {
+          await cancelAll();
+
+          try {
+            await turnNotifyOffOnServer();
+
+            setUiOff();
+
+            if (showMessage) {
+              msg(
+                'iPhoneの通知が許可されなかったため、通知をオフに戻しました',
+                false
+              );
+            }
+
+          } catch (e) {
+            console.error(
+              'notify_auto_off',
+              e
+            );
+
+            setUiOff();
+
+            if (showMessage) {
+              msg(
+                '通知が許可されていません。通知設定をオフにしてください',
+                false
+              );
+            }
+          }
+
+          return;
+        }
+
+        /*
+         * requestPermissionsを呼んでいない起動時の
+         * prompt状態では何もしない。
+         */
         if (showMessage) {
           msg(
-            'iPhoneの通知が許可されていません。通知を許可してからもう一度保存してください',
+            'iPhoneの通知を許可してから、もう一度通知設定を保存してください',
             false
           );
         }
@@ -701,16 +876,13 @@
     fetchPatched =
       true;
 
-    const originalFetch =
-      window.fetch.bind(window);
-
     window.fetch =
       async function (
         input,
         init
       ) {
         const res =
-          await originalFetch(
+          await baseFetch(
             input,
             init
           );

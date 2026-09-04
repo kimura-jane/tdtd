@@ -546,14 +546,19 @@ canvas{width:100%;height:240px;display:block;margin-top:8px}
   animation:tsudaVeilOut .26s ease-in both;
 }
 
-/* 全体の構図 */
+/* 全体の構図
+   吹き出し・数値ピル・タイマー線は通常フローで縦に積む。
+   こうするとセリフが何行になっても重ならない。
+   画像だけは左下に絶対配置して吹き出しと重ねる。 */
 .tsuda-fx-card{
   position:relative;
 
   width:min(350px,100%);
   min-height:306px;
 
-  display:block;
+  display:flex;
+  flex-direction:column;
+  align-items:flex-end;
 
   transform-origin:50% 100%;
 
@@ -583,6 +588,8 @@ canvas{width:100%;height:240px;display:block;margin-top:8px}
   display:flex;
   align-items:center;
   justify-content:center;
+
+  pointer-events:none;
 }
 
 .tsuda-fx-halo{
@@ -647,12 +654,13 @@ canvas{width:100%;height:240px;display:block;margin-top:8px}
 
 /* 吹き出し */
 .tsuda-fx-bubble{
-  position:absolute;
-
-  top:14px;
-  right:0;
+  position:relative;
 
   z-index:4;
+
+  align-self:flex-end;
+
+  margin:14px 0 0;
 
   width:min(228px,68vw);
 
@@ -726,12 +734,13 @@ canvas{width:100%;height:240px;display:block;margin-top:8px}
 
 /* 数値ピル */
 .tsuda-fx-sub{
-  position:absolute;
+  position:relative;
 
   z-index:5;
 
-  right:3px;
-  top:124px;
+  align-self:flex-end;
+
+  margin:15px 3px 0;
 
   max-width:205px;
 
@@ -769,12 +778,13 @@ canvas{width:100%;height:240px;display:block;margin-top:8px}
 
 /* 下部の小さな消える目安 */
 .tsuda-fx-bar{
-  position:absolute;
-
-  right:23px;
-  top:172px;
+  position:relative;
 
   z-index:5;
+
+  align-self:flex-end;
+
+  margin:11px 23px 0;
 
   width:84px;
   height:3px;
@@ -788,6 +798,8 @@ canvas{width:100%;height:240px;display:block;margin-top:8px}
   animation:tsudaStatIn .38s ease-out .34s both;
 }
 
+/* duration は tsuda-fx.js が hold に合わせてインラインで上書きする。
+   ここの 2.2s は JS が失敗したときのフォールバック。 */
 .tsuda-fx-bar span{
   display:block;
 
@@ -800,7 +812,7 @@ canvas{width:100%;height:240px;display:block;margin-top:8px}
 
   transform-origin:left center;
 
-  animation:tsudaBar linear both;
+  animation:tsudaBar 2.2s linear both;
 }
 
 /* 最高評価だけ紙吹雪 */
@@ -1080,7 +1092,7 @@ canvas{width:100%;height:240px;display:block;margin-top:8px}
   }
 
   .tsuda-fx-sub{
-    top:118px;
+    margin-top:13px;
     font-size:10.5px;
   }
 }
@@ -1101,7 +1113,8 @@ canvas{width:100%;height:240px;display:block;margin-top:8px}
   .tsuda-fx-img,
   .tsuda-fx-bubble,
   .tsuda-fx-sub,
-  .tsuda-fx-bar{
+  .tsuda-fx-bar,
+  .tsuda-fx-bar span{
     animation:none!important;
     opacity:1!important;
     transform:none!important;

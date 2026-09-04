@@ -482,6 +482,56 @@ canvas{width:100%;height:240px;display:block;margin-top:8px}
 }
 .tabbtn.is-on{background:var(--ink); color:#fff; box-shadow:0 3px 12px rgba(25,23,20,.24);}
 
+/* ---------- 保存後の演出（tsuda-fx.js） ---------- */
+/* 既存のクラスとぶつからないよう .tsuda-fx- 接頭辞で統一している。
+   .ov が z-index:60 なので、その上に重ねる。 */
+.tsuda-fx{
+  position:fixed; inset:0; z-index:70;
+  display:flex; align-items:center; justify-content:center;
+  padding:24px;
+  background:rgba(25,23,20,.5);
+  backdrop-filter:blur(4px); -webkit-backdrop-filter:blur(4px);
+  cursor:pointer;
+  animation:tsudaFxIn .18s ease-out both;
+}
+.tsuda-fx.tsuda-fx-out{animation:tsudaFxOut .2s ease-in both}
+
+.tsuda-fx-card{
+  display:flex; flex-direction:column; align-items:center;
+  gap:12px; width:100%; max-width:320px;
+  animation:tsudaFxPop .26s cubic-bezier(.2,.9,.3,1.2) both;
+}
+
+.tsuda-fx-img{
+  width:190px; height:190px;
+  max-width:62vw; max-height:62vw;
+  object-fit:contain;
+  border-radius:22px;
+  background:#fff;
+  box-shadow:0 10px 30px rgba(25,23,20,.3);
+}
+
+.tsuda-fx-msg{
+  color:#fff;
+  font-size:20px; font-weight:700; line-height:1.45;
+  text-align:center;
+  text-shadow:0 2px 8px rgba(25,23,20,.5);
+}
+
+.tsuda-fx-sub{
+  color:rgba(255,255,255,.82);
+  font-size:12.5px; font-weight:600;
+  font-variant-numeric:tabular-nums;
+  text-align:center;
+}
+
+@keyframes tsudaFxIn{from{opacity:0}to{opacity:1}}
+@keyframes tsudaFxOut{from{opacity:1}to{opacity:0}}
+@keyframes tsudaFxPop{
+  from{opacity:0;transform:scale(.86) translateY(8px)}
+  to{opacity:1;transform:none}
+}
+
 @media (prefers-reduced-motion:reduce){
   *{animation:none!important;transition:none!important}
   html{scroll-behavior:auto}

@@ -11,12 +11,19 @@ import {
 
 /* ============================================================
    つだつダイエット部 / worker/index.js
+   2026-09-04 リーダー権限（最大5人）対応
+   ・オーナーはリーダーの任命／解任ができる
+   ・リーダーは「解散」以外のグループ操作ができる
+   ・リーダーはオーナーと他のリーダーを除名できない
    ============================================================ */
 
 /* ---------- アイコン設定 ---------- */
 const ICON_MAX_BYTES = 300 * 1024;   // クライアントで256px/JPEG化した後の上限
 const ICON_PREFIX = 'icon/';         // R2キー: icon/{member_id}.jpg
 const ICON_PUBLIC = '/i/';           // 公開GETパス: /i/{member_id}.jpg
+
+/* ---------- リーダー ---------- */
+const LEADER_MAX = 5;                // 1グループあたりのリーダー上限
 
 function iconKey(memberId) {
   return ICON_PREFIX + memberId + '.jpg';
@@ -178,6 +185,95 @@ function isOwnerOf(group, dev) {
   return group.owner_id === dev.member_id || group.owner_id === dev.device_id;
 }
 
+/* ============================================================
+   リーダー（group_leaders）
+   テーブルが未作成でも API 全体が落ちないよう、読み取りは try/catch で
+   「リーダー0人」として扱う。
+   ============================================================ */
+async function leaderIds(env, gid) {
+  if (!gid) return [];
+  try {
+    const rs = await env.DB.prepare(
+      'SELECT member_id FROM group_leaders WHERE group_id=? ORDER BY created_at ASC'
+    ).bind(gid).all();
+    return (rs.results || []).map(r => r.member_id);
+  } catch (e) {
+    console.error('leader_table_missing', (e && e.message) || e);
+    return [];
+  }
+}
+
+async function leaderRows(env, gid) {
+  if (!gid) return [];
+  try {
+    const rs = await env.DB.prepare(
+      `SELECT l.member_id, l.created_at, d.nickname, d.icon_ver, d.group_id
+         FROM group_leaders l LEFT JOIN devices d ON d.member_id=l.member_id
+        WHERE l.group_id=? ORDER BY l.created_at ASC`
+    ).bind(gid).all();
+    return rs.results || [];
+  } catch (e) {
+    console.error('leader_table_missing', (e && e.message) || e);
+    return [];
+  }
+}
+
+async function isLeaderOf(env, gid, memberId) {
+  if (!gid || !memberId) return false;
+  try {
+    const r = await env.DB.prepare(
+      'SELECT member_id FROM group_leaders WHERE group_id=? AND member_id=?'
+    ).bind(gid, memberId).first();
+    return !!r;
+  } catch (e) {
+    return false;
+  }
+}
+
+async function countLeaders(env, gid) {
+  try {
+    const r = await env.DB.prepare(
+      'SELECT COUNT(*) AS n FROM group_leaders WHERE group_id=?'
+    ).bind(gid).first();
+    return Number(r ? r.n : 0);
+  } catch (e) {
+    return 0;
+  }
+}
+
+async function dropLeader(env, gid, memberId) {
+  if (!memberId) return;
+  try {
+    if (gid) {
+      await env.DB.prepare('DELETE FROM group_leaders WHERE group_id=? AND member_id=?')
+        .bind(gid, memberId).run();
+    } else {
+      await env.DB.prepare('DELETE FROM group_leaders WHERE member_id=?')
+        .bind(memberId).run();
+    }
+  } catch (e) { /* テーブル未作成なら何もしない */ }
+}
+
+async function dropAllLeaders(env, gid) {
+  try {
+    await env.DB.prepare('DELETE FROM group_leaders WHERE group_id=?').bind(gid).run();
+  } catch (e) { /* テーブル未作成なら何もしない */ }
+}
+
+/* オーナー または リーダー だけが通れる。解散はここを通さない */
+async function requireLedGroup(env, dev) {
+  if (!dev.group_id) return { error: 'not_in_group' };
+  const g = await env.DB.prepare('SELECT * FROM groups WHERE group_id=?').bind(dev.group_id).first();
+  if (!g) return { error: 'group_not_found' };
+  if (isOwnerOf(g, dev)) return { group: g, owner: true, leader: false };
+  if (await isLeaderOf(env, g.group_id, dev.member_id)) return { group: g, owner: false, leader: true };
+  return { error: 'not_leader' };
+}
+
+function permStatus(code) {
+  return (code === 'not_owner' || code === 'not_leader') ? 403 : 400;
+}
+
 /* ---------- 端末 ---------- */
 async function getDevice(env, deviceId) {
   return await env.DB.prepare('SELECT * FROM devices WHERE device_id=?').bind(deviceId).first();
@@ -289,6 +385,19 @@ async function route(req, env, url) {
   if (p === '/api/groups/dissolve' && m === 'POST') return await dissolveGroup(req, env, dev);
   if (p === '/api/groups/bans'     && m === 'GET')  return await listBans(req, env, dev);
 
+  /* ---------- リーダー ---------- */
+  if (p === '/api/groups/leaders') {
+    if (m === 'GET')  return await listLeaders(req, env, dev);
+    if (m === 'POST') return await addLeader(req, env, dev);
+    if (m === 'DELETE') {
+      const b = await readBody(req);
+      return await delLeader(req, env, dev, String(b.member_id || ''));
+    }
+  }
+  if (p.startsWith('/api/groups/leaders/') && m === 'DELETE') {
+    return await delLeader(req, env, dev, decodeURIComponent(p.slice('/api/groups/leaders/'.length)));
+  }
+
   /* ---------- ランキング ---------- */
   if (p === '/api/ranking' && m === 'GET') return await ranking(req, env, dev, url);
 
@@ -388,6 +497,8 @@ async function deleteMe(req, env, dev) {
     const g = await env.DB.prepare('SELECT * FROM groups WHERE group_id=?').bind(dev.group_id).first();
     if (g && isOwnerOf(g, dev)) await doDissolve(env, g.group_id);
   }
+  // リーダー行は所属に関係なく全部消す（別グループに残っていても掃除する）
+  await dropLeader(env, null, dev.member_id);
   // R2 のアイコンも消す（D1 の行を消すと二度と辿れなくなるので先に）
   await tryDeleteIconObject(env, dev.member_id);
   await env.DB.batch([
@@ -452,7 +563,12 @@ async function groupView(env, dev) {
   if (!g) return null;
   const c = await env.DB.prepare('SELECT COUNT(*) AS n FROM devices WHERE group_id=? AND banned=0')
     .bind(g.group_id).first();
+
   const owner = isOwnerOf(g, dev);
+  const ids = await leaderIds(env, g.group_id);
+  const leader = !owner && ids.includes(dev.member_id);
+  const canManage = owner || leader;
+
   return {
     group_id: g.group_id,
     name: g.name,
@@ -461,7 +577,12 @@ async function groupView(env, dev) {
     max_members: Number(g.max_members || 100),
     members: Number(c ? c.n : 0),
     is_owner: owner,
-    code: owner ? fmtCode(g.group_id) : null,   // 参加コードはオーナーにだけ返す
+    is_leader: leader,
+    can_manage: canManage,          // 解散以外の操作ができるか
+    leader_count: ids.length,
+    leader_max: LEADER_MAX,
+    // 参加コードはオーナーとリーダーにだけ返す
+    code: canManage ? fmtCode(g.group_id) : null,
   };
 }
 
@@ -529,8 +650,13 @@ async function leaveGroup(req, env, dev) {
   if (!dev.group_id) return bad(req, 'not_in_group');
   const g = await env.DB.prepare('SELECT * FROM groups WHERE group_id=?').bind(dev.group_id).first();
   if (g && isOwnerOf(g, dev)) return bad(req, 'owner_must_dissolve');
+
+  const gid = dev.group_id;
   await env.DB.prepare('UPDATE devices SET group_id=NULL, joined_at=NULL WHERE device_id=?')
     .bind(dev.device_id).run();
+  // リーダーが抜けたらリーダー権限も消す
+  await dropLeader(env, gid, dev.member_id);
+
   return json(req, { ok: true, group: null });
 }
 
@@ -543,8 +669,8 @@ async function requireOwnedGroup(env, dev) {
 }
 
 async function patchGroup(req, env, dev) {
-  const r = await requireOwnedGroup(env, dev);
-  if (r.error) return bad(req, r.error, r.error === 'not_owner' ? 403 : 400);
+  const r = await requireLedGroup(env, dev);
+  if (r.error) return bad(req, r.error, permStatus(r.error));
 
   const b = await readBody(req);
   const sets = [], vals = [];
@@ -568,13 +694,21 @@ async function patchGroup(req, env, dev) {
 }
 
 async function kickMember(req, env, dev) {
-  const r = await requireOwnedGroup(env, dev);
-  if (r.error) return bad(req, r.error, r.error === 'not_owner' ? 403 : 400);
+  const r = await requireLedGroup(env, dev);
+  if (r.error) return bad(req, r.error, permStatus(r.error));
 
   const b = await readBody(req);
   const mid = String(b.member_id || '').trim();
   if (!mid) return bad(req, 'bad_member_id');
   if (mid === dev.member_id) return bad(req, 'cannot_kick_self');
+
+  // オーナーは誰からも除名されない
+  if (mid === r.group.owner_id) return bad(req, 'cannot_kick_owner', 403);
+
+  // リーダーを外せるのはオーナーだけ
+  if (!r.owner && await isLeaderOf(env, r.group.group_id, mid)) {
+    return bad(req, 'cannot_kick_leader', 403);
+  }
 
   const target = await env.DB.prepare('SELECT device_id,group_id FROM devices WHERE member_id=?').bind(mid).first();
   if (!target || target.group_id !== r.group.group_id) return bad(req, 'not_in_group', 404);
@@ -585,12 +719,15 @@ async function kickMember(req, env, dev) {
       .bind(r.group.group_id, mid, now),
     env.DB.prepare('UPDATE devices SET group_id=NULL, joined_at=NULL WHERE member_id=?').bind(mid),
   ]);
+  // 除名された人のリーダー権限も消す
+  await dropLeader(env, r.group.group_id, mid);
+
   return json(req, { ok: true, member_id: mid });
 }
 
 async function unbanMember(req, env, dev) {
-  const r = await requireOwnedGroup(env, dev);
-  if (r.error) return bad(req, r.error, r.error === 'not_owner' ? 403 : 400);
+  const r = await requireLedGroup(env, dev);
+  if (r.error) return bad(req, r.error, permStatus(r.error));
 
   const b = await readBody(req);
   const mid = String(b.member_id || '').trim();
@@ -602,8 +739,8 @@ async function unbanMember(req, env, dev) {
 }
 
 async function listBans(req, env, dev) {
-  const r = await requireOwnedGroup(env, dev);
-  if (r.error) return bad(req, r.error, r.error === 'not_owner' ? 403 : 400);
+  const r = await requireLedGroup(env, dev);
+  if (r.error) return bad(req, r.error, permStatus(r.error));
 
   const rs = await env.DB.prepare(
     `SELECT b.member_id, b.created_at, d.nickname, d.icon_ver
@@ -623,7 +760,94 @@ async function listBans(req, env, dev) {
   });
 }
 
+/* ============================================================
+   リーダーの一覧・任命・解任
+   ・一覧：オーナーとリーダー
+   ・任命／解任：オーナーだけ
+   ============================================================ */
+async function listLeaders(req, env, dev) {
+  const r = await requireLedGroup(env, dev);
+  if (r.error) return bad(req, r.error, permStatus(r.error));
+
+  const gid = r.group.group_id;
+  const rows = await leaderRows(env, gid);
+  const ids = rows.map(x => x.member_id);
+
+  // 任命候補（オーナー本人と現リーダーを除いた在籍メンバー）
+  const ms = await env.DB.prepare(
+    'SELECT member_id,nickname,icon_ver FROM devices WHERE group_id=? AND banned=0'
+  ).bind(gid).all();
+
+  const candidates = (ms.results || [])
+    .filter(x => x.member_id !== r.group.owner_id && !ids.includes(x.member_id))
+    .map(x => ({
+      member_id: x.member_id,
+      nickname: x.nickname || null,
+      icon_ver: Number(x.icon_ver || 0),
+      icon_url: iconUrlOf(x.member_id, x.icon_ver),
+    }));
+
+  return json(req, {
+    ok: true,
+    is_owner: !!r.owner,
+    leader_max: LEADER_MAX,
+    leader_count: ids.length,
+    leaders: rows.map(x => ({
+      member_id: x.member_id,
+      nickname: x.nickname || null,
+      icon_ver: Number(x.icon_ver || 0),
+      icon_url: iconUrlOf(x.member_id, x.icon_ver),
+      created_at: x.created_at || null,
+      in_group: x.group_id === gid,
+    })),
+    candidates,
+  });
+}
+
+async function addLeader(req, env, dev) {
+  const r = await requireOwnedGroup(env, dev);
+  if (r.error) return bad(req, r.error, permStatus(r.error));
+
+  const b = await readBody(req);
+  const mid = String(b.member_id || '').trim();
+  if (!mid) return bad(req, 'bad_member_id');
+  if (mid === dev.member_id || mid === r.group.owner_id) return bad(req, 'owner_is_not_leader');
+
+  const gid = r.group.group_id;
+
+  const target = await env.DB.prepare(
+    'SELECT member_id,group_id FROM devices WHERE member_id=? AND banned=0'
+  ).bind(mid).first();
+  if (!target || target.group_id !== gid) return bad(req, 'not_in_group', 404);
+
+  if (await isLeaderOf(env, gid, mid)) return bad(req, 'already_leader');
+  if (await countLeaders(env, gid) >= LEADER_MAX) return bad(req, 'leader_limit');
+
+  try {
+    await env.DB.prepare(
+      'INSERT OR IGNORE INTO group_leaders (group_id,member_id,created_at) VALUES (?,?,?)'
+    ).bind(gid, mid, Date.now()).run();
+  } catch (e) {
+    console.error('leader_insert_failed', (e && e.message) || e);
+    return bad(req, 'server_error', 500);
+  }
+
+  return await listLeaders(req, env, dev);
+}
+
+async function delLeader(req, env, dev, rawMid) {
+  const r = await requireOwnedGroup(env, dev);
+  if (r.error) return bad(req, r.error, permStatus(r.error));
+
+  const mid = String(rawMid || '').trim();
+  if (!mid) return bad(req, 'bad_member_id');
+
+  await dropLeader(env, r.group.group_id, mid);
+  return await listLeaders(req, env, dev);
+}
+
 async function doDissolve(env, gid) {
+  await dropAllLeaders(env, gid);
   await env.DB.batch([
     env.DB.prepare('UPDATE devices SET group_id=NULL, joined_at=NULL WHERE group_id=?').bind(gid),
     env.DB.prepare('DELETE FROM group_bans WHERE group_id=?').bind(gid),
@@ -633,8 +857,9 @@ async function doDissolve(env, gid) {
 }
 
 async function dissolveGroup(req, env, dev) {
+  // 解散はオーナーだけ。リーダーは通さない
   const r = await requireOwnedGroup(env, dev);
-  if (r.error) return bad(req, r.error, r.error === 'not_owner' ? 403 : 400);
+  if (r.error) return bad(req, r.error, permStatus(r.error));
   await doDissolve(env, r.group.group_id);
   return json(req, { ok: true, group: null });
 }
@@ -713,6 +938,8 @@ function buildEntry(memberRow, stat, todayDay, showKg, isSelf, isRival) {
     inactive,
     is_self: !!isSelf,
     is_rival: !!isRival,
+    is_owner: false,
+    is_leader: false,
     rank: null,
   };
 }
@@ -797,14 +1024,25 @@ async function ranking(req, env, dev, url) {
   const stats = await lossStats(env, members.map(x => x.device_id), g.start_ymd);
   const showWeight = Number(g.show_weight) === 1;
 
-  const entries = members.map(mrow => buildEntry(
-    mrow,
-    stats.get(mrow.device_id),
-    todayDay,
-    showWeight || mrow.member_id === dev.member_id,   // 非公開グループでは体重を出さない
-    mrow.member_id === dev.member_id,
-    rivals.has(mrow.member_id)
-  ));
+  const isMine = gid === dev.group_id;
+  const iAmOwner = isMine && isOwnerOf(g, dev);
+  const ids = await leaderIds(env, gid);
+  const iAmLeader = isMine && !iAmOwner && ids.includes(dev.member_id);
+  const canManage = iAmOwner || iAmLeader;
+
+  const entries = members.map(mrow => {
+    const e = buildEntry(
+      mrow,
+      stats.get(mrow.device_id),
+      todayDay,
+      showWeight || mrow.member_id === dev.member_id,   // 非公開グループでは体重を出さない
+      mrow.member_id === dev.member_id,
+      rivals.has(mrow.member_id)
+    );
+    e.is_owner = mrow.member_id === g.owner_id;
+    e.is_leader = ids.includes(mrow.member_id);
+    return e;
+  });
 
   const built = finishRows(entries);   // 集計はブロック前の全員で行う（誰が見ても同じ数字）
   const rows = built.rows.filter(e => e.is_self || !blocked.has(e.member_id));
@@ -817,8 +1055,13 @@ async function ranking(req, env, dev, url) {
       name: g.name,
       start_ymd: g.start_ymd,
       show_weight: showWeight,
-      is_mine: gid === dev.group_id,
-      is_owner: gid === dev.group_id && isOwnerOf(g, dev),
+      is_mine: isMine,
+      is_owner: iAmOwner,
+      is_leader: iAmLeader,
+      can_manage: canManage,
+      leader_count: ids.length,
+      leader_max: LEADER_MAX,
+      leader_ids: canManage ? ids : null,
     },
     summary: built.summary,
     rows,

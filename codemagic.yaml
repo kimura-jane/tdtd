@@ -20,7 +20,7 @@ workflows:
 
     integrations:
       # Codemagic UI に登録した App Store Connect API キー
-      app_store_connect: minyase-asc-key
+      app_store_connect: Codemagic
 
     environment:
       node: 20

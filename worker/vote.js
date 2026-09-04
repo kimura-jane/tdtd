@@ -16,8 +16,10 @@ import {
    ・つだもも / さこみつ / ゴトめい
    ・1メンバー1票
    ・締切までは変更可
+   ・予想履歴は member_id 単位でD1に全件保存
    ・正解は管理画面から手動確定
    ・成績は確定済み問題のみ集計
+   ・管理画面から投票者と投票先を確認可能
    ============================================================ */
 
 
@@ -68,6 +70,11 @@ async function ensureTables(env) {
   }
 
 
+  /*
+   * 月ごとの問題。
+   *
+   * winner_team は管理画面から確定する。
+   */
   await env.DB
     .prepare(`
       CREATE TABLE IF NOT EXISTS vote_rounds (
@@ -83,6 +90,15 @@ async function ensureTables(env) {
     .run();
 
 
+  /*
+   * 個人の投票履歴。
+   *
+   * device_id ではなく member_id で保存する。
+   * 機種変更でdevice_idが変わっても履歴が残る。
+   *
+   * 同じ問題には1人1件。
+   * 投票変更時は同じ行をUPDATEする。
+   */
   await env.DB
     .prepare(`
       CREATE TABLE IF NOT EXISTS vote_predictions (
@@ -198,16 +214,14 @@ function jstEpoch(
 
 
 /*
- * 現在投票対象となっている「翌月」を返す。
+ * 現在の月から
+ * 「翌月1日」の問題キーを作る。
  *
- * 2026/09/04
+ * 2026/09
  *   → 2026-10
  *
- * 2026/09/20
- *   → 2026-10
- *
- * 2026/10/01
- *   → 2026-11
+ * 2026/12
+ *   → 2027-01
  */
 function currentRoundKey(
   now = Date.now()
@@ -219,6 +233,7 @@ function currentRoundKey(
 
   let year =
     p.year;
+
 
   let month =
     p.month + 1;
@@ -280,6 +295,7 @@ function roundMeta(
   let deadlineYear =
     targetYear;
 
+
   let deadlineMonth =
     targetMonth - 1;
 
@@ -330,11 +346,8 @@ function roundMeta(
 
   return {
     roundKey,
-
     targetDate,
-
     deadlineAt,
-
     targetAt,
   };
 }
@@ -546,6 +559,12 @@ async function getCurrent(
       .first();
 
 
+  /*
+   * member_id で現在の投票を取得。
+   *
+   * アプリ再起動後も
+   * 「投票済み」「投票先」が復元される。
+   */
   const vote =
     await env.DB
       .prepare(`
@@ -596,12 +615,23 @@ async function getCurrent(
             ? round.winner_team
             : null,
 
+        winner_name:
+          round &&
+          round.winner_team
+            ? teamName(
+                round.winner_team
+              )
+            : null,
+
         finalized:
           !!(
             round &&
             round.finalized_at
           ),
       },
+
+      voted:
+        !!vote,
 
       vote:
         vote
@@ -694,6 +724,12 @@ async function saveVote(
     Date.now();
 
 
+  /*
+   * 初回は INSERT。
+   *
+   * 変更時は team_id と updated_at だけ更新する。
+   * voted_at は初回投票日時として残す。
+   */
   await env.DB
     .prepare(`
       INSERT INTO vote_predictions
@@ -727,6 +763,9 @@ async function saveVote(
       ok:
         true,
 
+      voted:
+        true,
+
       round_key:
         key,
 
@@ -740,13 +779,17 @@ async function saveVote(
 
       deadline_at:
         meta.deadlineAt,
+
+      updated_at:
+        now,
     }
   );
 }
 
 
 /* ============================================================
-   マイページ成績
+   マイページ
+   正解数・全履歴
    ============================================================ */
 
 async function getHistory(
@@ -761,6 +804,12 @@ async function getHistory(
   );
 
 
+  /*
+   * LIMITを付けない。
+   *
+   * このmember_idが投票した
+   * 全履歴を新しい順に返す。
+   */
   const rs =
     await env.DB
       .prepare(`
@@ -783,8 +832,6 @@ async function getHistory(
         WHERE p.member_id=?
 
         ORDER BY p.round_key DESC
-
-        LIMIT 36
       `)
       .bind(
         dev.member_id
@@ -863,6 +910,13 @@ async function getHistory(
     );
 
 
+  /*
+   * 正解数はDBへ別保存しない。
+   *
+   * 正解確定済み履歴から毎回計算することで、
+   * 管理画面から正解を後で訂正しても
+   * 自動で正解数が直る。
+   */
   const completed =
     rows.filter(
       r =>
@@ -890,6 +944,10 @@ async function getHistory(
 
         correct,
 
+        wrong:
+          completed.length -
+          correct,
+
         rate:
           completed.length
             ? Math.round(
@@ -900,6 +958,9 @@ async function getHistory(
                 100
               )
             : 0,
+
+        total_predictions:
+          rows.length,
       },
 
       history:
@@ -1058,7 +1119,8 @@ function adminAuthorized(
 
 
 /* ============================================================
-   管理画面：ラウンド一覧
+   管理画面
+   ラウンド一覧
    ============================================================ */
 
 async function adminRounds(
@@ -1077,12 +1139,12 @@ async function adminRounds(
     Math.max(
       1,
       Math.min(
-        60,
+        120,
         Number(
           url.searchParams.get(
             'limit'
           ) ||
-          24
+          60
         )
       )
     );
@@ -1109,7 +1171,9 @@ async function adminRounds(
           round_key,
           team_id,
           COUNT(*) AS c
+
         FROM vote_predictions
+
         GROUP BY
           round_key,
           team_id
@@ -1270,7 +1334,211 @@ async function adminRounds(
 
 
 /* ============================================================
-   管理画面：正解確定
+   管理画面
+   指定月の投票者一覧
+   ============================================================ */
+
+async function adminVoters(
+  req,
+  env,
+  url
+) {
+
+  const roundKey =
+    String(
+      url.searchParams.get(
+        'round_key'
+      ) ||
+      ''
+    );
+
+
+  if (
+    !validRoundKey(
+      roundKey
+    )
+  ) {
+
+    return bad(
+      req,
+      'bad_round'
+    );
+  }
+
+
+  /*
+   * roundが無ければ作成。
+   */
+  await ensureRound(
+    env,
+    roundKey
+  );
+
+
+  const round =
+    await env.DB
+      .prepare(`
+        SELECT *
+        FROM vote_rounds
+        WHERE round_key=?
+      `)
+      .bind(
+        roundKey
+      )
+      .first();
+
+
+  /*
+   * devicesをLEFT JOINして
+   * 現在のニックネームも表示する。
+   *
+   * 投票履歴そのものはmember_idで保持されている。
+   */
+  const rs =
+    await env.DB
+      .prepare(`
+        SELECT
+          p.member_id,
+          p.team_id,
+          p.voted_at,
+          p.updated_at,
+
+          d.nickname
+
+        FROM vote_predictions p
+
+        LEFT JOIN devices d
+          ON d.member_id=p.member_id
+
+        WHERE p.round_key=?
+
+        ORDER BY
+          p.updated_at DESC,
+          p.member_id ASC
+      `)
+      .bind(
+        roundKey
+      )
+      .all();
+
+
+  const voters =
+    (
+      rs.results ||
+      []
+    ).map(
+      r => {
+
+        const finalized =
+          !!(
+            round &&
+            round.finalized_at
+          );
+
+
+        const correct =
+          finalized
+            ? (
+                r.team_id ===
+                round.winner_team
+              )
+            : null;
+
+
+        return {
+          member_id:
+            r.member_id,
+
+          nickname:
+            r.nickname ||
+            null,
+
+          team_id:
+            r.team_id,
+
+          team_name:
+            teamName(
+              r.team_id
+            ),
+
+          voted_at:
+            Number(
+              r.voted_at
+            ),
+
+          updated_at:
+            Number(
+              r.updated_at
+            ),
+
+          changed:
+            Number(
+              r.updated_at
+            ) >
+            Number(
+              r.voted_at
+            ),
+
+          finalized,
+
+          correct,
+        };
+      }
+    );
+
+
+  return json(
+    req,
+    {
+      ok:
+        true,
+
+      round: {
+        round_key:
+          roundKey,
+
+        target_date:
+          round
+            ? round.target_date
+            : null,
+
+        deadline_at:
+          round
+            ? Number(
+                round.deadline_at
+              )
+            : null,
+
+        winner_team:
+          round &&
+          round.winner_team
+            ? round.winner_team
+            : null,
+
+        winner_name:
+          round &&
+          round.winner_team
+            ? teamName(
+                round.winner_team
+              )
+            : null,
+
+        finalized:
+          !!(
+            round &&
+            round.finalized_at
+          ),
+      },
+
+      voters,
+    }
+  );
+}
+
+
+/* ============================================================
+   管理画面
+   正解確定・変更
    ============================================================ */
 
 async function adminSetResult(
@@ -1331,6 +1599,9 @@ async function adminSetResult(
     );
 
 
+  /*
+   * 結果日前は正解確定できない。
+   */
   if (
     Date.now() <
     meta.targetAt
@@ -1351,10 +1622,12 @@ async function adminSetResult(
   await env.DB
     .prepare(`
       UPDATE vote_rounds
+
       SET
         winner_team=?,
         finalized_at=?,
         updated_at=?
+
       WHERE round_key=?
     `)
     .bind(
@@ -1427,6 +1700,9 @@ export async function adminVoteRoute(
   );
 
 
+  /*
+   * 月別集計
+   */
   if (
     p ===
       '/api/admin/vote/rounds' &&
@@ -1442,6 +1718,27 @@ export async function adminVoteRoute(
   }
 
 
+  /*
+   * 誰がどこに投票したか
+   */
+  if (
+    p ===
+      '/api/admin/vote/voters' &&
+    m ===
+      'GET'
+  ) {
+
+    return await adminVoters(
+      req,
+      env,
+      url
+    );
+  }
+
+
+  /*
+   * 正解確定・変更
+   */
   if (
     p ===
       '/api/admin/vote/result' &&
@@ -1483,6 +1780,10 @@ export async function cleanupVotesForMember(
   );
 
 
+  /*
+   * ユーザーが「利用データを削除」を実行した場合のみ
+   * 個人の予想履歴も削除する。
+   */
   await env.DB
     .prepare(`
       DELETE FROM vote_predictions

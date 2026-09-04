@@ -482,59 +482,207 @@ canvas{width:100%;height:240px;display:block;margin-top:8px}
 }
 .tabbtn.is-on{background:var(--ink); color:#fff; box-shadow:0 3px 12px rgba(25,23,20,.24);}
 
-/* ---------- 保存後の演出（tsuda-fx.js） ---------- */
-/* 既存のクラスとぶつからないよう .tsuda-fx- 接頭辞で統一している。
-   .ov が z-index:60 なので、その上に重ねる。 */
+/* ========================================
+   保存後の演出（tsuda-fx.js）
+   既存クラスとぶつからないよう .tsuda-fx- 接頭辞で統一。
+   .ov が z-index:60 なので、その上に重ねる。
+   動かすのは transform / opacity のみ。
+   ======================================== */
+
+/* 段階ごとの色。--fx1/--fx2 は背景のラジアル、--fxa はアクセント */
+.tsuda-fx{
+  --fx1:rgba(255,122,84,.34);
+  --fx2:rgba(25,23,20,.72);
+  --fxa:#ff8a6a;
+  --fxr:26px;   /* 画像の角丸 */
+}
+/* 痩せ側：暖色で祝う。減り幅が大きいほど濃くする */
+.tsuda-fx-best{--fx1:rgba(255,138,86,.5); --fx2:rgba(74,26,14,.8);  --fxa:#ffb27a}
+.tsuda-fx-good{--fx1:rgba(255,122,84,.38);--fx2:rgba(58,26,18,.78); --fxa:#ff9c72}
+.tsuda-fx-ok  {--fx1:rgba(255,140,110,.3);--fx2:rgba(40,26,22,.76); --fxa:#ff9e80}
+.tsuda-fx-tiny{--fx1:rgba(255,160,130,.22);--fx2:rgba(34,28,24,.74);--fxa:#ffb59c}
+/* 太った側：寒色で締める */
+.tsuda-fx-up0 {--fx1:rgba(120,146,190,.24);--fx2:rgba(26,30,40,.76);--fxa:#9db4d8}
+.tsuda-fx-up1 {--fx1:rgba(96,128,184,.3);  --fx2:rgba(22,28,42,.8); --fxa:#86a6d6}
+.tsuda-fx-up2 {--fx1:rgba(80,110,178,.36); --fx2:rgba(16,22,38,.84);--fxa:#6f93cc}
+
 .tsuda-fx{
   position:fixed; inset:0; z-index:70;
   display:flex; align-items:center; justify-content:center;
   padding:24px;
-  background:rgba(25,23,20,.5);
-  backdrop-filter:blur(4px); -webkit-backdrop-filter:blur(4px);
   cursor:pointer;
-  animation:tsudaFxIn .18s ease-out both;
+  background:
+    radial-gradient(120% 78% at 50% 34%, var(--fx1) 0%, rgba(0,0,0,0) 62%),
+    var(--fx2);
+  backdrop-filter:blur(5px) saturate(130%);
+  -webkit-backdrop-filter:blur(5px) saturate(130%);
+  animation:fxVeil .26s cubic-bezier(.2,.8,.2,1) both;
 }
-.tsuda-fx.tsuda-fx-out{animation:tsudaFxOut .2s ease-in both}
+.tsuda-fx.tsuda-fx-out{animation:fxVeilOut .26s ease-in both}
 
 .tsuda-fx-card{
   display:flex; flex-direction:column; align-items:center;
-  gap:12px; width:100%; max-width:320px;
-  animation:tsudaFxPop .26s cubic-bezier(.2,.9,.3,1.2) both;
+  width:100%; max-width:330px;
+  animation:fxCard .42s cubic-bezier(.16,.9,.24,1.14) both;
+}
+
+/* 画像と光の輪 */
+.tsuda-fx-stage{
+  position:relative;
+  width:200px; height:200px;
+  max-width:62vw; max-height:62vw;
+  display:flex; align-items:center; justify-content:center;
+}
+
+.tsuda-fx-halo{
+  position:absolute; left:50%; top:50%;
+  width:100%; height:100%;
+  margin:-50% 0 0 -50%;
+  border-radius:50%;
+  background:radial-gradient(circle, var(--fxa) 0%, rgba(0,0,0,0) 68%);
+  opacity:0; pointer-events:none;
+  animation:fxHalo 1.15s cubic-bezier(.16,.9,.24,1) .1s both;
 }
 
 .tsuda-fx-img{
-  width:190px; height:190px;
-  max-width:62vw; max-height:62vw;
+  position:relative;
+  width:100%; height:100%;
   object-fit:contain;
-  border-radius:22px;
+  border-radius:var(--fxr);
   background:#fff;
-  box-shadow:0 10px 30px rgba(25,23,20,.3);
+  box-shadow:
+    0 14px 38px rgba(0,0,0,.34),
+    0 0 0 1px rgba(255,255,255,.16),
+    0 0 34px -6px var(--fxa);
+  animation:fxImg .5s cubic-bezier(.16,.9,.24,1.16) .04s both;
 }
+/* 画像が取得できなかったとき、白い箱を出しっぱなしにしない */
+.tsuda-fx-img.tsuda-fx-noimg{background:rgba(255,255,255,.06);box-shadow:none;animation:none}
 
+/* 段階ごとに画像の動きを変える。halo/img の登場後に重ねて再生する */
+.tsuda-fx-best .tsuda-fx-img{animation:fxImg .5s cubic-bezier(.16,.9,.24,1.16) .04s both, fxBounce 1.5s cubic-bezier(.3,.7,.3,1) .5s both}
+.tsuda-fx-good .tsuda-fx-img{animation:fxImg .5s cubic-bezier(.16,.9,.24,1.16) .04s both, fxFloat 2.1s ease-in-out .55s both}
+.tsuda-fx-ok   .tsuda-fx-img{animation:fxImg .5s cubic-bezier(.16,.9,.24,1.16) .04s both, fxFloat 2.4s ease-in-out .55s both}
+.tsuda-fx-tiny .tsuda-fx-img{animation:fxImg .5s cubic-bezier(.16,.9,.24,1.16) .04s both, fxFloat 2.7s ease-in-out .55s both}
+.tsuda-fx-up1  .tsuda-fx-img{animation:fxImg .5s cubic-bezier(.16,.9,.24,1.16) .04s both, fxShake .62s ease-in-out .5s both}
+.tsuda-fx-up2  .tsuda-fx-img{animation:fxImg .5s cubic-bezier(.16,.9,.24,1.16) .04s both, fxShake .46s ease-in-out .48s 2 both}
+
+/* 文字。画像より遅らせて出すと落ち着いて見える */
 .tsuda-fx-msg{
+  margin-top:22px;
   color:#fff;
-  font-size:20px; font-weight:700; line-height:1.45;
-  text-align:center;
-  text-shadow:0 2px 8px rgba(25,23,20,.5);
+  font-family:'Zen Kaku Gothic New',-apple-system,"Hiragino Sans","Noto Sans JP",sans-serif;
+  font-size:clamp(20px,5.6vw,25px);
+  font-weight:900; line-height:1.4;
+  letter-spacing:.02em; text-align:center;
+  text-shadow:0 2px 14px rgba(0,0,0,.5);
+  animation:fxRise .46s cubic-bezier(.16,.9,.24,1) .22s both;
 }
 
 .tsuda-fx-sub{
-  color:rgba(255,255,255,.82);
-  font-size:12.5px; font-weight:600;
+  margin-top:11px;
+  color:rgba(255,255,255,.8);
+  font-size:11.5px; font-weight:700;
+  letter-spacing:.06em; text-align:center;
   font-variant-numeric:tabular-nums;
-  text-align:center;
+  animation:fxRise .46s cubic-bezier(.16,.9,.24,1) .28s both;
 }
 
-@keyframes tsudaFxIn{from{opacity:0}to{opacity:1}}
-@keyframes tsudaFxOut{from{opacity:1}to{opacity:0}}
-@keyframes tsudaFxPop{
-  from{opacity:0;transform:scale(.86) translateY(8px)}
+/* 残り時間の線 */
+.tsuda-fx-bar{
+  margin-top:20px;
+  width:78px; height:2px;
+  border-radius:2px;
+  background:rgba(255,255,255,.2);
+  overflow:hidden;
+  animation:fxRise .4s ease-out .34s both;
+}
+.tsuda-fx-bar span{
+  display:block; width:100%; height:100%;
+  border-radius:2px;
+  background:var(--fxa);
+  transform-origin:left center;
+  animation:fxBar linear .34s both;   /* 時間は JS が hold に合わせて上書き */
+}
+
+/* 光の粒（best のみ） */
+.tsuda-fx-sparks{position:absolute;inset:0;overflow:hidden;pointer-events:none}
+.tsuda-fx-spark{
+  position:absolute; top:-6%;
+  left:var(--x);
+  width:var(--sz); height:var(--sz);
+  border-radius:50%;
+  background:var(--fxa);
+  opacity:0;
+  animation:fxSpark var(--t) cubic-bezier(.3,.5,.4,1) var(--d) both;
+}
+.tsuda-fx-spark:nth-child(3n){border-radius:2px}
+.tsuda-fx-spark:nth-child(4n){background:#fff}
+
+@keyframes fxVeil{from{opacity:0}to{opacity:1}}
+@keyframes fxVeilOut{from{opacity:1}to{opacity:0}}
+
+@keyframes fxCard{
+  from{opacity:0;transform:translate3d(0,26px,0) scale(.9)}
   to{opacity:1;transform:none}
 }
+@keyframes fxImg{
+  from{opacity:0;transform:scale(.7) rotate(-5deg)}
+  to{opacity:1;transform:none}
+}
+@keyframes fxHalo{
+  0%{opacity:0;transform:scale(.5)}
+  32%{opacity:.85}
+  100%{opacity:0;transform:scale(1.9)}
+}
+@keyframes fxRise{
+  from{opacity:0;transform:translate3d(0,12px,0)}
+  to{opacity:1;transform:none}
+}
+@keyframes fxBounce{
+  0%,100%{transform:translate3d(0,0,0)}
+  18%{transform:translate3d(0,-16px,0) scale(1.04)}
+  36%{transform:translate3d(0,0,0) scale(.98)}
+  52%{transform:translate3d(0,-8px,0) scale(1.02)}
+  70%{transform:translate3d(0,0,0)}
+}
+@keyframes fxFloat{
+  0%,100%{transform:translate3d(0,0,0)}
+  50%{transform:translate3d(0,-9px,0)}
+}
+@keyframes fxShake{
+  0%,100%{transform:translate3d(0,0,0) rotate(0)}
+  20%{transform:translate3d(-7px,0,0) rotate(-2deg)}
+  40%{transform:translate3d(6px,0,0) rotate(1.6deg)}
+  60%{transform:translate3d(-4px,0,0) rotate(-1deg)}
+  80%{transform:translate3d(3px,0,0) rotate(.6deg)}
+}
+@keyframes fxBar{
+  from{transform:scaleX(1)}
+  to{transform:scaleX(0)}
+}
+@keyframes fxSpark{
+  0%{opacity:0;transform:translate3d(0,0,0) scale(.4)}
+  14%{opacity:1}
+  100%{opacity:0;transform:translate3d(var(--dx),84vh,0) scale(1)}
+}
 
+/* 動きを控える設定のとき。既存の一括停止が演出も止めるため、
+   ここだけ最小限のフェードで成立させる */
 @media (prefers-reduced-motion:reduce){
   *{animation:none!important;transition:none!important}
   html{scroll-behavior:auto}
+
+  .tsuda-fx{animation:fxVeil .01ms both!important}
+  .tsuda-fx.tsuda-fx-out{animation:fxVeilOut .01ms both!important}
+  .tsuda-fx-card,
+  .tsuda-fx-img,
+  .tsuda-fx-msg,
+  .tsuda-fx-sub,
+  .tsuda-fx-bar{animation:none!important;opacity:1!important;transform:none!important}
+  .tsuda-fx-halo,
+  .tsuda-fx-sparks{display:none!important}
+  .tsuda-fx-bar span{animation:none!important}
 }
 
 @media (min-width:560px){

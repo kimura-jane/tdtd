@@ -109,7 +109,7 @@ workflows:
     publishing:
       email:
         recipients:
-          - where.is.my.oasis1216@gmail.com
+          - jomon@jomonkusama.com
         notify:
           success: true
           failure: true

@@ -5,11 +5,10 @@
    ============================================================ */
 
 const CACHE_NAME =
-  'minyase-shell-v1';
+  'minyase-shell-v2';
 
-const APP_SHELL = [
-  '/',
-];
+const HOME_URL =
+  '/';
 
 
 /* ============================================================
@@ -27,8 +26,8 @@ self.addEventListener(
         )
         .then(
           cache =>
-            cache.addAll(
-              APP_SHELL
+            cache.add(
+              HOME_URL
             )
         )
         .catch(
@@ -81,6 +80,11 @@ self.addEventListener(
 
 /* ============================================================
    ナビゲーション
+
+   API・画像・JS・CSSには触らない。
+   HTMLナビゲーションのみ
+   「ネットワーク優先 → 同じURLのキャッシュ → ホーム」
+   の順で返す。
    ============================================================ */
 
 self.addEventListener(
@@ -90,12 +94,6 @@ self.addEventListener(
     const request =
       event.request;
 
-    /*
-     * API通信や画像アップロードなどには触らない。
-     *
-     * HTMLへのナビゲーションだけ、
-     * ネットワーク優先 + 最低限のフォールバックにする。
-     */
     if (
       request.method !==
         'GET' ||
@@ -105,40 +103,77 @@ self.addEventListener(
       return;
     }
 
+
     event.respondWith(
       fetch(
         request
       )
         .then(
-          response => {
+          async response => {
 
-            const copy =
-              response.clone();
+            if (
+              response &&
+              response.ok
+            ) {
 
-            caches
-              .open(
-                CACHE_NAME
-              )
-              .then(
-                cache =>
-                  cache.put(
-                    '/',
-                    copy
-                  )
-              )
-              .catch(
-                () =>
-                  undefined
-              );
+              try {
+
+                const cache =
+                  await caches.open(
+                    CACHE_NAME
+                  );
+
+                await cache.put(
+                  request,
+                  response.clone()
+                );
+
+              } catch (e) {
+
+                console.warn(
+                  'sw_cache_put',
+                  e
+                );
+              }
+            }
 
             return response;
           }
         )
         .catch(
-          () =>
-            caches.match(
-              '/'
-            )
+          async () => {
+
+            const exact =
+              await caches.match(
+                request
+              );
+
+            if (exact) {
+              return exact;
+            }
+
+            const home =
+              await caches.match(
+                HOME_URL
+              );
+
+            if (home) {
+              return home;
+            }
+
+            return new Response(
+              'オフラインです。通信できる状態でもう一度お試しください。',
+              {
+                status:
+                  503,
+
+                headers: {
+                  'content-type':
+                    'text/plain; charset=utf-8',
+                },
+              }
+            );
+          }
         )
     );
   }
@@ -147,9 +182,6 @@ self.addEventListener(
 
 /* ============================================================
    Web Push受信
-
-   Cloudflare Worker側からPushを送る処理は
-   次の工程で接続する。
    ============================================================ */
 
 self.addEventListener(
@@ -178,33 +210,76 @@ self.addEventListener(
 
 
     const title =
-      data.title ||
-      'みんやせ';
+      typeof data.title ===
+        'string' &&
+      data.title
+        ? data.title
+        : 'みんやせ';
+
+
+    const body =
+      typeof data.body ===
+        'string' &&
+      data.body
+        ? data.body
+        : '今日の体重を記録しよう！';
+
+
+    const tag =
+      typeof data.tag ===
+        'string' &&
+      data.tag
+        ? data.tag
+        : 'minyase-reminder';
+
+
+    const rawUrl =
+      typeof data.url ===
+        'string' &&
+      data.url
+        ? data.url
+        : '/';
+
+
+    let url =
+      '/';
+
+    try {
+
+      const resolved =
+        new URL(
+          rawUrl,
+          self.location.origin
+        );
+
+      if (
+        resolved.origin ===
+          self.location.origin
+      ) {
+
+        url =
+          resolved.href;
+      }
+
+    } catch (_) {
+      url = '/';
+    }
 
 
     const options = {
 
-      body:
-        data.body ||
-        '今日の体重を記録しよう！',
+      body,
 
       icon:
-        '/resources/icon.png',
+        '/gazo/icon-192.png',
 
-      badge:
-        '/resources/icon.png',
-
-      tag:
-        data.tag ||
-        'minyase-reminder',
+      tag,
 
       renotify:
         false,
 
       data: {
-        url:
-          data.url ||
-          '/',
+        url,
       },
     };
 
@@ -232,14 +307,39 @@ self.addEventListener(
       .close();
 
 
-    const url =
+    const rawUrl =
       (
-        event.notification
-          .data &&
-        event.notification
-          .data.url
+        event.notification &&
+        event.notification.data &&
+        event.notification.data.url
       ) ||
       '/';
+
+
+    let targetUrl =
+      self.location.origin +
+      '/';
+
+    try {
+
+      const resolved =
+        new URL(
+          rawUrl,
+          self.location.origin
+        );
+
+      if (
+        resolved.origin ===
+          self.location.origin
+      ) {
+
+        targetUrl =
+          resolved.href;
+      }
+
+    } catch (_) {
+      /* ホームを使う */
+    }
 
 
     event.waitUntil(
@@ -252,30 +352,35 @@ self.addEventListener(
             true,
         })
         .then(
-          windowClients => {
+          async windowClients => {
 
             for (
               const client of
               windowClients
             ) {
 
-              if (
-                'focus' in
-                client
-              ) {
+              try {
 
                 if (
                   'navigate' in
                   client
                 ) {
 
-                  client.navigate(
-                    url
+                  await client.navigate(
+                    targetUrl
                   );
                 }
 
-                return client
-                  .focus();
+                if (
+                  'focus' in
+                  client
+                ) {
+
+                  return client.focus();
+                }
+
+              } catch (_) {
+                /* 次のクライアントへ */
               }
             }
 
@@ -284,10 +389,9 @@ self.addEventListener(
               clients.openWindow
             ) {
 
-              return clients
-                .openWindow(
-                  url
-                );
+              return clients.openWindow(
+                targetUrl
+              );
             }
           }
         )

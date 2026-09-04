@@ -1,0 +1,26 @@
+{
+  "name": "みんやせ",
+  "short_name": "みんやせ",
+  "description": "グループのみんなで体重を記録して、一緒に減量を続けるアプリです。",
+  "id": "/",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f2efe9",
+  "theme_color": "#ff5f45",
+  "lang": "ja-JP",
+  "categories": [
+    "health",
+    "fitness",
+    "lifestyle"
+  ],
+  "icons": [
+    {
+      "src": "/resources/icon.png",
+      "sizes": "1024x1024",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ]
+}

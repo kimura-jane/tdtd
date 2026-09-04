@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>みんやせ</title>
 <meta name="description" content="みんやせは、グループのみんなで体重を記録して一緒に痩せるアプリです。">
-<link rel="stylesheet" href="./style.css?v=20260903c">
+<link rel="stylesheet" href="./style.css?v=20260903d">
 </head>
 <body>
 <header class="hd">
@@ -289,6 +289,8 @@
       ? ''
       : 'https://tdtd.la-kofu.workers.dev';
 </script>
-<script src="./app.js?v=20260903b"></script>
+<script src="./app.js?v=20260903d"></script>
+<!-- 保存後の演出。app.js の saveWeight を包むので、必ず app.js より後に読む。 -->
+<script src="./tsuda-fx.js?v=1"></script>
 </body>
 </html>

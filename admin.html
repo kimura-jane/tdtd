@@ -34,6 +34,10 @@ body{
     sans-serif;
 }
 
+body.modal-open{
+  overflow:hidden;
+}
+
 header{
   padding:16px;
   border-bottom:1px solid var(--line);
@@ -62,6 +66,11 @@ section{
 h2{
   margin:0 0 10px;
   color:var(--mut);
+  font-size:14px;
+}
+
+h3{
+  margin:0 0 8px;
   font-size:14px;
 }
 
@@ -275,6 +284,208 @@ nav button.on{
   color:#a56d11;
 }
 
+
+/* ============================================================
+   ユーザー一覧
+   ============================================================ */
+
+.user-filter-grid{
+  display:grid;
+  grid-template-columns:
+    minmax(220px,2fr)
+    repeat(3,minmax(130px,1fr));
+  gap:8px;
+  align-items:end;
+}
+
+.user-columns{
+  margin-top:12px;
+  padding:10px;
+  border:1px solid var(--line);
+  border-radius:8px;
+  background:#fcfaf7;
+}
+
+.user-columns summary{
+  cursor:pointer;
+  color:var(--mut);
+  font-size:12px;
+  font-weight:700;
+}
+
+.user-column-list{
+  display:flex;
+  flex-wrap:wrap;
+  gap:7px 14px;
+  margin-top:9px;
+}
+
+.user-column-list label{
+  display:flex;
+  align-items:center;
+  gap:5px;
+  margin:0;
+  color:var(--ink);
+  font-size:12px;
+  cursor:pointer;
+}
+
+.user-column-list input{
+  width:auto;
+  margin:0;
+}
+
+.user-row{
+  cursor:pointer;
+}
+
+.user-row:hover{
+  background:#fff8f5;
+}
+
+.user-name{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  min-width:130px;
+}
+
+.user-avatar{
+  width:30px;
+  height:30px;
+  flex:0 0 auto;
+  border:1px solid var(--line);
+  border-radius:50%;
+  background:#f2ede8;
+  object-fit:cover;
+}
+
+.user-avatar-empty{
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  color:var(--mut);
+  font-size:10px;
+}
+
+.sort-button{
+  padding:0;
+  border:0;
+  border-radius:0;
+  background:transparent;
+  color:inherit;
+  font-size:inherit;
+  font-weight:inherit;
+  white-space:nowrap;
+}
+
+.sort-button:hover{
+  text-decoration:underline;
+}
+
+
+/* ============================================================
+   ユーザー詳細
+   ============================================================ */
+
+.user-modal[hidden]{
+  display:none;
+}
+
+.user-modal{
+  position:fixed;
+  z-index:1000;
+  inset:0;
+  display:flex;
+  align-items:flex-start;
+  justify-content:center;
+  padding:24px 12px;
+  overflow:auto;
+  background:rgba(30,25,22,.46);
+}
+
+.user-modal-card{
+  width:min(980px,100%);
+  max-height:calc(100vh - 48px);
+  overflow:auto;
+  padding:16px;
+  border-radius:14px;
+  background:#fff;
+  box-shadow:0 18px 60px rgba(0,0,0,.22);
+}
+
+.user-modal-head{
+  position:sticky;
+  z-index:2;
+  top:-16px;
+  display:flex;
+  align-items:flex-start;
+  justify-content:space-between;
+  gap:12px;
+  margin:-16px -16px 12px;
+  padding:14px 16px;
+  border-bottom:1px solid var(--line);
+  background:#fff;
+}
+
+.user-modal-title{
+  display:flex;
+  align-items:center;
+  gap:10px;
+}
+
+.user-modal-title .user-avatar{
+  width:42px;
+  height:42px;
+}
+
+.detail-grid{
+  display:grid;
+  grid-template-columns:
+    repeat(2,minmax(0,1fr));
+  gap:10px;
+  margin-top:10px;
+}
+
+.detail-card{
+  padding:12px;
+  border:1px solid var(--line);
+  border-radius:10px;
+  background:#fff;
+  overflow:auto;
+}
+
+.detail-card.full{
+  grid-column:1 / -1;
+}
+
+.detail-actions{
+  display:flex;
+  flex-wrap:wrap;
+  gap:8px;
+  margin-top:10px;
+}
+
+.stat-line{
+  display:flex;
+  flex-wrap:wrap;
+  gap:6px;
+}
+
+.stat-chip{
+  padding:5px 8px;
+  border-radius:8px;
+  background:#f7f3ee;
+  font-size:12px;
+}
+
+.small-note{
+  margin-top:7px;
+  color:var(--mut);
+  font-size:11px;
+}
+
+
 @media(max-width:700px){
   main{
     padding:10px;
@@ -286,6 +497,33 @@ nav button.on{
 
   table{
     min-width:650px;
+  }
+
+  .user-filter-grid{
+    grid-template-columns:1fr;
+  }
+
+  .detail-grid{
+    grid-template-columns:1fr;
+  }
+
+  .detail-card.full{
+    grid-column:auto;
+  }
+
+  .user-modal{
+    padding:0;
+  }
+
+  .user-modal-card{
+    width:100%;
+    min-height:100vh;
+    max-height:none;
+    border-radius:0;
+  }
+
+  .user-modal-card table{
+    min-width:520px;
   }
 }
 </style>
@@ -358,6 +596,13 @@ nav button.on{
     type="button"
   >
     グループ一覧
+  </button>
+
+  <button
+    data-t="users"
+    type="button"
+  >
+    ユーザー一覧
   </button>
 
   <button
@@ -444,6 +689,178 @@ nav button.on{
   ></div>
 
   <table id="gTbl"></table>
+
+</section>
+
+
+<!-- ユーザー一覧 -->
+
+<section
+  class="panel"
+  id="p-users"
+  hidden
+>
+
+  <h2>ユーザー一覧</h2>
+
+  <div class="user-filter-grid">
+
+    <div>
+
+      <label for="uSearch">
+        名前 / member_id / グループ名
+      </label>
+
+      <input
+        id="uSearch"
+        type="search"
+        autocomplete="off"
+        placeholder="検索"
+      >
+
+    </div>
+
+    <div>
+
+      <label for="uGroup">
+        グループ
+      </label>
+
+      <select id="uGroup">
+
+        <option value="">
+          すべて
+        </option>
+
+      </select>
+
+    </div>
+
+    <div>
+
+      <label for="uState">
+        状態
+      </label>
+
+      <select id="uState">
+
+        <option value="">
+          すべて
+        </option>
+
+        <option value="active">
+          アクティブ
+        </option>
+
+        <option value="inactive">
+          おやすみ中
+        </option>
+
+        <option value="no_record">
+          未記録
+        </option>
+
+        <option value="banned">
+          利用停止
+        </option>
+
+      </select>
+
+    </div>
+
+    <div>
+
+      <label for="uNotify">
+        通知
+      </label>
+
+      <select id="uNotify">
+
+        <option value="">
+          すべて
+        </option>
+
+        <option value="on">
+          通知ON
+        </option>
+
+        <option value="off">
+          通知OFF
+        </option>
+
+        <option value="push">
+          Android Push登録済み
+        </option>
+
+        <option value="no_push">
+          Android Push未登録
+        </option>
+
+      </select>
+
+    </div>
+
+  </div>
+
+  <div class="row">
+
+    <div>
+
+      <label for="uQuiz">
+        クイズ
+      </label>
+
+      <select id="uQuiz">
+
+        <option value="">
+          すべて
+        </option>
+
+        <option value="answered">
+          確定済み回答あり
+        </option>
+
+        <option value="none">
+          確定済み回答なし
+        </option>
+
+      </select>
+
+    </div>
+
+    <button
+      id="btnUsers"
+      type="button"
+    >
+      最新データを読み込む
+    </button>
+
+  </div>
+
+
+  <details
+    class="user-columns"
+    open
+  >
+
+    <summary>
+      表示項目を選ぶ
+    </summary>
+
+    <div
+      class="user-column-list"
+      id="uCols"
+    ></div>
+
+  </details>
+
+
+  <div
+    class="msg"
+    id="uMsg"
+  ></div>
+
+  <table id="uTbl"></table>
 
 </section>
 
@@ -877,6 +1294,181 @@ nav button.on{
 
 </section>
 
+
+<!-- ユーザー詳細 -->
+
+<div
+  class="user-modal"
+  id="userModal"
+  hidden
+>
+
+  <div
+    class="user-modal-card"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="uDetailTitle"
+  >
+
+    <div class="user-modal-head">
+
+      <div class="user-modal-title">
+
+        <div id="uDetailAvatar"></div>
+
+        <div>
+
+          <h2
+            id="uDetailTitle"
+            style="margin:0;color:var(--ink);font-size:17px"
+          >
+            ユーザー詳細
+          </h2>
+
+          <div
+            class="mut"
+            id="uDetailId"
+            style="font-size:11px"
+          ></div>
+
+        </div>
+
+      </div>
+
+      <button
+        id="btnCloseUser"
+        type="button"
+      >
+        閉じる
+      </button>
+
+    </div>
+
+
+    <div
+      class="msg"
+      id="uDetailMsg"
+    ></div>
+
+
+    <div
+      class="detail-grid"
+      id="uDetailBody"
+      hidden
+    >
+
+      <div class="detail-card">
+
+        <h3>プロフィール</h3>
+
+        <table id="uProfileTbl"></table>
+
+      </div>
+
+
+      <div class="detail-card">
+
+        <h3>体重</h3>
+
+        <table id="uWeightSummaryTbl"></table>
+
+      </div>
+
+
+      <div class="detail-card">
+
+        <h3>クイズ成績</h3>
+
+        <div
+          class="stat-line"
+          id="uQuizStats"
+        ></div>
+
+      </div>
+
+
+      <div class="detail-card">
+
+        <h3>通知</h3>
+
+        <table id="uNotifyTbl"></table>
+
+        <div class="detail-actions">
+
+          <button
+            class="pri"
+            id="btnAndroidTestPush"
+            type="button"
+          >
+            Android用テスト通知を送る
+          </button>
+
+          <button
+            id="btnUserSwap"
+            type="button"
+          >
+            端末差し替え画面へ
+          </button>
+
+        </div>
+
+        <div
+          class="msg"
+          id="uPushMsg"
+        ></div>
+
+        <div class="small-note">
+          Android Web Push登録済みのユーザーにだけ送信できます。通知本文は「これはテスト通知です。ご迷惑をおかけしました。」です。
+        </div>
+
+      </div>
+
+
+      <div class="detail-card full">
+
+        <h3>体重履歴</h3>
+
+        <table id="uWeightHistTbl"></table>
+
+      </div>
+
+
+      <div class="detail-card full">
+
+        <h3>クイズ履歴</h3>
+
+        <table id="uQuizHistTbl"></table>
+
+      </div>
+
+
+      <div class="detail-card full">
+
+        <h3>関連データ</h3>
+
+        <div
+          class="stat-line"
+          id="uRelations"
+        ></div>
+
+      </div>
+
+
+      <div class="detail-card full">
+
+        <h3>このユーザーに関係する通報</h3>
+
+        <table id="uReportsTbl"></table>
+
+      </div>
+
+    </div>
+
+  </div>
+
+</div>
+
+
 </div>
 
 </main>
@@ -892,6 +1484,9 @@ nav button.on{
 
 const K_TOK =
   'minyase.admin_token';
+
+const K_USER_COLS =
+  'minyase.admin_user_columns';
 
 const $ =
   s => document.querySelector(s);
@@ -915,6 +1510,10 @@ const ERR = {
   bad_team: 'チームが不正です',
   result_too_early: '結果日の前なのでまだ正解を確定できません',
   vote_closed: '投票は締め切られています',
+  push_not_configured: 'Android Push の設定がありません',
+  push_not_registered: 'このユーザーはAndroid Web Pushに登録されていません',
+  push_expired: 'Android Push登録が期限切れでした。登録情報を削除しました',
+  push_send_failed: 'Android用テスト通知の送信に失敗しました',
   not_found: 'エンドポイントがありません',
   server_error: 'サーバーエラー',
 };
@@ -1174,6 +1773,143 @@ const ts =
 
 
 /* ============================================================
+   ユーザー表示 小物
+   ============================================================ */
+
+function userAvatar(
+  user,
+  large = false
+) {
+
+  if (
+    user &&
+    user.icon_url
+  ) {
+
+    const img =
+      document.createElement(
+        'img'
+      );
+
+    img.className =
+      'user-avatar';
+
+    img.alt = '';
+
+    img.src =
+      user.icon_url;
+
+    if (large) {
+
+      img.style.width =
+        '42px';
+
+      img.style.height =
+        '42px';
+    }
+
+    return img;
+  }
+
+  const div =
+    document.createElement(
+      'div'
+    );
+
+  div.className =
+    'user-avatar user-avatar-empty';
+
+  div.textContent =
+    '—';
+
+  if (large) {
+
+    div.style.width =
+      '42px';
+
+    div.style.height =
+      '42px';
+  }
+
+  return div;
+}
+
+
+function userStatusNode(
+  user
+) {
+
+  const span =
+    document.createElement(
+      'span'
+    );
+
+  /*
+   * admin-users.js の statusInfo() は
+   * status と label を返す。
+   */
+  span.textContent =
+    user.label ||
+    '—';
+
+  if (
+    user.status ===
+    'active'
+  ) {
+
+    span.className =
+      'result-good';
+
+  } else if (
+    user.status ===
+    'inactive'
+  ) {
+
+    span.className =
+      'result-wait';
+
+  } else if (
+    user.status ===
+    'banned'
+  ) {
+
+    span.className =
+      'result-bad';
+
+  } else {
+
+    span.className =
+      'mut';
+  }
+
+  return span;
+}
+
+
+function keyValueTable(
+  node,
+  rows
+) {
+
+  table(
+    node,
+    [
+      {
+        h: '項目',
+        f: r => r[0]
+      },
+
+      {
+        h: '値',
+        f: r => r[1]
+      },
+    ],
+    rows
+  );
+}
+
+
+/* ============================================================
    接続
    ============================================================ */
 
@@ -1245,7 +1981,8 @@ async function loadGroups() {
       '/api/admin/groups' +
       (
         date
-          ? '?date=' +
+          ? '?' +
+            'date=' +
             encodeURIComponent(date)
           : ''
       )
@@ -1293,6 +2030,8 @@ async function loadGroups() {
       sel.value = keep;
     }
   }
+
+  fillUserGroupFilter();
 
   table(
     $('#gTbl'),
@@ -1375,6 +2114,1936 @@ async function loadGroups() {
     '）',
     true
   );
+}
+
+
+/* ============================================================
+   ユーザー一覧
+   ============================================================ */
+
+let USERS = [];
+
+let CURRENT_USER =
+  null;
+
+let CURRENT_USER_DATA =
+  null;
+
+let USER_SORT = {
+  key: 'nickname',
+  dir: 1,
+};
+
+
+const USER_COLUMN_DEFS = [
+  {
+    key: 'group_name',
+    h: 'グループ',
+
+    f:
+      u =>
+        u.group_name ||
+        '未所属'
+  },
+
+  {
+    key: 'current_weight',
+    h: '現在kg',
+    n: 1,
+
+    f:
+      u =>
+        kg(
+          u.current_weight
+        )
+  },
+
+  {
+    key: 'loss_kg',
+    h: '減少kg',
+    n: 1,
+
+    f:
+      u =>
+        kg(
+          u.loss_kg
+        )
+  },
+
+  {
+    key: 'start_weight',
+    h: '開始kg',
+    n: 1,
+
+    f:
+      u =>
+        kg(
+          u.start_weight
+        )
+  },
+
+  {
+    key: 'goal_weight',
+    h: '目標kg',
+    n: 1,
+
+    f:
+      u =>
+        kg(
+          u.goal_weight
+        )
+  },
+
+  {
+    key: 'goal_remaining_kg',
+    h: '目標までkg',
+    n: 1,
+
+    f:
+      u =>
+        kg(
+          u.goal_remaining_kg
+        )
+  },
+
+  {
+    key: 'weight_count',
+    h: '記録回数',
+    n: 1,
+
+    f:
+      u =>
+        Number(
+          u.weight_count ||
+          0
+        )
+  },
+
+  {
+    key: 'last_weight_ymd',
+    h: '最終体重入力',
+
+    f:
+      u =>
+        u.last_weight_ymd ||
+        '—'
+  },
+
+  {
+    key: 'quiz_correct',
+    h: 'クイズ正解',
+    n: 1,
+
+    f:
+      u =>
+        Number(
+          u.quiz_correct ||
+          0
+        )
+  },
+
+  {
+    key: 'quiz_answered',
+    h: 'クイズ回答',
+    n: 1,
+
+    f:
+      u =>
+        Number(
+          u.quiz_answered ||
+          0
+        )
+  },
+
+  {
+    key: 'quiz_rate',
+    h: '正答率',
+    n: 1,
+
+    f:
+      u =>
+        Number(
+          u.quiz_answered ||
+          0
+        )
+          ? (
+              Number(
+                u.quiz_rate ||
+                0
+              ) +
+              '%'
+            )
+          : '—'
+  },
+
+  {
+    key: 'member_id',
+    h: 'member_id',
+
+    f:
+      u =>
+        u.member_id
+  },
+
+  {
+    key: 'device_id_masked',
+    h: '端末ID',
+
+    f:
+      u =>
+        u.device_id_masked ||
+        '—'
+  },
+
+  {
+    key: 'notify_on',
+    h: '通知設定',
+
+    f:
+      u =>
+        u.notify_on
+          ? (
+              'ON / ' +
+              u.notify_days +
+              '日 / ' +
+              u.notify_hour +
+              '時'
+            )
+          : 'OFF'
+  },
+
+  {
+    key: 'push_registered',
+    h: 'Android Push',
+
+    f:
+      u =>
+        u.push_registered
+          ? '登録済み'
+          : '未登録'
+  },
+
+  {
+    key: 'status',
+    h: '状態',
+
+    f:
+      u =>
+        userStatusNode(u)
+  },
+
+  {
+    key: 'last_seen_at',
+    h: '最終アクセス',
+
+    f:
+      u =>
+        ts(
+          u.last_seen_at
+        )
+  },
+
+  {
+    key: 'created_at',
+    h: '登録日',
+
+    f:
+      u =>
+        ts(
+          u.created_at
+        )
+  },
+];
+
+
+const DEFAULT_USER_COLS = [
+  'group_name',
+  'current_weight',
+  'loss_kg',
+  'quiz_correct',
+  'last_weight_ymd',
+  'status',
+];
+
+
+function readUserColumns() {
+
+  try {
+
+    const raw =
+      sessionStorage.getItem(
+        K_USER_COLS
+      );
+
+    const arr =
+      raw
+        ? JSON.parse(raw)
+        : null;
+
+    if (
+      Array.isArray(arr)
+    ) {
+
+      const good =
+        arr.filter(
+          key =>
+            USER_COLUMN_DEFS
+              .some(
+                c =>
+                  c.key === key
+              )
+        );
+
+      if (good.length) {
+        return good;
+      }
+    }
+
+  } catch {}
+
+  return [
+    ...DEFAULT_USER_COLS
+  ];
+}
+
+
+let USER_COLS =
+  readUserColumns();
+
+
+function initUserColumns() {
+
+  const wrap =
+    $('#uCols');
+
+  wrap.innerHTML = '';
+
+  for (
+    const c of
+    USER_COLUMN_DEFS
+  ) {
+
+    const label =
+      document.createElement(
+        'label'
+      );
+
+    const input =
+      document.createElement(
+        'input'
+      );
+
+    input.type =
+      'checkbox';
+
+    input.value =
+      c.key;
+
+    input.checked =
+      USER_COLS.includes(
+        c.key
+      );
+
+    input.onchange =
+      () => {
+
+        USER_COLS =
+          [
+            ...wrap
+              .querySelectorAll(
+                'input:checked'
+              )
+          ]
+            .map(
+              x => x.value
+            );
+
+        /*
+         * 最低1列は残す。
+         */
+        if (
+          !USER_COLS.length
+        ) {
+
+          input.checked =
+            true;
+
+          USER_COLS = [
+            c.key
+          ];
+        }
+
+        sessionStorage.setItem(
+          K_USER_COLS,
+          JSON.stringify(
+            USER_COLS
+          )
+        );
+
+        renderUsers();
+      };
+
+    label.append(
+      input,
+      document.createTextNode(
+        c.h
+      )
+    );
+
+    wrap.appendChild(
+      label
+    );
+  }
+}
+
+
+function fillUserGroupFilter() {
+
+  const sel =
+    $('#uGroup');
+
+  if (!sel) return;
+
+  const keep =
+    sel.value;
+
+  sel.innerHTML =
+    '';
+
+  const all =
+    document.createElement(
+      'option'
+    );
+
+  all.value = '';
+
+  all.textContent =
+    'すべて';
+
+  sel.appendChild(all);
+
+  for (
+    const g of
+    GROUPS
+  ) {
+
+    const option =
+      document.createElement(
+        'option'
+      );
+
+    option.value =
+      g.id;
+
+    option.textContent =
+      g.name;
+
+    sel.appendChild(
+      option
+    );
+  }
+
+  if (keep) {
+    sel.value = keep;
+  }
+}
+
+
+async function loadUsers() {
+
+  say(
+    $('#uMsg'),
+    '読み込み中…',
+    true
+  );
+
+  try {
+
+    const d =
+      await api(
+        '/api/admin/users'
+      );
+
+    USERS =
+      d.users ||
+      [];
+
+    renderUsers();
+
+  } catch (e) {
+
+    USERS = [];
+
+    $('#uTbl').innerHTML =
+      '';
+
+    say(
+      $('#uMsg'),
+      emsg(e),
+      false
+    );
+  }
+}
+
+
+function userSortValue(
+  user,
+  key
+) {
+
+  if (
+    key ===
+    'nickname'
+  ) {
+
+    return (
+      user.nickname ||
+      ''
+    )
+      .toLocaleLowerCase(
+        'ja'
+      );
+  }
+
+  if (
+    key ===
+    'status'
+  ) {
+
+    return (
+      {
+        active: 1,
+        inactive: 2,
+        no_record: 3,
+        banned: 4,
+      }[
+        user.status
+      ] ||
+      9
+    );
+  }
+
+  const v =
+    user[key];
+
+  if (
+    v === null ||
+    v === undefined
+  ) {
+
+    return null;
+  }
+
+  if (
+    typeof v ===
+    'boolean'
+  ) {
+
+    return v
+      ? 1
+      : 0;
+  }
+
+  return v;
+}
+
+
+function compareUserValues(
+  a,
+  b
+) {
+
+  if (
+    a === null &&
+    b === null
+  ) {
+    return 0;
+  }
+
+  if (
+    a === null
+  ) {
+    return 1;
+  }
+
+  if (
+    b === null
+  ) {
+    return -1;
+  }
+
+  if (
+    typeof a ===
+      'number' &&
+    typeof b ===
+      'number'
+  ) {
+
+    return a - b;
+  }
+
+  return String(a)
+    .localeCompare(
+      String(b),
+      'ja',
+      {
+        numeric: true,
+        sensitivity: 'base',
+      }
+    );
+}
+
+
+function userSortHead(
+  key,
+  label,
+  numeric = false
+) {
+
+  const th =
+    document.createElement(
+      'th'
+    );
+
+  if (numeric) {
+    th.className = 'n';
+  }
+
+  const button =
+    document.createElement(
+      'button'
+    );
+
+  button.type =
+    'button';
+
+  button.className =
+    'sort-button';
+
+  button.textContent =
+    label +
+    (
+      USER_SORT.key === key
+        ? (
+            USER_SORT.dir > 0
+              ? ' ▲'
+              : ' ▼'
+          )
+        : ''
+    );
+
+  button.onclick =
+    () => {
+
+      if (
+        USER_SORT.key ===
+        key
+      ) {
+
+        USER_SORT.dir *=
+          -1;
+
+      } else {
+
+        USER_SORT = {
+          key,
+          dir: 1,
+        };
+      }
+
+      renderUsers();
+    };
+
+  th.appendChild(
+    button
+  );
+
+  return th;
+}
+
+
+function userNameNode(
+  user
+) {
+
+  const wrap =
+    document.createElement(
+      'div'
+    );
+
+  wrap.className =
+    'user-name';
+
+  wrap.appendChild(
+    userAvatar(user)
+  );
+
+  const right =
+    document.createElement(
+      'div'
+    );
+
+  const name =
+    document.createElement(
+      'div'
+    );
+
+  name.style.fontWeight =
+    '700';
+
+  name.textContent =
+    user.nickname ||
+    '名前未設定';
+
+  right.appendChild(
+    name
+  );
+
+  if (
+    user.banned
+  ) {
+
+    const tag =
+      document.createElement(
+        'span'
+      );
+
+    tag.className =
+      'tag pv';
+
+    tag.textContent =
+      '利用停止';
+
+    right.appendChild(
+      tag
+    );
+  }
+
+  wrap.appendChild(
+    right
+  );
+
+  return wrap;
+}
+
+
+function renderUsers() {
+
+  const q =
+    $('#uSearch')
+      .value
+      .trim()
+      .normalize('NFKC')
+      .toLocaleLowerCase('ja');
+
+  const group =
+    $('#uGroup').value;
+
+  const state =
+    $('#uState').value;
+
+  const notify =
+    $('#uNotify').value;
+
+  const quiz =
+    $('#uQuiz').value;
+
+
+  let rows =
+    USERS.filter(
+      user => {
+
+        if (q) {
+
+          const hay =
+            [
+              user.nickname,
+              user.member_id,
+              user.group_name,
+            ]
+              .filter(Boolean)
+              .join(' ')
+              .normalize('NFKC')
+              .toLocaleLowerCase('ja');
+
+          if (
+            !hay.includes(q)
+          ) {
+
+            return false;
+          }
+        }
+
+
+        if (
+          group &&
+          user.group_id !== group
+        ) {
+
+          return false;
+        }
+
+
+        if (
+          state &&
+          user.status !== state
+        ) {
+
+          return false;
+        }
+
+
+        if (
+          notify === 'on' &&
+          !user.notify_on
+        ) {
+
+          return false;
+        }
+
+
+        if (
+          notify === 'off' &&
+          user.notify_on
+        ) {
+
+          return false;
+        }
+
+
+        if (
+          notify === 'push' &&
+          !user.push_registered
+        ) {
+
+          return false;
+        }
+
+
+        if (
+          notify === 'no_push' &&
+          user.push_registered
+        ) {
+
+          return false;
+        }
+
+
+        if (
+          quiz === 'answered' &&
+          Number(
+            user.quiz_answered ||
+            0
+          ) <= 0
+        ) {
+
+          return false;
+        }
+
+
+        if (
+          quiz === 'none' &&
+          Number(
+            user.quiz_answered ||
+            0
+          ) > 0
+        ) {
+
+          return false;
+        }
+
+
+        return true;
+      }
+    );
+
+
+  rows =
+    [
+      ...rows
+    ]
+      .sort(
+        (a, b) =>
+          compareUserValues(
+            userSortValue(
+              a,
+              USER_SORT.key
+            ),
+            userSortValue(
+              b,
+              USER_SORT.key
+            )
+          ) *
+          USER_SORT.dir
+      );
+
+
+  const node =
+    $('#uTbl');
+
+  node.innerHTML = '';
+
+
+  const head =
+    document.createElement(
+      'tr'
+    );
+
+  head.appendChild(
+    userSortHead(
+      'nickname',
+      '名前'
+    )
+  );
+
+
+  const defs =
+    USER_COLS
+      .map(
+        key =>
+          USER_COLUMN_DEFS
+            .find(
+              c =>
+                c.key === key
+            )
+      )
+      .filter(Boolean);
+
+
+  for (
+    const c of
+    defs
+  ) {
+
+    head.appendChild(
+      userSortHead(
+        c.key,
+        c.h,
+        !!c.n
+      )
+    );
+  }
+
+
+  node.appendChild(
+    head
+  );
+
+
+  if (
+    !rows.length
+  ) {
+
+    const tr =
+      document.createElement(
+        'tr'
+      );
+
+    const td =
+      document.createElement(
+        'td'
+      );
+
+    td.colSpan =
+      defs.length + 1;
+
+    td.className =
+      'mut';
+
+    td.textContent =
+      '条件に一致するユーザーはいません';
+
+    tr.appendChild(
+      td
+    );
+
+    node.appendChild(
+      tr
+    );
+
+  } else {
+
+    for (
+      const user of
+      rows
+    ) {
+
+      const tr =
+        document.createElement(
+          'tr'
+        );
+
+      tr.className =
+        'user-row';
+
+      tr.tabIndex =
+        0;
+
+      tr.setAttribute(
+        'role',
+        'button'
+      );
+
+
+      const nameTd =
+        document.createElement(
+          'td'
+        );
+
+      nameTd.appendChild(
+        userNameNode(user)
+      );
+
+      tr.appendChild(
+        nameTd
+      );
+
+
+      for (
+        const c of
+        defs
+      ) {
+
+        const td =
+          document.createElement(
+            'td'
+          );
+
+        if (c.n) {
+          td.className = 'n';
+        }
+
+        const value =
+          c.f(user);
+
+        if (
+          value instanceof
+          Node
+        ) {
+
+          td.appendChild(
+            value
+          );
+
+        } else {
+
+          td.textContent =
+            value === null ||
+            value === undefined
+              ? ''
+              : String(value);
+        }
+
+        tr.appendChild(
+          td
+        );
+      }
+
+
+      tr.onclick =
+        () =>
+          openUserDetail(
+            user.member_id
+          );
+
+
+      tr.onkeydown =
+        e => {
+
+          if (
+            e.key === 'Enter' ||
+            e.key === ' '
+          ) {
+
+            e.preventDefault();
+
+            openUserDetail(
+              user.member_id
+            );
+          }
+        };
+
+
+      node.appendChild(
+        tr
+      );
+    }
+  }
+
+
+  say(
+    $('#uMsg'),
+    rows.length +
+    '人表示 / 全' +
+    USERS.length +
+    '人',
+    true
+  );
+}
+
+
+/* ============================================================
+   ユーザー詳細
+   ============================================================ */
+
+function closeUserDetail() {
+
+  $('#userModal').hidden =
+    true;
+
+  document.body
+    .classList
+    .remove(
+      'modal-open'
+    );
+
+  CURRENT_USER =
+    null;
+
+  CURRENT_USER_DATA =
+    null;
+
+  $('#uDetailBody').hidden =
+    true;
+
+  say(
+    $('#uDetailMsg'),
+    '',
+    true
+  );
+
+  say(
+    $('#uPushMsg'),
+    '',
+    true
+  );
+}
+
+
+async function openUserDetail(
+  memberId
+) {
+
+  CURRENT_USER =
+    memberId;
+
+  CURRENT_USER_DATA =
+    null;
+
+  $('#userModal').hidden =
+    false;
+
+  document.body
+    .classList
+    .add(
+      'modal-open'
+    );
+
+  $('#uDetailBody').hidden =
+    true;
+
+  $('#uDetailTitle').textContent =
+    'ユーザー詳細';
+
+  $('#uDetailId').textContent =
+    memberId;
+
+  $('#uDetailAvatar').innerHTML =
+    '';
+
+  say(
+    $('#uDetailMsg'),
+    '読み込み中…',
+    true
+  );
+
+  say(
+    $('#uPushMsg'),
+    '',
+    true
+  );
+
+
+  try {
+
+    const d =
+      await api(
+        '/api/admin/users/' +
+        encodeURIComponent(
+          memberId
+        )
+      );
+
+
+    if (
+      CURRENT_USER !==
+      memberId
+    ) {
+
+      return;
+    }
+
+
+    const user =
+      d.user;
+
+
+    CURRENT_USER_DATA =
+      user;
+
+
+    $('#uDetailTitle').textContent =
+      user.nickname ||
+      '名前未設定';
+
+
+    $('#uDetailId').textContent =
+      user.member_id;
+
+
+    $('#uDetailAvatar').innerHTML =
+      '';
+
+    $('#uDetailAvatar')
+      .appendChild(
+        userAvatar(
+          user,
+          true
+        )
+      );
+
+
+    keyValueTable(
+      $('#uProfileTbl'),
+      [
+        [
+          'member_id',
+          user.member_id
+        ],
+
+        [
+          '所属グループ',
+          user.group_name
+            ? (
+                user.group_name +
+                (
+                  user.is_owner
+                    ? '（オーナー）'
+                    : (
+                        user.is_leader
+                          ? '（リーダー）'
+                          : ''
+                      )
+                )
+              )
+            : '未所属'
+        ],
+
+        [
+          'グループコード',
+          user.group_code ||
+          '—'
+        ],
+
+        [
+          '状態',
+          user.label ||
+          '—'
+        ],
+
+        [
+          '端末ID',
+          user.device_id_masked ||
+          '—'
+        ],
+
+        [
+          '登録',
+          ts(
+            user.created_at
+          )
+        ],
+
+        [
+          'グループ参加',
+          ts(
+            user.joined_at
+          )
+        ],
+
+        [
+          '最終アクセス',
+          ts(
+            user.last_seen_at
+          )
+        ],
+      ]
+    );
+
+
+    keyValueTable(
+      $('#uWeightSummaryTbl'),
+      [
+        [
+          '開始体重',
+          user.start_weight === null ||
+          user.start_weight === undefined
+            ? '—'
+            : (
+                kg(
+                  user.start_weight
+                ) +
+                ' kg' +
+                (
+                  user.start_ymd
+                    ? (
+                        '（' +
+                        user.start_ymd +
+                        '）'
+                      )
+                    : ''
+                )
+              )
+        ],
+
+        [
+          '現在体重',
+          user.current_weight === null ||
+          user.current_weight === undefined
+            ? '—'
+            : (
+                kg(
+                  user.current_weight
+                ) +
+                ' kg' +
+                (
+                  user.last_weight_ymd
+                    ? (
+                        '（' +
+                        user.last_weight_ymd +
+                        '）'
+                      )
+                    : ''
+                )
+              )
+        ],
+
+        [
+          '減少kg',
+          kg(
+            user.loss_kg
+          )
+        ],
+
+        [
+          '目標体重',
+          user.goal_weight === null ||
+          user.goal_weight === undefined
+            ? '—'
+            : (
+                kg(
+                  user.goal_weight
+                ) +
+                ' kg'
+              )
+        ],
+
+        [
+          '目標まで',
+          user.goal_remaining_kg === null ||
+          user.goal_remaining_kg === undefined
+            ? '—'
+            : (
+                kg(
+                  user.goal_remaining_kg
+                ) +
+                ' kg'
+              )
+        ],
+
+        [
+          '記録回数',
+          Number(
+            user.weight_count ||
+            0
+          ) +
+          '回'
+        ],
+
+        [
+          '未入力日数',
+          user.inactive_days === null ||
+          user.inactive_days === undefined
+            ? '—'
+            : (
+                user.inactive_days +
+                '日'
+              )
+        ],
+      ]
+    );
+
+
+    $('#uQuizStats').innerHTML =
+      '';
+
+
+    const quizStats = [
+      [
+        '正解',
+        Number(
+          user.quiz_correct ||
+          0
+        )
+      ],
+
+      [
+        '回答',
+        Number(
+          user.quiz_answered ||
+          0
+        )
+      ],
+
+      [
+        '不正解',
+        Number(
+          user.quiz_wrong ||
+          0
+        )
+      ],
+
+      [
+        '正答率',
+        Number(
+          user.quiz_answered ||
+          0
+        )
+          ? (
+              Number(
+                user.quiz_rate ||
+                0
+              ) +
+              '%'
+            )
+          : '—'
+      ],
+
+      [
+        '全投票',
+        Number(
+          user.quiz_total_predictions ||
+          0
+        )
+      ],
+    ];
+
+
+    for (
+      const [
+        label,
+        value
+      ] of
+      quizStats
+    ) {
+
+      const chip =
+        document.createElement(
+          'div'
+        );
+
+      chip.className =
+        'stat-chip';
+
+      chip.textContent =
+        label +
+        ' ' +
+        value;
+
+      $('#uQuizStats')
+        .appendChild(
+          chip
+        );
+    }
+
+
+    keyValueTable(
+      $('#uNotifyTbl'),
+      [
+        [
+          '通知設定',
+          user.notify_on
+            ? 'ON'
+            : 'OFF'
+        ],
+
+        [
+          '間隔',
+          user.notify_on
+            ? (
+                user.notify_days +
+                '日'
+              )
+            : '—'
+        ],
+
+        [
+          '時刻',
+          user.notify_on
+            ? (
+                user.notify_hour +
+                ':00'
+              )
+            : '—'
+        ],
+
+        [
+          'Android Web Push',
+          user.push_registered
+            ? '登録済み'
+            : '未登録'
+        ],
+
+        [
+          'Push最終更新',
+          ts(
+            user.push_updated_at
+          )
+        ],
+      ]
+    );
+
+
+    $('#btnAndroidTestPush').disabled =
+      !user.push_registered ||
+      user.banned;
+
+
+    table(
+      $('#uWeightHistTbl'),
+      [
+        {
+          h: '日付',
+          f: r => r.ymd
+        },
+
+        {
+          h: '体重kg',
+          n: 1,
+
+          f:
+            r =>
+              kg(
+                r.kg
+              )
+        },
+
+        {
+          h: '更新',
+
+          f:
+            r =>
+              ts(
+                r.updated_at
+              )
+        },
+      ],
+      d.weight_history ||
+      []
+    );
+
+
+    table(
+      $('#uQuizHistTbl'),
+      [
+        {
+          h: '結果日',
+
+          f:
+            r =>
+              fmtYmdJp(
+                r.target_date
+              )
+        },
+
+        {
+          h: '投票',
+
+          f:
+            r =>
+              r.team_name ||
+              r.team_id ||
+              '—'
+        },
+
+        {
+          h: '正解チーム',
+
+          f:
+            r =>
+              r.finalized
+                ? (
+                    r.winner_name ||
+                    r.winner_team ||
+                    '—'
+                  )
+                : '結果待ち'
+        },
+
+        {
+          h: '結果',
+
+          f:
+            r => {
+
+              const span =
+                document.createElement(
+                  'span'
+                );
+
+              if (
+                !r.finalized
+              ) {
+
+                span.textContent =
+                  '結果待ち';
+
+                span.className =
+                  'result-wait';
+
+              } else if (
+                r.correct
+              ) {
+
+                span.textContent =
+                  '○ 正解';
+
+                span.className =
+                  'result-good';
+
+              } else {
+
+                span.textContent =
+                  '× 不正解';
+
+                span.className =
+                  'result-bad';
+              }
+
+              return span;
+            }
+        },
+
+        {
+          h: '投票日時',
+
+          f:
+            r =>
+              ts(
+                r.voted_at
+              )
+        },
+      ],
+      d.quiz_history ||
+      []
+    );
+
+
+    $('#uRelations').innerHTML =
+      '';
+
+
+    const relations = [
+      [
+        'ライバル',
+        (
+          d.rivals ||
+          []
+        ).length
+      ],
+
+      [
+        '閲覧グループ',
+        (
+          d.watching ||
+          []
+        ).length
+      ],
+
+      [
+        'ブロック',
+        (
+          d.blocks ||
+          []
+        ).length
+      ],
+
+      [
+        '関連通報',
+        (
+          d.reports ||
+          []
+        ).length
+      ],
+    ];
+
+
+    for (
+      const [
+        label,
+        value
+      ] of
+      relations
+    ) {
+
+      const chip =
+        document.createElement(
+          'div'
+        );
+
+      chip.className =
+        'stat-chip';
+
+      chip.textContent =
+        label +
+        ' ' +
+        value;
+
+      $('#uRelations')
+        .appendChild(
+          chip
+        );
+    }
+
+
+    table(
+      $('#uReportsTbl'),
+      [
+        {
+          h: '日時',
+
+          f:
+            r =>
+              ts(
+                r.created_at
+              )
+        },
+
+        {
+          h: '立場',
+
+          f:
+            r =>
+              r.target_id ===
+              user.member_id
+                ? '通報対象'
+                : '通報者'
+        },
+
+        {
+          h: '相手member_id',
+
+          f:
+            r =>
+              r.target_id ===
+              user.member_id
+                ? r.reporter_id
+                : r.target_id
+        },
+
+        {
+          h: '理由',
+
+          f:
+            r =>
+              r.reason ||
+              ''
+        },
+
+        {
+          h: '対応',
+
+          f:
+            r =>
+              r.handled
+                ? '済'
+                : '未'
+        },
+      ],
+      d.reports ||
+      []
+    );
+
+
+    $('#uDetailBody').hidden =
+      false;
+
+
+    say(
+      $('#uDetailMsg'),
+      '',
+      true
+    );
+
+  } catch (e) {
+
+    say(
+      $('#uDetailMsg'),
+      emsg(e),
+      false
+    );
+  }
+}
+
+
+/* ============================================================
+   Android用テスト通知
+   ============================================================ */
+
+async function sendAndroidTestPush() {
+
+  const memberId =
+    CURRENT_USER;
+
+  if (!memberId) {
+    return;
+  }
+
+
+  if (
+    !confirm(
+      'このユーザーのAndroid端末にテスト通知を送ります。\n\n' +
+      '本文：これはテスト通知です。ご迷惑をおかけしました。\n\n' +
+      '送信しますか？'
+    )
+  ) {
+
+    return;
+  }
+
+
+  $('#btnAndroidTestPush').disabled =
+    true;
+
+
+  say(
+    $('#uPushMsg'),
+    '送信中…',
+    true
+  );
+
+
+  try {
+
+    const d =
+      await api(
+        '/api/admin/users/' +
+        encodeURIComponent(
+          memberId
+        ) +
+        '/test-push',
+        {
+          method: 'POST'
+        }
+      );
+
+
+    say(
+      $('#uPushMsg'),
+      'Android用テスト通知を送信しました。\n' +
+      (
+        d.body ||
+        'これはテスト通知です。ご迷惑をおかけしました。'
+      ),
+      true
+    );
+
+
+  } catch (e) {
+
+    if (
+      e.message ===
+        'push_expired' ||
+      e.message ===
+        'push_not_registered'
+    ) {
+
+      if (
+        CURRENT_USER_DATA
+      ) {
+
+        CURRENT_USER_DATA.push_registered =
+          false;
+      }
+
+
+      const cached =
+        USERS.find(
+          u =>
+            u.member_id ===
+            memberId
+        );
+
+
+      if (cached) {
+
+        cached.push_registered =
+          false;
+      }
+    }
+
+
+    say(
+      $('#uPushMsg'),
+      emsg(e),
+      false
+    );
+
+
+  } finally {
+
+    $('#btnAndroidTestPush').disabled =
+      !CURRENT_USER_DATA ||
+      !CURRENT_USER_DATA.push_registered ||
+      CURRENT_USER_DATA.banned;
+  }
+}
+
+
+/* ============================================================
+   ユーザー詳細 → 端末差し替え
+   ============================================================ */
+
+function userToDeviceSwap() {
+
+  if (!CURRENT_USER) {
+    return;
+  }
+
+
+  const memberId =
+    CURRENT_USER;
+
+
+  closeUserDetail();
+
+
+  const button =
+    document.querySelector(
+      '#adminNav button[data-t="dev"]'
+    );
+
+
+  if (button) {
+    button.click();
+  }
+
+
+  $('#swMid').value =
+    memberId;
+
+
+  lookup();
 }
 
 
@@ -1660,6 +4329,16 @@ async function doImport(dry) {
       d.errors || []
     );
 
+
+    /*
+     * 体重データを変えた可能性があるので
+     * 次回ユーザータブ表示時に再読み込み。
+     */
+    if (!dry) {
+      USERS = [];
+    }
+
+
   } catch (e) {
 
     say(
@@ -1851,6 +4530,13 @@ async function swap() {
       '件',
       true
     );
+
+
+    /*
+     * 一覧のdevice_id等が変わったため破棄。
+     */
+    USERS = [];
+
 
     lookup();
 
@@ -2160,6 +4846,14 @@ function voteActionNode(r) {
           '」に設定しました',
           true
         );
+
+
+        /*
+         * 正解数が変わるので
+         * ユーザー一覧キャッシュを破棄。
+         */
+        USERS = [];
+
 
         await loadVotes();
 
@@ -2596,6 +5290,9 @@ $('#dDate').value =
   today;
 
 
+initUserColumns();
+
+
 /* ============================================================
    配線
    ============================================================ */
@@ -2620,6 +5317,8 @@ $('#btnLogout').onclick =
 
     $('#app').hidden =
       true;
+
+    closeUserDetail();
 
     say(
       $('#authMsg'),
@@ -2651,6 +5350,7 @@ $('#adminNav').onclick =
 
     const tabs = [
       'groups',
+      'users',
       'day',
       'io',
       'dev',
@@ -2666,6 +5366,25 @@ $('#adminNav').onclick =
           t !== b.dataset.t;
       }
     );
+
+
+    if (
+      b.dataset.t ===
+      'users'
+    ) {
+
+      if (
+        USERS.length
+      ) {
+
+        renderUsers();
+
+      } else {
+
+        loadUsers();
+      }
+    }
+
 
     if (
       b.dataset.t ===
@@ -2688,6 +5407,70 @@ $('#btnGroups').onclick =
             false
           )
       );
+
+
+/* ユーザー */
+
+$('#btnUsers').onclick =
+  loadUsers;
+
+$('#uSearch').oninput =
+  renderUsers;
+
+$('#uGroup').onchange =
+  renderUsers;
+
+$('#uState').onchange =
+  renderUsers;
+
+$('#uNotify').onchange =
+  renderUsers;
+
+$('#uQuiz').onchange =
+  renderUsers;
+
+
+$('#btnCloseUser').onclick =
+  closeUserDetail;
+
+
+$('#userModal').onclick =
+  e => {
+
+    if (
+      e.target ===
+      $('#userModal')
+    ) {
+
+      closeUserDetail();
+    }
+  };
+
+
+document.addEventListener(
+  'keydown',
+  e => {
+
+    if (
+      e.key === 'Escape' &&
+      !$('#userModal').hidden
+    ) {
+
+      closeUserDetail();
+    }
+  }
+);
+
+
+$('#btnAndroidTestPush').onclick =
+  sendAndroidTestPush;
+
+
+$('#btnUserSwap').onclick =
+  userToDeviceSwap;
+
+
+/* 日付 */
 
 $('#btnDay').onclick =
   loadDay;

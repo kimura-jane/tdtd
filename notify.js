@@ -3,58 +3,46 @@
 /* ============================================================
    みんやせ / notify.js
 
-   iOS ローカル通知
-   ------------------------------------------------------------
-   ・最終体重記録を起点に通知
-   ・3日設定
-       3日目
-       6日目
-       9日目
-       12日目
-       13日目 おやすみ中予告
-       14日目 おやすみ中入り
-   ・7日設定
-       7日目
-       13日目 おやすみ中予告
-       14日目 おやすみ中入り
-   ・14日以降は通知停止
-   ・体重保存成功後に予約を再作成
-   ・体重削除成功後にも予約を再計算
-   ・通知設定変更成功後に予約を再作成
-   ・通知OFFで予約を全削除
-   ・通知拒否時はサーバー側 notify_on も false に戻す
-   ・Web版では表示しない
-   ・通知許可ダイアログはユーザーが通知設定を保存した時だけ
+   iOS:
+   Capacitor Local Notifications
+
+   Android:
+   PWA / TWA Web Push
+
+   共通仕様
+   ・3日設定: 3,6,9,12,13,14日目
+   ・7日設定: 7,13,14日目
+   ・13日目: おやすみ中予告
+   ・14日目: おやすみ中入り
+   ・14日以降: 停止
+   ・許可ダイアログは通知設定保存時だけ
    ============================================================ */
 
 (() => {
 
-  /* ==========================================================
-     基本設定
-     ========================================================== */
-
   const API =
-    (typeof window !== 'undefined' &&
-      window.MINYASE_API_BASE) ||
+    (
+      typeof window !==
+        'undefined' &&
+      window.MINYASE_API_BASE
+    ) ||
     '';
+
 
   const K_DEV =
     'tsudatsu.device_id.v1';
 
+
   /*
-   * notify.js 内部通信専用。
-   *
-   * 後から window.fetch を監視用に差し替えるため、
-   * notify.js 自身の通信まで監視対象に入らないよう
-   * 元の fetch を保持する。
+   * notify.js 自身の通信は
+   * fetch監視へ入れない。
    */
   const baseFetch =
-    window.fetch.bind(window);
+    window.fetch.bind(
+      window
+    );
 
 
-  /*
-   * みんやせ専用のローカル通知ID。
-   */
   const IDS = {
     3: 730003,
     6: 730006,
@@ -65,8 +53,11 @@
     14: 730014,
   };
 
+
   const ALL_IDS =
-    Object.values(IDS);
+    Object.values(
+      IDS
+    );
 
 
   let LocalNotifications =
@@ -81,31 +72,46 @@
   let fetchPatched =
     false;
 
+  let pendingWebPermission =
+    null;
+
 
   /* ==========================================================
      DOM
      ========================================================== */
 
-  function $(id) {
-    return document.getElementById(id);
-  }
+  const $ =
+    id =>
+      document.getElementById(
+        id
+      );
 
 
-  function message(text, ok) {
+  function message(
+    text,
+    ok
+  ) {
 
     const n =
       $('nmsg');
 
-    if (!n) {
+    if (
+      !n
+    ) {
       return;
     }
 
     n.textContent =
-      text || '';
+      text ||
+      '';
 
     n.className =
       'msg ' +
-      (ok ? 'ok' : 'ng');
+      (
+        ok
+          ? 'ok'
+          : 'ng'
+      );
   }
 
 
@@ -114,13 +120,11 @@
     const on =
       $('notifyOn');
 
-    if (!on) {
-      return null;
-    }
-
-    return on.closest(
-      '.card'
-    );
+    return on
+      ? on.closest(
+          '.card'
+        )
+      : null;
   }
 
 
@@ -135,26 +139,40 @@
     const hour =
       $('notifyHour');
 
-    if (!on) {
+
+    if (
+      !on
+    ) {
       return;
     }
+
 
     const disabled =
       !on.checked;
 
-    if (days) {
+
+    if (
+      days
+    ) {
+
       days.disabled =
         disabled;
     }
 
-    if (hour) {
+
+    if (
+      hour
+    ) {
+
       hour.disabled =
         disabled;
     }
   }
 
 
-  function applySettingsToUi(settings) {
+  function applySettingsToUi(
+    settings
+  ) {
 
     const on =
       $('notifyOn');
@@ -165,21 +183,33 @@
     const hour =
       $('notifyHour');
 
-    if (on) {
+
+    if (
+      on
+    ) {
+
       on.checked =
         !!settings.on;
     }
 
-    if (days) {
+
+    if (
+      days
+    ) {
+
       days.value =
         String(
-          settings.days === 7
+          settings.days ===
+            7
             ? 7
             : 3
         );
     }
 
-    if (hour) {
+
+    if (
+      hour
+    ) {
 
       const h =
         Number.isInteger(
@@ -190,9 +220,13 @@
           ? settings.hour
           : 20;
 
+
       hour.value =
-        String(h);
+        String(
+          h
+        );
     }
+
 
     updateControls();
   }
@@ -203,17 +237,22 @@
     const on =
       $('notifyOn');
 
-    if (on) {
+
+    if (
+      on
+    ) {
+
       on.checked =
         false;
     }
+
 
     updateControls();
   }
 
 
   /* ==========================================================
-     Capacitor
+     環境判定
      ========================================================== */
 
   function isNative() {
@@ -221,52 +260,122 @@
     const c =
       window.Capacitor;
 
-    if (!c) {
+
+    if (
+      !c
+    ) {
       return false;
     }
 
+
     if (
       typeof c.isNativePlatform ===
-      'function'
+        'function'
     ) {
-      return c.isNativePlatform();
+
+      return c
+        .isNativePlatform();
     }
+
 
     if (
       typeof c.getPlatform ===
-      'function'
+        'function'
     ) {
+
       return (
         c.getPlatform() !==
         'web'
       );
     }
 
+
     return false;
   }
 
 
-  /*
-   * Capacitor iOS は登録済みネイティブプラグインを
-   * window.Capacitor.Plugins に公開する。
-   *
-   * そのためバンドラーを使わない現在の構成では
-   * Plugins.LocalNotifications を最優先で使う。
-   *
-   * registerPlugin は互換用フォールバック。
-   */
+  function isAndroidWebPush() {
+
+    if (
+      isNative()
+    ) {
+      return false;
+    }
+
+
+    if (
+      !window.isSecureContext
+    ) {
+      return false;
+    }
+
+
+    if (
+      !/Android/i.test(
+        navigator.userAgent ||
+        ''
+      )
+    ) {
+      return false;
+    }
+
+
+    return (
+      'serviceWorker' in
+        navigator &&
+      'PushManager' in
+        window &&
+      'Notification' in
+        window
+    );
+  }
+
+
+  function platform() {
+
+    if (
+      isNative()
+    ) {
+      return 'native';
+    }
+
+
+    if (
+      isAndroidWebPush()
+    ) {
+      return 'webpush';
+    }
+
+
+    return 'none';
+  }
+
+
+  /* ==========================================================
+     Capacitor iOS
+     ========================================================== */
+
   function plugin() {
 
-    if (LocalNotifications) {
+    if (
+      LocalNotifications
+    ) {
+
       return LocalNotifications;
     }
+
 
     const c =
       window.Capacitor;
 
-    if (!c) {
+
+    if (
+      !c
+    ) {
+
       return null;
     }
+
 
     if (
       c.Plugins &&
@@ -274,14 +383,16 @@
     ) {
 
       LocalNotifications =
-        c.Plugins.LocalNotifications;
+        c.Plugins
+          .LocalNotifications;
 
       return LocalNotifications;
     }
 
+
     if (
       typeof c.registerPlugin ===
-      'function'
+        'function'
     ) {
 
       try {
@@ -302,6 +413,7 @@
       }
     }
 
+
     return null;
   }
 
@@ -309,25 +421,6 @@
   /* ==========================================================
      日付
      ========================================================== */
-
-  const JST_DATE_FMT =
-    new Intl.DateTimeFormat(
-      'en-CA',
-      {
-        timeZone:
-          'Asia/Tokyo',
-
-        year:
-          'numeric',
-
-        month:
-          '2-digit',
-
-        day:
-          '2-digit',
-      }
-    );
-
 
   const JST_DISPLAY_FMT =
     new Intl.DateTimeFormat(
@@ -354,38 +447,6 @@
     );
 
 
-  function todayYmdJST() {
-
-    const parts =
-      JST_DATE_FMT
-        .formatToParts(
-          new Date()
-        );
-
-    const get =
-      type =>
-        parts.find(
-          p =>
-            p.type === type
-        ).value;
-
-    return (
-      get('year') +
-      '-' +
-      get('month') +
-      '-' +
-      get('day')
-    );
-  }
-
-
-  /*
-   * YYYY-MM-DD の基準日に add 日を加え、
-   * JSTの指定時刻を絶対時刻の Date に変換する。
-   *
-   * 端末タイムゾーンが変わっても、
-   * みんやせのJST基準を維持する。
-   */
   function addDaysAtHourJST(
     ymd,
     add,
@@ -397,23 +458,33 @@
       month,
       day
     ] =
-      String(ymd)
+      String(
+        ymd
+      )
         .split('-')
-        .map(Number);
+        .map(
+          Number
+        );
+
 
     if (
-      !Number.isInteger(year) ||
-      !Number.isInteger(month) ||
-      !Number.isInteger(day)
+      !Number.isInteger(
+        year
+      ) ||
+      !Number.isInteger(
+        month
+      ) ||
+      !Number.isInteger(
+        day
+      )
     ) {
+
       throw new Error(
         'bad_base_date'
       );
     }
 
-    /*
-     * JST = UTC+9
-     */
+
     return new Date(
       Date.UTC(
         year,
@@ -428,10 +499,14 @@
   }
 
 
-  function formatJST(date) {
+  function formatJST(
+    date
+  ) {
 
     return JST_DISPLAY_FMT
-      .format(date);
+      .format(
+        date
+      );
   }
 
 
@@ -458,30 +533,36 @@
     const did =
       deviceId();
 
-    if (!did) {
+
+    if (
+      !did
+    ) {
+
       throw new Error(
         'no_device'
       );
     }
 
-    const method =
-      options.method ||
-      'GET';
-
-    const headers = {
-      'content-type':
-        'application/json',
-
-      'x-device-id':
-        did,
-    };
 
     const fetchOptions = {
-      method,
-      headers,
+
+      method:
+        options.method ||
+        'GET',
+
+      headers: {
+
+        'content-type':
+          'application/json',
+
+        'x-device-id':
+          did,
+      },
+
       cache:
         'no-store',
     };
+
 
     if (
       options.body !==
@@ -494,29 +575,31 @@
         );
     }
 
+
     const res =
       await baseFetch(
-        API + path,
+        API +
+        path,
         fetchOptions
       );
 
+
     let data =
       {};
+
 
     try {
 
       data =
         await res.json();
 
-    } catch (_) {
+    } catch {}
 
-      data =
-        {};
-    }
 
     if (
       !res.ok ||
-      data.ok === false
+      data.ok ===
+        false
     ) {
 
       throw new Error(
@@ -527,6 +610,7 @@
         )
       );
     }
+
 
     return data;
   }
@@ -546,8 +630,6 @@
         },
       }
     );
-
-    return true;
   }
 
 
@@ -598,6 +680,7 @@
         continue;
       }
 
+
       if (
         !/^\d{4}-\d{2}-\d{2}$/
           .test(
@@ -607,9 +690,11 @@
         continue;
       }
 
+
       if (
         latest === null ||
-        row.ymd > latest
+        row.ymd >
+          latest
       ) {
 
         latest =
@@ -655,15 +740,78 @@
 
 
   /* ==========================================================
-     通知権限
+     通知文
      ========================================================== */
 
-  async function permission(
+  function bodyForDay(
+    day
+  ) {
+
+    if (
+      day ===
+      13
+    ) {
+
+      return (
+        '明日でおやすみ中になります。' +
+        '体重を記録すると継続できます。'
+      );
+    }
+
+
+    if (
+      day ===
+      14
+    ) {
+
+      return (
+        '14日間記録がないため、' +
+        'おやすみ中になりました。' +
+        '体重を記録するとすぐ復帰できます。'
+      );
+    }
+
+
+    return (
+      '最近体重を記録してないよ。' +
+      '今日の体重を記録しよう！'
+    );
+  }
+
+
+  function targetDays(
+    interval
+  ) {
+
+    return interval ===
+      7
+      ? [
+          7,
+          13,
+          14
+        ]
+      : [
+          3,
+          6,
+          9,
+          12,
+          13,
+          14
+        ];
+  }
+
+
+  /* ==========================================================
+     iOS / Capacitor
+     ========================================================== */
+
+  async function nativePermission(
     shouldRequest
   ) {
 
     const p =
       plugin();
+
 
     if (
       !p ||
@@ -704,13 +852,12 @@
       }
 
 
-      /*
-       * アプリ起動だけでは
-       * 通知許可ダイアログを出さない。
-       */
-      if (!shouldRequest) {
+      if (
+        !shouldRequest
+      ) {
 
         return {
+
           granted:
             false,
 
@@ -726,10 +873,11 @@
 
       if (
         typeof p.requestPermissions !==
-        'function'
+          'function'
       ) {
 
         return {
+
           granted:
             false,
 
@@ -739,10 +887,6 @@
       }
 
 
-      /*
-       * 「通知設定を保存」を
-       * ユーザーが押した場合のみ許可を要求。
-       */
       state =
         await p
           .requestPermissions();
@@ -769,11 +913,13 @@
     } catch (e) {
 
       console.error(
-        'notify_permission',
+        'notify_native_permission',
         e
       );
 
+
       return {
+
         granted:
           false,
 
@@ -784,20 +930,18 @@
   }
 
 
-  /* ==========================================================
-     通知キャンセル
-     ========================================================== */
-
-  async function cancelAll() {
+  async function cancelNative() {
 
     const p =
       plugin();
+
 
     if (
       !p ||
       typeof p.cancel !==
         'function'
     ) {
+
       return;
     }
 
@@ -805,6 +949,7 @@
     try {
 
       await p.cancel({
+
         notifications:
           ALL_IDS.map(
             id => ({
@@ -813,93 +958,18 @@
           ),
       });
 
+
     } catch (e) {
 
-      /*
-       * まだ予約されていないIDを含む場合などでも、
-       * アプリ本体は止めない。
-       */
       console.warn(
-        'notify_cancel',
+        'notify_native_cancel',
         e
       );
     }
   }
 
 
-  /* ==========================================================
-     通知文章
-     ========================================================== */
-
-  function normalBody() {
-
-    return (
-      '最近体重を記録してないよ。' +
-      '今日の体重を記録しよう！'
-    );
-  }
-
-
-  function beforeSleepBody() {
-
-    return (
-      '明日でおやすみ中になります。' +
-      '体重を記録すると継続できます。'
-    );
-  }
-
-
-  function sleepBody() {
-
-    return (
-      '14日間記録がないため、' +
-      'おやすみ中になりました。' +
-      '体重を記録するとすぐ復帰できます。'
-    );
-  }
-
-
-  function bodyForDay(day) {
-
-    if (day === 13) {
-      return beforeSleepBody();
-    }
-
-    if (day === 14) {
-      return sleepBody();
-    }
-
-    return normalBody();
-  }
-
-
-  function targetDays(interval) {
-
-    if (interval === 7) {
-
-      return [
-        7,
-        13,
-        14,
-      ];
-    }
-
-    return [
-      3,
-      6,
-      9,
-      12,
-      13,
-      14,
-    ];
-  }
-
-
-  /* ==========================================================
-     通知予約
-     ========================================================== */
-
-  async function scheduleFrom(
+  async function scheduleNative(
     baseYmd,
     interval,
     hour
@@ -907,6 +977,7 @@
 
     const p =
       plugin();
+
 
     if (
       !p ||
@@ -920,7 +991,7 @@
     }
 
 
-    await cancelAll();
+    await cancelNative();
 
 
     const now =
@@ -946,14 +1017,11 @@
         );
 
 
-      /*
-       * 過去になった通知を
-       * 後からまとめて鳴らさない。
-       */
       if (
         at.getTime() <=
         now
       ) {
+
         continue;
       }
 
@@ -967,26 +1035,17 @@
           'みんやせ',
 
         body:
-          bodyForDay(day),
+          bodyForDay(
+            day
+          ),
 
         schedule: {
           at,
         },
 
-        /*
-         * Capacitor 7では
-         * iOSでsound未指定だと無音。
-         *
-         * 空文字は「サウンドファイルが見つからない」
-         * 扱いとなり、iOSのデフォルト通知音を使用する。
-         */
         sound:
           '',
 
-        /*
-         * foregroundでも
-         * 通知自体を抑制しない。
-         */
         silent:
           false,
 
@@ -994,6 +1053,7 @@
           'minyase-reminder',
 
         extra: {
+
           minyase:
             true,
 
@@ -1019,8 +1079,803 @@
   }
 
 
+  async function syncNative(
+    requestPermission,
+    showMessage
+  ) {
+
+    if (
+      !plugin()
+    ) {
+
+      if (
+        showMessage
+      ) {
+
+        message(
+          '通知機能を読み込めませんでした',
+          false
+        );
+      }
+
+      return;
+    }
+
+
+    const settings =
+      await getSettingsAndLatest();
+
+
+    applySettingsToUi(
+      settings
+    );
+
+
+    if (
+      !settings.on
+    ) {
+
+      await cancelNative();
+
+
+      if (
+        showMessage
+      ) {
+
+        message(
+          '通知をオフにしました',
+          true
+        );
+      }
+
+      return;
+    }
+
+
+    const perm =
+      await nativePermission(
+        !!requestPermission
+      );
+
+
+    if (
+      !perm.granted
+    ) {
+
+      if (
+        perm.status ===
+        'denied'
+      ) {
+
+        await cancelNative();
+
+
+        try {
+
+          await turnNotifyOffOnServer();
+
+        } catch (e) {
+
+          console.error(
+            'notify_native_auto_off_server',
+            e
+          );
+        }
+
+
+        setUiOff();
+
+
+        if (
+          showMessage
+        ) {
+
+          message(
+            'iPhoneの通知が許可されていないため、通知をオフに戻しました。iPhoneの設定から「みんやせ」の通知を許可すると再度オンにできます',
+            false
+          );
+        }
+
+        return;
+      }
+
+
+      if (
+        !requestPermission &&
+        (
+          perm.status ===
+            'prompt' ||
+          perm.status ===
+            'prompt-with-rationale'
+        )
+      ) {
+
+        return;
+      }
+
+
+      if (
+        showMessage
+      ) {
+
+        message(
+          perm.status ===
+            'unavailable'
+            ? 'この端末では通知機能を利用できません'
+            : '通知を許可できませんでした',
+          false
+        );
+      }
+
+      return;
+    }
+
+
+    if (
+      !settings.latest
+    ) {
+
+      await cancelNative();
+
+
+      if (
+        showMessage
+      ) {
+
+        message(
+          '通知をオンにしました。最初の体重を記録すると通知が始まります',
+          true
+        );
+      }
+
+      return;
+    }
+
+
+    const list =
+      await scheduleNative(
+        settings.latest,
+        settings.days,
+        settings.hour
+      );
+
+
+    if (
+      showMessage
+    ) {
+
+      if (
+        list.length >
+        0
+      ) {
+
+        message(
+          '通知を設定しました。次回は ' +
+          formatJST(
+            list[0]
+              .schedule
+              .at
+          ) +
+          ' です',
+          true
+        );
+
+      } else {
+
+        message(
+          '現在おやすみ中のため、通知は停止しています。体重を記録するとすぐ再開します',
+          true
+        );
+      }
+    }
+  }
+
+
   /* ==========================================================
-     通知同期
+     Android / Web Push
+     ========================================================== */
+
+  function base64UrlToUint8Array(
+    raw
+  ) {
+
+    const padding =
+      '='.repeat(
+        (
+          4 -
+          (
+            raw.length %
+            4
+          )
+        ) %
+        4
+      );
+
+
+    const base64 =
+      (
+        raw +
+        padding
+      )
+        .replace(
+          /-/g,
+          '+'
+        )
+        .replace(
+          /_/g,
+          '/'
+        );
+
+
+    const data =
+      atob(
+        base64
+      );
+
+
+    const out =
+      new Uint8Array(
+        data.length
+      );
+
+
+    for (
+      let i = 0;
+      i < data.length;
+      i++
+    ) {
+
+      out[i] =
+        data.charCodeAt(
+          i
+        );
+    }
+
+
+    return out;
+  }
+
+
+  async function serviceWorkerRegistration() {
+
+    let reg =
+      await navigator
+        .serviceWorker
+        .getRegistration();
+
+
+    if (
+      !reg
+    ) {
+
+      reg =
+        await navigator
+          .serviceWorker
+          .register(
+            './sw.js'
+          );
+    }
+
+
+    return (
+      await navigator
+        .serviceWorker
+        .ready
+    ) ||
+    reg;
+  }
+
+
+  /*
+   * 通知許可要求はユーザー操作中に開始する。
+   *
+   * app.js のonclickより前の
+   * captureフェーズ。
+   */
+  function primeWebPermissionFromClick() {
+
+    if (
+      platform() !==
+      'webpush'
+    ) {
+      return;
+    }
+
+
+    const on =
+      $('notifyOn');
+
+
+    if (
+      !on ||
+      !on.checked
+    ) {
+      return;
+    }
+
+
+    if (
+      Notification.permission !==
+      'default'
+    ) {
+      return;
+    }
+
+
+    if (
+      pendingWebPermission
+    ) {
+      return;
+    }
+
+
+    try {
+
+      pendingWebPermission =
+        Promise.resolve(
+          Notification
+            .requestPermission()
+        )
+          .catch(
+            e => {
+
+              console.error(
+                'notify_web_permission_click',
+                e
+              );
+
+              return 'denied';
+            }
+          );
+
+
+    } catch (e) {
+
+      console.error(
+        'notify_web_permission_click',
+        e
+      );
+
+
+      pendingWebPermission =
+        Promise.resolve(
+          'denied'
+        );
+    }
+  }
+
+
+  async function webPermission(
+    shouldRequest
+  ) {
+
+    if (
+      Notification.permission ===
+      'granted'
+    ) {
+
+      return {
+
+        granted:
+          true,
+
+        status:
+          'granted',
+      };
+    }
+
+
+    if (
+      Notification.permission ===
+      'denied'
+    ) {
+
+      return {
+
+        granted:
+          false,
+
+        status:
+          'denied',
+      };
+    }
+
+
+    if (
+      pendingWebPermission
+    ) {
+
+      const p =
+        pendingWebPermission;
+
+      pendingWebPermission =
+        null;
+
+      const state =
+        await p;
+
+
+      return {
+
+        granted:
+          state ===
+          'granted',
+
+        status:
+          state ||
+          'denied',
+      };
+    }
+
+
+    if (
+      !shouldRequest
+    ) {
+
+      return {
+
+        granted:
+          false,
+
+        status:
+          'prompt',
+      };
+    }
+
+
+    try {
+
+      const state =
+        await Notification
+          .requestPermission();
+
+
+      return {
+
+        granted:
+          state ===
+          'granted',
+
+        status:
+          state ||
+          'denied',
+      };
+
+
+    } catch (e) {
+
+      console.error(
+        'notify_web_permission',
+        e
+      );
+
+
+      return {
+
+        granted:
+          false,
+
+        status:
+          'error',
+      };
+    }
+  }
+
+
+  async function webSubscribe() {
+
+    const keyData =
+      await requestJson(
+        '/api/push/key'
+      );
+
+
+    const publicKey =
+      keyData.public_key;
+
+
+    if (
+      typeof publicKey !==
+        'string' ||
+      !publicKey
+    ) {
+
+      throw new Error(
+        'push_key_missing'
+      );
+    }
+
+
+    const reg =
+      await serviceWorkerRegistration();
+
+
+    let sub =
+      await reg
+        .pushManager
+        .getSubscription();
+
+
+    if (
+      !sub
+    ) {
+
+      sub =
+        await reg
+          .pushManager
+          .subscribe({
+
+            userVisibleOnly:
+              true,
+
+            applicationServerKey:
+              base64UrlToUint8Array(
+                publicKey
+              ),
+          });
+    }
+
+
+    await requestJson(
+      '/api/push/subscribe',
+      {
+        method:
+          'POST',
+
+        body: {
+
+          subscription:
+            sub.toJSON(),
+        },
+      }
+    );
+
+
+    return sub;
+  }
+
+
+  async function deleteWebSubscriptionOnServer() {
+
+    try {
+
+      await requestJson(
+        '/api/push/subscribe',
+        {
+          method:
+            'DELETE',
+        }
+      );
+
+    } catch (e) {
+
+      console.warn(
+        'notify_web_delete_server',
+        e
+      );
+    }
+  }
+
+
+  async function webUnsubscribeLocal() {
+
+    if (
+      platform() !==
+      'webpush'
+    ) {
+      return;
+    }
+
+
+    try {
+
+      const reg =
+        await serviceWorkerRegistration();
+
+
+      const sub =
+        await reg
+          .pushManager
+          .getSubscription();
+
+
+      if (
+        sub
+      ) {
+
+        await sub
+          .unsubscribe();
+      }
+
+
+    } catch (e) {
+
+      console.warn(
+        'notify_web_unsubscribe_local',
+        e
+      );
+    }
+  }
+
+
+  async function disableWebPush() {
+
+    await deleteWebSubscriptionOnServer();
+
+    await webUnsubscribeLocal();
+  }
+
+
+  async function syncWebPush(
+    requestPermission,
+    showMessage
+  ) {
+
+    const settings =
+      await getSettingsAndLatest();
+
+
+    applySettingsToUi(
+      settings
+    );
+
+
+    if (
+      !settings.on
+    ) {
+
+      await disableWebPush();
+
+
+      if (
+        showMessage
+      ) {
+
+        message(
+          '通知をオフにしました',
+          true
+        );
+      }
+
+      return;
+    }
+
+
+    const perm =
+      await webPermission(
+        !!requestPermission
+      );
+
+
+    if (
+      !perm.granted
+    ) {
+
+      if (
+        !requestPermission &&
+        perm.status ===
+          'prompt'
+      ) {
+
+        return;
+      }
+
+
+      if (
+        perm.status ===
+        'denied'
+      ) {
+
+        try {
+
+          await turnNotifyOffOnServer();
+
+        } catch (e) {
+
+          console.error(
+            'notify_web_auto_off_server',
+            e
+          );
+        }
+
+
+        await disableWebPush();
+
+        setUiOff();
+
+
+        if (
+          showMessage
+        ) {
+
+          message(
+            'Androidの通知が許可されていないため、通知をオフに戻しました。Androidの設定から「みんやせ」の通知を許可すると再度オンにできます',
+            false
+          );
+        }
+
+        return;
+      }
+
+
+      if (
+        showMessage
+      ) {
+
+        message(
+          '通知を許可できませんでした',
+          false
+        );
+      }
+
+      return;
+    }
+
+
+    try {
+
+      await webSubscribe();
+
+
+    } catch (e) {
+
+      console.error(
+        'notify_web_subscribe',
+        e
+      );
+
+
+      if (
+        requestPermission
+      ) {
+
+        try {
+
+          await turnNotifyOffOnServer();
+
+        } catch (e2) {
+
+          console.error(
+            'notify_web_subscribe_auto_off',
+            e2
+          );
+        }
+
+
+        setUiOff();
+      }
+
+
+      if (
+        showMessage
+      ) {
+
+        message(
+          '通知の登録に失敗しました。通信状態を確認して、もう一度通知をオンにしてください',
+          false
+        );
+      }
+
+      return;
+    }
+
+
+    if (
+      showMessage
+    ) {
+
+      message(
+        settings.latest
+          ? '通知を設定しました'
+          : '通知をオンにしました。最初の体重を記録すると通知が始まります',
+        true
+      );
+    }
+  }
+
+
+  /* ==========================================================
+     共通同期
      ========================================================== */
 
   async function sync(
@@ -1028,20 +1883,29 @@
     showMessage
   ) {
 
-    if (!isNative()) {
+    const mode =
+      platform();
+
+
+    if (
+      mode ===
+      'none'
+    ) {
+
       return;
     }
 
 
-    /*
-     * 同期中に体重保存などが発生した場合は、
-     * その同期要求を捨てずに後でもう一度実行する。
-     */
-    if (syncing) {
+    if (
+      syncing
+    ) {
 
-      if (!queuedSync) {
+      if (
+        !queuedSync
+      ) {
 
         queuedSync = {
+
           requestPermission:
             !!requestPermission,
 
@@ -1053,19 +1917,16 @@
 
         queuedSync
           .requestPermission =
-          (
-            queuedSync
-              .requestPermission ||
-            !!requestPermission
-          );
+          queuedSync
+            .requestPermission ||
+          !!requestPermission;
+
 
         queuedSync
           .showMessage =
-          (
-            queuedSync
-              .showMessage ||
-            !!showMessage
-          );
+          queuedSync
+            .showMessage ||
+          !!showMessage;
       }
 
       return;
@@ -1078,205 +1939,22 @@
 
     try {
 
-      const p =
-        plugin();
+      if (
+        mode ===
+        'native'
+      ) {
 
-
-      if (!p) {
-
-        if (showMessage) {
-
-          message(
-            '通知機能を読み込めませんでした',
-            false
-          );
-        }
-
-        return;
-      }
-
-
-      const settings =
-        await getSettingsAndLatest();
-
-
-      applySettingsToUi(
-        settings
-      );
-
-
-      /*
-       * 通知OFF
-       */
-      if (!settings.on) {
-
-        await cancelAll();
-
-        if (showMessage) {
-
-          message(
-            '通知をオフにしました',
-            true
-          );
-        }
-
-        return;
-      }
-
-
-      /*
-       * OS通知権限
-       */
-      const perm =
-        await permission(
-          !!requestPermission
+        await syncNative(
+          requestPermission,
+          showMessage
         );
 
+      } else {
 
-      if (!perm.granted) {
-
-        /*
-         * iOS設定ですでに拒否されている場合。
-         */
-        if (
-          perm.status ===
-          'denied'
-        ) {
-
-          await cancelAll();
-
-
-          try {
-
-            await turnNotifyOffOnServer();
-
-          } catch (e) {
-
-            console.error(
-              'notify_auto_off_server',
-              e
-            );
-          }
-
-
-          setUiOff();
-
-
-          if (showMessage) {
-
-            message(
-              'iPhoneの通知が許可されていないため、通知をオフに戻しました。iPhoneの設定から「みんやせ」の通知を許可すると再度オンにできます',
-              false
-            );
-          }
-
-          return;
-        }
-
-
-        /*
-         * 初回起動時の prompt 状態。
-         * 勝手に許可ダイアログは出さない。
-         */
-        if (
-          !requestPermission &&
-          (
-            perm.status ===
-              'prompt' ||
-            perm.status ===
-              'prompt-with-rationale'
-          )
-        ) {
-
-          return;
-        }
-
-
-        if (showMessage) {
-
-          if (
-            perm.status ===
-            'unavailable'
-          ) {
-
-            message(
-              'この端末では通知機能を利用できません',
-              false
-            );
-
-          } else {
-
-            message(
-              '通知を許可できませんでした',
-              false
-            );
-          }
-        }
-
-        return;
-      }
-
-
-      /*
-       * まだ体重を一度も記録していない場合。
-       *
-       * 「最終体重記録」が存在しないので、
-       * 勝手に今日を起点として毎回リセットせず、
-       * 最初の体重記録が成功した時から通知を開始する。
-       */
-      if (!settings.latest) {
-
-        await cancelAll();
-
-        if (showMessage) {
-
-          message(
-            '通知をオンにしました。最初の体重を記録すると通知が始まります',
-            true
-          );
-        }
-
-        return;
-      }
-
-
-      const list =
-        await scheduleFrom(
-          settings.latest,
-          settings.days,
-          settings.hour
+        await syncWebPush(
+          requestPermission,
+          showMessage
         );
-
-
-      if (showMessage) {
-
-        if (
-          list.length >
-          0
-        ) {
-
-          message(
-            '通知を設定しました。次回は ' +
-            formatJST(
-              list[0]
-                .schedule
-                .at
-            ) +
-            ' です',
-            true
-          );
-
-        } else {
-
-          /*
-           * 最終記録から14日目の通知時刻も
-           * すでに経過している。
-           */
-          message(
-            '現在おやすみ中のため、通知は停止しています。体重を記録するとすぐ再開します',
-            true
-          );
-        }
       }
 
 
@@ -1288,7 +1966,9 @@
       );
 
 
-      if (showMessage) {
+      if (
+        showMessage
+      ) {
 
         message(
           '通知の設定に失敗しました',
@@ -1303,13 +1983,13 @@
         false;
 
 
-      /*
-       * 同期中に別の同期要求が来ていた場合。
-       */
-      if (queuedSync) {
+      if (
+        queuedSync
+      ) {
 
         const next =
           queuedSync;
+
 
         queuedSync =
           null;
@@ -1317,11 +1997,10 @@
 
         setTimeout(
           () => {
+
             sync(
-              next
-                .requestPermission,
-              next
-                .showMessage
+              next.requestPermission,
+              next.showMessage
             );
           },
           0
@@ -1335,7 +2014,7 @@
      fetch監視
      ========================================================== */
 
-  function parseRequestMethod(
+  function requestMethod(
     input,
     init
   ) {
@@ -1354,7 +2033,8 @@
     if (
       typeof Request !==
         'undefined' &&
-      input instanceof Request
+      input instanceof
+        Request
     ) {
 
       return String(
@@ -1368,7 +2048,7 @@
   }
 
 
-  function parseRequestUrl(
+  function requestUrl(
     input
   ) {
 
@@ -1384,7 +2064,8 @@
     if (
       typeof URL !==
         'undefined' &&
-      input instanceof URL
+      input instanceof
+        URL
     ) {
 
       return input.href;
@@ -1421,25 +2102,20 @@
     try {
 
       const data =
-        await response.json();
+        await response
+          .json();
 
 
       if (
         data &&
-        data.ok === false
+        data.ok ===
+          false
       ) {
 
         return false;
       }
 
-
-    } catch (_) {
-
-      /*
-       * JSONではない成功レスポンスも
-       * HTTP成功なら成功扱い。
-       */
-    }
+    } catch {}
 
 
     return true;
@@ -1466,7 +2142,7 @@
         init.body
       );
 
-    } catch (_) {
+    } catch {
 
       return null;
     }
@@ -1492,12 +2168,15 @@
 
 
       const rawUrl =
-        parseRequestUrl(
+        requestUrl(
           input
         );
 
 
-      if (!rawUrl) {
+      if (
+        !rawUrl
+      ) {
+
         return;
       }
 
@@ -1514,14 +2193,23 @@
 
 
       const method =
-        parseRequestMethod(
+        requestMethod(
           input,
           init
         );
 
 
+      const mode =
+        platform();
+
+
       /*
-       * 体重保存成功
+       * iOSローカル通知は、
+       * 体重変更のたびに予約し直す。
+       *
+       * Android Web Pushは、
+       * Cloudflare Cronが最新体重を直接見るため
+       * 再登録不要。
        */
       if (
         path ===
@@ -1530,25 +2218,25 @@
           'POST'
       ) {
 
-        setTimeout(
-          () =>
-            sync(
-              false,
-              false
-            ),
-          100
-        );
+        if (
+          mode ===
+          'native'
+        ) {
+
+          setTimeout(
+            () =>
+              sync(
+                false,
+                false
+              ),
+            100
+          );
+        }
 
         return;
       }
 
 
-      /*
-       * 体重削除成功
-       *
-       * 最新記録を削除した可能性があるため
-       * 全記録から改めて最新日を計算する。
-       */
       if (
         path.startsWith(
           '/api/weights/'
@@ -1557,21 +2245,31 @@
           'DELETE'
       ) {
 
-        setTimeout(
-          () =>
-            sync(
-              false,
-              false
-            ),
-          100
-        );
+        if (
+          mode ===
+          'native'
+        ) {
+
+          setTimeout(
+            () =>
+              sync(
+                false,
+                false
+              ),
+            100
+          );
+        }
 
         return;
       }
 
 
       /*
-       * 通知設定保存成功
+       * 通知設定保存。
+       *
+       * ユーザー操作なので
+       * OSの許可ダイアログを
+       * 出してよい。
        */
       if (
         path ===
@@ -1596,10 +2294,6 @@
             )
         ) {
 
-          /*
-           * この操作だけはユーザー操作起点なので、
-           * iOS通知許可ダイアログを出してよい。
-           */
           setTimeout(
             () =>
               sync(
@@ -1614,9 +2308,6 @@
       }
 
 
-      /*
-       * 利用データ削除成功
-       */
       if (
         path ===
           '/api/me' &&
@@ -1624,11 +2315,28 @@
           'DELETE'
       ) {
 
-        setTimeout(
-          () =>
-            cancelAll(),
-          0
-        );
+        if (
+          mode ===
+          'native'
+        ) {
+
+          setTimeout(
+            () =>
+              cancelNative(),
+            0
+          );
+
+        } else if (
+          mode ===
+          'webpush'
+        ) {
+
+          setTimeout(
+            () =>
+              webUnsubscribeLocal(),
+            0
+          );
+        }
       }
 
 
@@ -1644,7 +2352,9 @@
 
   function patchFetch() {
 
-    if (fetchPatched) {
+    if (
+      fetchPatched
+    ) {
       return;
     }
 
@@ -1666,21 +2376,14 @@
           );
 
 
-        /*
-         * アプリ本体へ返すResponseはそのまま残し、
-         * clone側だけで成功判定する。
-         */
         try {
 
-          const cloned =
-            response.clone();
-
-
           handleFetchResult(
-            cloned,
+            response.clone(),
             input,
             init
           );
+
 
         } catch (e) {
 
@@ -1706,7 +2409,9 @@
       $('notifyOn');
 
 
-    if (!on) {
+    if (
+      !on
+    ) {
       return;
     }
 
@@ -1715,12 +2420,22 @@
       notificationCard();
 
 
-    /*
-     * Web版では通知設定を表示しない。
-     */
-    if (!isNative()) {
+    const mode =
+      platform();
 
-      if (card) {
+
+    /*
+     * iPhone Safariや通常PC Webでは
+     * 通知設定を表示しない。
+     */
+    if (
+      mode ===
+      'none'
+    ) {
+
+      if (
+        card
+      ) {
 
         card.hidden =
           true;
@@ -1731,9 +2446,11 @@
 
 
     /*
-     * iOSアプリでは表示。
+     * iOSアプリまたはAndroid TWA/PWA
      */
-    if (card) {
+    if (
+      card
+    ) {
 
       card.hidden =
         false;
@@ -1744,6 +2461,27 @@
       'change',
       updateControls
     );
+
+
+    const save =
+      $('saveNotify');
+
+
+    if (
+      save &&
+      mode ===
+        'webpush'
+    ) {
+
+      save.addEventListener(
+        'click',
+        primeWebPermissionFromClick,
+        {
+          capture:
+            true,
+        }
+      );
+    }
 
 
     updateControls();
@@ -1761,33 +2499,22 @@
     patchFetch();
 
 
-    /*
-     * app.js の登録・bootを待ってから同期。
-     *
-     * 起動時は通知許可ダイアログを絶対に出さない。
-     */
     setTimeout(
-      () => {
+      () =>
         sync(
           false,
           false
-        );
-      },
+        ),
       1500
     );
 
 
-    /*
-     * ネットワークや初回登録が遅かった場合の
-     * 再同期。
-     */
     setTimeout(
-      () => {
+      () =>
         sync(
           false,
           false
-        );
-      },
+        ),
       4500
     );
   }
@@ -1795,7 +2522,7 @@
 
   if (
     document.readyState ===
-    'loading'
+      'loading'
   ) {
 
     document.addEventListener(

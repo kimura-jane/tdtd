@@ -1,7 +1,6 @@
 name = "tdtd"
 main = "worker/entry.js"
 compatibility_date = "2026-09-02"
-compatibility_flags = ["nodejs_compat"]
 workers_dev = true
 
 # GitHub 連携のデプロイ（npx wrangler deploy）で
@@ -11,9 +10,6 @@ keep_vars = true
 [assets]
 directory = "."
 binding = "ASSETS"
-
-[triggers]
-crons = [ "*/15 * * * *" ]
 
 [[d1_databases]]
 binding = "DB"

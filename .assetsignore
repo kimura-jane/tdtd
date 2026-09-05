@@ -7,6 +7,13 @@ README.md
 **/node_modules
 **/.git
 **/.DS_Store
+.wrangler/**
+.env
+.env.*
+.dev.vars
+.dev.vars.*
+bun.lock
+bun.lockb
 package.json
 package-lock.json
 capacitor.config.json

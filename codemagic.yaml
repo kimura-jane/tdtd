@@ -2,19 +2,10 @@
 #
 # iOS App Store build
 #
-# 前提
-#   - リポジトリ直下のWebファイルを www/ にコピーする
-#   - Capacitor の webDir は www
-#   - API は Cloudflare Workers
-#   - Bundle ID: com.minyase.app
-#   - Apple ID: 6808256800
-#   - App Store Version: 1.0.1
-#   - iPhone専用としてビルドする
-#
-# Codemagic UI 側に必要なもの
-#   - App Store Connect API integration: Codemagic
-#   - Distribution certificate
-#   - App Store provisioning profile
+# Bundle ID: com.minyase.app
+# Apple ID: 6808256800
+# App Store Version: 1.0.1
+# iPhone専用
 
 workflows:
 
@@ -184,9 +175,7 @@ workflows:
 
           if count == 0:
               raise SystemExit(
-                  "ERROR: "
-                  "TARGETED_DEVICE_FAMILY "
-                  "がXcode project内にありません"
+                  "ERROR: TARGETED_DEVICE_FAMILY がありません"
               )
 
           path.write_text(
@@ -194,57 +183,34 @@ workflows:
               encoding="utf-8"
           )
 
-          print(
-              "Updated "
-              + str(count)
-              + " TARGETED_DEVICE_FAMILY setting(s)"
-          )
-
-          check_text = path.read_text(
-              encoding="utf-8"
-          )
-
           values = re.findall(
               r'TARGETED_DEVICE_FAMILY'
               r'\s*=\s*'
               r'([^;]+);',
-              check_text
+              new_text
           )
 
-          cleaned = [
+          values = [
               v.strip().strip('"')
               for v in values
           ]
 
           if (
-              not cleaned
-              or any(
-                  value != "1"
-                  for value in cleaned
-              )
+              not values
+              or any(v != "1" for v in values)
           ):
               raise SystemExit(
-                  "ERROR: "
-                  "iPhone専用設定への変更に失敗しました: "
-                  + repr(cleaned)
+                  "ERROR: iPhone専用設定に失敗: "
+                  + repr(values)
               )
 
           print(
               "TARGETED_DEVICE_FAMILY verified: "
-              + repr(cleaned)
+              + repr(values)
           )
 
           PY
 
-
-          echo "===== Updated TARGETED_DEVICE_FAMILY ====="
-
-          grep -n \
-            "TARGETED_DEVICE_FAMILY" \
-            "$PBXPROJ"
-
-
-          echo "===== Xcode Release setting ====="
 
           ACTUAL=$(
 
@@ -269,7 +235,7 @@ workflows:
 
           if [ "$ACTUAL" != "1" ]; then
 
-            echo "ERROR: Release build がiPhone専用になっていません"
+            echo "ERROR: Release build がiPhone専用ではありません"
 
             exit 1
 
@@ -296,8 +262,6 @@ workflows:
           fi
 
 
-          echo "Setting NSPhotoLibraryUsageDescription..."
-
           /usr/libexec/PlistBuddy \
             -c "Set :NSPhotoLibraryUsageDescription プロフィール画像を設定するために写真ライブラリを使用します。" \
             "$PLIST" \
@@ -307,25 +271,12 @@ workflows:
             "$PLIST"
 
 
-          echo "Setting NSCameraUsageDescription..."
-
           /usr/libexec/PlistBuddy \
             -c "Set :NSCameraUsageDescription プロフィール画像を撮影するためにカメラを使用します。" \
             "$PLIST" \
           || \
           /usr/libexec/PlistBuddy \
             -c "Add :NSCameraUsageDescription string プロフィール画像を撮影するためにカメラを使用します。" \
-            "$PLIST"
-
-
-          echo "===== Privacy descriptions ====="
-
-          /usr/libexec/PlistBuddy \
-            -c "Print :NSPhotoLibraryUsageDescription" \
-            "$PLIST"
-
-          /usr/libexec/PlistBuddy \
-            -c "Print :NSCameraUsageDescription" \
             "$PLIST"
 
 
@@ -362,33 +313,25 @@ workflows:
 
           cd "$CM_BUILD_DIR/ios/App"
 
+          PLIST="App/Info.plist"
+
 
           echo "===== App Version ====="
 
           echo "Setting App Store version to $APP_VERSION"
 
+
           agvtool new-marketing-version "$APP_VERSION"
 
 
           ACTUAL_VERSION=$(
-
-            xcodebuild \
-              -workspace "$CM_BUILD_DIR/$XCODE_WORKSPACE" \
-              -scheme "$XCODE_SCHEME" \
-              -configuration Release \
-              -showBuildSettings \
-              2>/dev/null \
-            | awk \
-              -F ' = ' \
-              '/MARKETING_VERSION/ {
-                print $2;
-                exit
-              }'
-
+            /usr/libexec/PlistBuddy \
+              -c "Print :CFBundleShortVersionString" \
+              "$PLIST"
           )
 
 
-          echo "MARKETING_VERSION=$ACTUAL_VERSION"
+          echo "CFBundleShortVersionString=$ACTUAL_VERSION"
 
 
           if [ "$ACTUAL_VERSION" != "$APP_VERSION" ]; then
@@ -432,28 +375,18 @@ workflows:
 
           echo "Next build number: $NEXT"
 
+
           agvtool new-version -all "$NEXT"
 
 
           ACTUAL_BUILD=$(
-
-            xcodebuild \
-              -workspace "$CM_BUILD_DIR/$XCODE_WORKSPACE" \
-              -scheme "$XCODE_SCHEME" \
-              -configuration Release \
-              -showBuildSettings \
-              2>/dev/null \
-            | awk \
-              -F ' = ' \
-              '/CURRENT_PROJECT_VERSION/ {
-                print $2;
-                exit
-              }'
-
+            /usr/libexec/PlistBuddy \
+              -c "Print :CFBundleVersion" \
+              "$PLIST"
           )
 
 
-          echo "CURRENT_PROJECT_VERSION=$ACTUAL_BUILD"
+          echo "CFBundleVersion=$ACTUAL_BUILD"
 
 
           if [ "$ACTUAL_BUILD" != "$NEXT" ]; then
@@ -518,12 +451,6 @@ workflows:
         auth: integration
 
 
-        # IPAはApp Store Connectへアップロードする。
-        # TestFlight Beta Reviewは自動提出しない。
         submit_to_testflight: false
 
-
-        # App Store本審査も自動提出しない。
-        # 新しいビルドを実機確認後、
-        # App Store Connectから手動で選択して提出する。
         submit_to_app_store: false

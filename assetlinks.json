@@ -7,7 +7,8 @@
       "namespace": "android_app",
       "package_name": "com.minyase.app",
       "sha256_cert_fingerprints": [
-        "1B:45:51:BF:A6:74:00:8B:9D:DF:26:5B:F1:C2:6A:E5:22:E0:E2:EC:A4:16:97:4F:7C:26:2B:72:10:81:D9:13"
+        "1B:45:51:BF:A6:74:00:8B:9D:DF:26:5B:F1:C2:6A:E5:22:E0:E2:EC:A4:16:97:4F:7C:26:2B:72:10:81:D9:13",
+        "41:EC:B2:60:94:13:AE:2C:58:1C:F4:D0:D4:1C:D3:B5:EA:A0:BD:B8:F9:FA:EB:6E:14:E1:D9:7C:43:17:90:65"
       ]
     }
   }

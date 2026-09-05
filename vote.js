@@ -261,6 +261,7 @@
         background:#f8f5f0;
         font-size:13px;
         line-height:1.6;
+        white-space:pre-line;
       }
 
       .vote-msg{
@@ -618,7 +619,13 @@
           data.vote.team_name +
           (
             round.open
-              ? '　※15日の締切までは変更できます'
+              ? (
+                  '\n※締切（' +
+                  deadlineText(
+                    round.deadline_at
+                  ) +
+                  '）までは変更できます'
+                )
               : ''
           );
 

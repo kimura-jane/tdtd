@@ -997,6 +997,13 @@ nav button.on{
     </button>
 
     <button
+      id="btnViewCsv"
+      type="button"
+    >
+      表で見る
+    </button>
+
+    <button
       id="btnJson"
       type="button"
     >
@@ -1009,6 +1016,67 @@ nav button.on{
     class="msg"
     id="xMsg"
   ></div>
+
+
+  <div
+    id="xViewBox"
+    hidden
+    style="
+      margin-top:14px;
+      padding:12px;
+      border:1px solid var(--line);
+      border-radius:10px;
+      background:#fcfaf7;
+    "
+  >
+
+    <div class="row">
+
+      <div>
+
+        <label for="xViewSearch">
+          表内検索
+        </label>
+
+        <input
+          id="xViewSearch"
+          type="search"
+          autocomplete="off"
+          placeholder="名前 / member_id / 日付"
+        >
+
+      </div>
+
+      <button
+        id="btnCloseView"
+        type="button"
+      >
+        閉じる
+      </button>
+
+    </div>
+
+    <div
+      class="mut"
+      id="xViewSub"
+      style="
+        margin:10px 0;
+        font-size:12px;
+      "
+    ></div>
+
+    <div
+      style="
+        width:100%;
+        overflow-x:auto;
+      "
+    >
+
+      <table id="xViewTbl"></table>
+
+    </div>
+
+  </div>
 
 
   <h2 style="margin-top:18px">
@@ -1680,6 +1748,243 @@ async function download(path) {
   );
 
   return name;
+}
+
+
+/* ============================================================
+   CSVを管理画面内で取得
+   ============================================================ */
+
+async function fetchAdminText(
+  path
+) {
+
+  const res =
+    await fetch(
+      path,
+      {
+        headers: {
+          authorization:
+            'Bearer ' +
+            token()
+        },
+
+        cache:
+          'no-store',
+      }
+    );
+
+
+  if (
+    !res.ok
+  ) {
+
+    let d =
+      {};
+
+    try {
+
+      d =
+        await res.json();
+
+    } catch {}
+
+
+    throw new Error(
+      d.error ||
+      (
+        'http_' +
+        res.status
+      )
+    );
+  }
+
+
+  return await res.text();
+}
+
+
+/* ============================================================
+   CSV解析
+   ============================================================ */
+
+function parseCsvText(
+  raw
+) {
+
+  /*
+   * Excel向けUTF-8 BOMが付いていても除去する。
+   */
+  const text =
+    String(
+      raw ||
+      ''
+    )
+      .replace(
+        /^\uFEFF/,
+        ''
+      );
+
+
+  const rows =
+    [];
+
+  let row =
+    [];
+
+  let cell =
+    '';
+
+  let quoted =
+    false;
+
+
+  /*
+   * カンマ・改行・ダブルクォートを含む
+   * RFC4180形式のセルも読めるようにする。
+   */
+  for (
+    let i = 0;
+    i < text.length;
+    i++
+  ) {
+
+    const ch =
+      text[i];
+
+
+    if (
+      quoted
+    ) {
+
+      if (
+        ch === '"'
+      ) {
+
+        /*
+         * "" はセル内の "。
+         */
+        if (
+          text[i + 1] ===
+          '"'
+        ) {
+
+          cell +=
+            '"';
+
+          i++;
+
+        } else {
+
+          quoted =
+            false;
+        }
+
+      } else {
+
+        cell +=
+          ch;
+      }
+
+
+      continue;
+    }
+
+
+    if (
+      ch === '"'
+    ) {
+
+      quoted =
+        true;
+
+      continue;
+    }
+
+
+    if (
+      ch === ','
+    ) {
+
+      row.push(
+        cell
+      );
+
+      cell =
+        '';
+
+      continue;
+    }
+
+
+    if (
+      ch === '\n'
+    ) {
+
+      row.push(
+        cell
+      );
+
+      rows.push(
+        row
+      );
+
+      row =
+        [];
+
+      cell =
+        '';
+
+      continue;
+    }
+
+
+    /*
+     * CRLFの \r は捨てる。
+     */
+    if (
+      ch !== '\r'
+    ) {
+
+      cell +=
+        ch;
+    }
+  }
+
+
+  /*
+   * ファイル末尾に改行が無くても
+   * 最終セルを取り込む。
+   */
+  if (
+    cell ||
+    row.length
+  ) {
+
+    row.push(
+      cell
+    );
+
+    rows.push(
+      row
+    );
+  }
+
+
+  /*
+   * 完全な空行は除外。
+   */
+  return rows
+    .filter(
+      r =>
+        r.some(
+          value =>
+            String(
+              value ||
+              ''
+            ).length > 0
+        )
+    );
 }
 
 
@@ -2825,9 +3130,7 @@ function userNameNode(
 
   return wrap;
 }
-
-
-function renderUsers() {
+  function renderUsers() {
 
   const q =
     $('#uSearch')
@@ -4206,6 +4509,462 @@ function shiftDay(n) {
 
 
 /* ============================================================
+   書き出しデータを表で見る
+   ============================================================ */
+
+let EXPORT_VIEW_ROWS =
+  [];
+
+
+function renderExportView() {
+
+  const q =
+    $('#xViewSearch')
+      .value
+      .trim()
+      .normalize(
+        'NFKC'
+      )
+      .toLocaleLowerCase(
+        'ja'
+      );
+
+
+  const rows =
+    EXPORT_VIEW_ROWS
+      .filter(
+        row => {
+
+          if (
+            !q
+          ) {
+
+            return true;
+          }
+
+
+          const hay =
+            [
+              row.date,
+              row.member_name,
+              row.member_id,
+              row.group_name,
+            ]
+              .filter(Boolean)
+              .join(' ')
+              .normalize(
+                'NFKC'
+              )
+              .toLocaleLowerCase(
+                'ja'
+              );
+
+
+          return hay
+            .includes(q);
+        }
+      );
+
+
+  table(
+    $('#xViewTbl'),
+    [
+      {
+        h: '日付',
+
+        f:
+          row =>
+            row.date ||
+            '—'
+      },
+
+      {
+        h: '名前',
+
+        f:
+          row =>
+            row.member_name ||
+            '名前未設定'
+      },
+
+      {
+        h: '体重kg',
+
+        n: 1,
+
+        f:
+          row => {
+
+            if (
+              row.weight_kg ===
+              ''
+            ) {
+
+              return '—';
+            }
+
+
+            const n =
+              Number(
+                row.weight_kg
+              );
+
+
+            return Number.isFinite(n)
+              ? n.toFixed(1)
+              : '—';
+          }
+      },
+
+      {
+        h: 'member_id',
+
+        f:
+          row =>
+            row.member_id ||
+            '—'
+      },
+    ],
+    rows
+  );
+
+
+  const gid =
+    $('#xGid').value;
+
+
+  const group =
+    GROUPS.find(
+      g =>
+        g.id === gid
+    );
+
+
+  $('#xViewSub')
+    .textContent =
+      (
+        group
+          ? (
+              group.name +
+              ' ／ '
+            )
+          : ''
+      ) +
+      rows.length +
+      '件表示 / 全' +
+      EXPORT_VIEW_ROWS.length +
+      '件';
+}
+
+
+async function openExportView() {
+
+  const gid =
+    $('#xGid').value;
+
+
+  if (
+    !gid
+  ) {
+
+    say(
+      $('#xMsg'),
+      'グループを選んでください',
+      false
+    );
+
+    return;
+  }
+
+
+  say(
+    $('#xMsg'),
+    '読み込み中…',
+    true
+  );
+
+
+  try {
+
+    const text =
+      await fetchAdminText(
+        '/api/admin/export?format=csv&gid=' +
+        encodeURIComponent(
+          gid
+        )
+      );
+
+
+    const csv =
+      parseCsvText(
+        text
+      );
+
+
+    if (
+      !csv.length
+    ) {
+
+      EXPORT_VIEW_ROWS =
+        [];
+
+
+      $('#xViewSearch').value =
+        '';
+
+
+      $('#xViewBox').hidden =
+        false;
+
+
+      renderExportView();
+
+
+      say(
+        $('#xMsg'),
+        '記録がありません',
+        true
+      );
+
+
+      return;
+    }
+
+
+    const header =
+      csv[0]
+        .map(
+          value =>
+            String(
+              value ||
+              ''
+            )
+              .trim()
+        );
+
+
+    const indexes =
+      {};
+
+
+    header.forEach(
+      (
+        name,
+        index
+      ) => {
+
+        indexes[
+          name
+        ] =
+          index;
+      }
+    );
+
+
+    const required =
+      [
+        'date',
+        'group_id',
+        'group_name',
+        'member_id',
+        'member_name',
+        'weight_kg',
+      ];
+
+
+    for (
+      const name of
+      required
+    ) {
+
+      if (
+        indexes[
+          name
+        ] === undefined
+      ) {
+
+        throw new Error(
+          'csv_header_invalid'
+        );
+      }
+    }
+
+
+    const get =
+      (
+        row,
+        name
+      ) => {
+
+        const index =
+          indexes[
+            name
+          ];
+
+
+        if (
+          index === undefined
+        ) {
+
+          return '';
+        }
+
+
+        return String(
+          row[index] ??
+          ''
+        );
+      };
+
+
+    EXPORT_VIEW_ROWS =
+      csv
+        .slice(1)
+        .filter(
+          row =>
+            row.some(
+              value =>
+                String(
+                  value ??
+                  ''
+                )
+                  .length > 0
+            )
+        )
+        .map(
+          row => ({
+
+            date:
+              get(
+                row,
+                'date'
+              ),
+
+            group_id:
+              get(
+                row,
+                'group_id'
+              ),
+
+            group_name:
+              get(
+                row,
+                'group_name'
+              ),
+
+            member_id:
+              get(
+                row,
+                'member_id'
+              ),
+
+            member_name:
+              get(
+                row,
+                'member_name'
+              ),
+
+            device_id:
+              get(
+                row,
+                'device_id'
+              ),
+
+            weight_kg:
+              get(
+                row,
+                'weight_kg'
+              ),
+          })
+        )
+        .sort(
+          (
+            a,
+            b
+          ) => {
+
+            /*
+             * 最新日を上にする。
+             */
+            const byDate =
+              String(
+                b.date
+              )
+                .localeCompare(
+                  String(
+                    a.date
+                  )
+                );
+
+
+            if (
+              byDate !== 0
+            ) {
+
+              return byDate;
+            }
+
+
+            /*
+             * 同日の場合は名前順。
+             */
+            return String(
+              a.member_name ||
+              ''
+            )
+              .localeCompare(
+                String(
+                  b.member_name ||
+                  ''
+                ),
+                'ja',
+                {
+                  numeric: true,
+                  sensitivity: 'base',
+                }
+              );
+          }
+        );
+
+
+    $('#xViewSearch').value =
+      '';
+
+
+    $('#xViewBox').hidden =
+      false;
+
+
+    renderExportView();
+
+
+    say(
+      $('#xMsg'),
+      '表を表示しました',
+      true
+    );
+
+
+  } catch (e) {
+
+    $('#xViewBox').hidden =
+      true;
+
+
+    EXPORT_VIEW_ROWS =
+      [];
+
+
+    say(
+      $('#xMsg'),
+      emsg(e),
+      false
+    );
+  }
+}
+
+
+/* ============================================================
    取り込み
    ============================================================ */
 
@@ -4335,7 +5094,18 @@ async function doImport(dry) {
      * 次回ユーザータブ表示時に再読み込み。
      */
     if (!dry) {
-      USERS = [];
+
+      USERS =
+        [];
+
+      /*
+       * 表表示側も古い値になるので破棄。
+       */
+      EXPORT_VIEW_ROWS =
+        [];
+
+      $('#xViewBox').hidden =
+        true;
     }
 
 
@@ -5485,6 +6255,44 @@ $('#dFill').onchange =
   loadDay;
 
 
+/* 表で見る */
+
+$('#btnViewCsv').onclick =
+  openExportView;
+
+
+$('#xViewSearch').oninput =
+  renderExportView;
+
+
+$('#btnCloseView').onclick =
+  () => {
+
+    $('#xViewBox').hidden =
+      true;
+
+    $('#xViewSearch').value =
+      '';
+
+    EXPORT_VIEW_ROWS =
+      [];
+  };
+
+
+$('#xGid').onchange =
+  () => {
+
+    $('#xViewBox').hidden =
+      true;
+
+    $('#xViewSearch').value =
+      '';
+
+    EXPORT_VIEW_ROWS =
+      [];
+  };
+
+
 /* CSV */
 
 $('#btnCsv').onclick =
@@ -5623,6 +6431,16 @@ $('#btnLog').onclick =
 /* セッションにトークンが残っている場合 */
 
 if (token()) {
+
+  /*
+   * 保存済みトークンで自動再接続。
+   */
+  const saved =
+    token();
+
+  $('#tok').value =
+    saved;
+
   connect();
 }
 

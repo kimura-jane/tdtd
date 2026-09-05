@@ -16,6 +16,21 @@
   content="みんやせは、グループのみんなで体重を記録して一緒に痩せるアプリです。"
 >
 
+<meta
+  name="theme-color"
+  content="#ef58c4"
+>
+
+<link
+  rel="manifest"
+  href="./manifest.webmanifest"
+>
+
+<link
+  rel="icon"
+  href="./gazo/icon-192.png"
+>
+
 <link
   rel="stylesheet"
   href="./style.css?v=20260905b"
@@ -1214,9 +1229,87 @@
 
 <script src="./tsuda-fx.js?v=20260905b"></script>
 
-<script src="./notify.js?v=20260905b"></script>
+<script src="./notify.js?v=20260905c"></script>
 
 <script src="./vote.js?v=20260905b"></script>
+
+
+<script>
+
+(() => {
+
+  const c =
+    window.Capacitor;
+
+
+  let native =
+    false;
+
+
+  if (
+    c
+  ) {
+
+    if (
+      typeof c.isNativePlatform ===
+        'function'
+    ) {
+
+      native =
+        c.isNativePlatform();
+
+    } else if (
+      typeof c.getPlatform ===
+        'function'
+    ) {
+
+      native =
+        c.getPlatform() !==
+        'web';
+    }
+  }
+
+
+  /*
+   * Capacitor iOSアプリ内では
+   * Service Workerを登録しない。
+   *
+   * Cloudflare上のWeb/PWA/TWAだけ登録。
+   */
+  if (
+    !native &&
+    'serviceWorker' in navigator &&
+    (
+      location.protocol ===
+        'https:' ||
+      location.hostname ===
+        'localhost'
+    )
+  ) {
+
+    window.addEventListener(
+      'load',
+      () => {
+
+        navigator
+          .serviceWorker
+          .register(
+            './sw.js'
+          )
+          .catch(
+            err =>
+              console.error(
+                'service_worker_register',
+                err
+              )
+          );
+      }
+    );
+  }
+
+})();
+
+</script>
 
 
 </body>

@@ -8,6 +8,10 @@ import {
 } from './admin.js';
 
 import {
+  adminUserRoute
+} from './admin-users.js';
+
+import {
   json,
   bad,
   preflight
@@ -315,6 +319,48 @@ export default {
             'not_found',
             404
           )
+        );
+      }
+
+
+      /* --------------------------------------------------------
+         ユーザー管理 管理API
+
+         generic /api/admin/* より先に処理する。
+         -------------------------------------------------------- */
+
+      if (
+        p ===
+          '/api/admin/users' ||
+        p.startsWith(
+          '/api/admin/users/'
+        )
+      ) {
+
+        const a =
+          await adminToken(
+            env
+          );
+
+
+        const e2 =
+          a.source ===
+            'env'
+            ? env
+            : {
+                ...env,
+
+                ADMIN_TOKEN:
+                  a.token,
+              };
+
+
+        return await adminUserRoute(
+          req,
+          e2,
+          url,
+          p,
+          m
         );
       }
 

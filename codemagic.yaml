@@ -8,6 +8,7 @@
 #   - API は Cloudflare Workers
 #   - Bundle ID: com.minyase.app
 #   - Apple ID: 6808256800
+#   - App Store Version: 1.0.1
 #   - iPhone専用としてビルドする
 #
 # Codemagic UI 側に必要なもの
@@ -54,6 +55,8 @@ workflows:
         XCODE_SCHEME: "App"
 
         APP_STORE_APPLE_ID: 6808256800
+
+        APP_VERSION: "1.0.1"
 
 
     scripts:
@@ -351,13 +354,56 @@ workflows:
           xcode-project use-profiles
 
 
-      - name: ビルド番号を採番する
+      - name: バージョンとビルド番号を設定する
 
         script: |
 
           set -e
 
           cd "$CM_BUILD_DIR/ios/App"
+
+
+          echo "===== App Version ====="
+
+          echo "Setting App Store version to $APP_VERSION"
+
+          agvtool new-marketing-version "$APP_VERSION"
+
+
+          ACTUAL_VERSION=$(
+
+            xcodebuild \
+              -workspace "$CM_BUILD_DIR/$XCODE_WORKSPACE" \
+              -scheme "$XCODE_SCHEME" \
+              -configuration Release \
+              -showBuildSettings \
+              2>/dev/null \
+            | awk \
+              -F ' = ' \
+              '/MARKETING_VERSION/ {
+                print $2;
+                exit
+              }'
+
+          )
+
+
+          echo "MARKETING_VERSION=$ACTUAL_VERSION"
+
+
+          if [ "$ACTUAL_VERSION" != "$APP_VERSION" ]; then
+
+            echo "ERROR: App Version が $APP_VERSION になっていません"
+
+            exit 1
+
+          fi
+
+
+          echo "OK: App Version $APP_VERSION"
+
+
+          echo "===== Build Number ====="
 
 
           LATEST_BUILD_NUMBER=$(
@@ -368,6 +414,9 @@ workflows:
             || true
 
           )
+
+
+          echo "Latest App Store build number: ${LATEST_BUILD_NUMBER:-not-found}"
 
 
           if [ -z "$LATEST_BUILD_NUMBER" ]; then
@@ -386,6 +435,39 @@ workflows:
           agvtool new-version -all "$NEXT"
 
 
+          ACTUAL_BUILD=$(
+
+            xcodebuild \
+              -workspace "$CM_BUILD_DIR/$XCODE_WORKSPACE" \
+              -scheme "$XCODE_SCHEME" \
+              -configuration Release \
+              -showBuildSettings \
+              2>/dev/null \
+            | awk \
+              -F ' = ' \
+              '/CURRENT_PROJECT_VERSION/ {
+                print $2;
+                exit
+              }'
+
+          )
+
+
+          echo "CURRENT_PROJECT_VERSION=$ACTUAL_BUILD"
+
+
+          if [ "$ACTUAL_BUILD" != "$NEXT" ]; then
+
+            echo "ERROR: Build Number の設定に失敗しました"
+
+            exit 1
+
+          fi
+
+
+          echo "OK: Version $APP_VERSION ($NEXT)"
+
+
       - name: IPAを作る
 
         script: |
@@ -393,6 +475,9 @@ workflows:
           set -e
 
           cd "$CM_BUILD_DIR/ios/App"
+
+
+          echo "Building みんやせ $APP_VERSION..."
 
 
           xcode-project build-ipa \

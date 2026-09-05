@@ -1,0 +1,14 @@
+[
+  {
+    "relation": [
+      "delegate_permission/common.handle_all_urls"
+    ],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.minyase.app",
+      "sha256_cert_fingerprints": [
+        "1B:45:51:BF:A6:74:00:8B:9D:DF:26:5B:F1:C2:6A:E5:22:E0:E2:EC:A4:16:97:4F:7C:26:2B:72:10:81:D9:13"
+      ]
+    }
+  }
+]

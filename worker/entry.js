@@ -19,11 +19,17 @@ import {
   cleanupVotesForMember
 } from './vote.js';
 
+import {
+  memberPushRoute,
+  cleanupPushForMember,
+  sendDuePushes
+} from './push.js';
+
 
 /* ============================================================
    みんやせ / worker/entry.js
 
-   管理API・投票APIを先に振り分け、
+   管理API・投票API・Push APIを先に振り分け、
    既存APIは worker/index.js へ渡す。
    ============================================================ */
 
@@ -32,9 +38,6 @@ const DEVICE_ID_RE =
   /^[A-Za-z0-9_-]{8,64}$/;
 
 
-/*
- * admin.js が担当する既存の一般会員用ルート
- */
 const MEMBER_PATHS = [
   '/api/group/day',
   '/api/export',
@@ -63,6 +66,7 @@ async function adminToken(env) {
   ) {
 
     return {
+
       token:
         fromEnv.trim(),
 
@@ -72,7 +76,9 @@ async function adminToken(env) {
   }
 
 
-  if (tokCache) {
+  if (
+    tokCache
+  ) {
 
     return tokCache;
   }
@@ -84,8 +90,11 @@ async function adminToken(env) {
       await env.DB
         .prepare(`
           SELECT v
+
           FROM app_config
-          WHERE k='admin_token'
+
+          WHERE
+            k='admin_token'
         `)
         .first();
 
@@ -98,9 +107,12 @@ async function adminToken(env) {
         : '';
 
 
-    if (v) {
+    if (
+      v
+    ) {
 
       tokCache = {
+
         token:
           v,
 
@@ -116,6 +128,7 @@ async function adminToken(env) {
 
 
   return {
+
     token:
       '',
 
@@ -126,7 +139,7 @@ async function adminToken(env) {
 
 
 /* ============================================================
-   一般ユーザー
+   一般ユーザー取得
    ============================================================ */
 
 async function getMember(
@@ -150,6 +163,7 @@ async function getMember(
   ) {
 
     return {
+
       error:
         bad(
           req,
@@ -163,8 +177,11 @@ async function getMember(
     await env.DB
       .prepare(`
         SELECT *
+
         FROM devices
-        WHERE device_id=?
+
+        WHERE
+          device_id=?
       `)
       .bind(
         deviceId
@@ -172,9 +189,12 @@ async function getMember(
       .first();
 
 
-  if (!dev) {
+  if (
+    !dev
+  ) {
 
     return {
+
       error:
         bad(
           req,
@@ -192,6 +212,7 @@ async function getMember(
   ) {
 
     return {
+
       error:
         bad(
           req,
@@ -222,7 +243,7 @@ export default {
 
     if (
       req.method ===
-      'OPTIONS'
+        'OPTIONS'
     ) {
 
       return preflight(
@@ -253,6 +274,52 @@ export default {
     try {
 
       /* --------------------------------------------------------
+         Android Push 一般API
+         -------------------------------------------------------- */
+
+      if (
+        p.startsWith(
+          '/api/push/'
+        )
+      ) {
+
+        const member =
+          await getMember(
+            req,
+            env
+          );
+
+
+        if (
+          member.error
+        ) {
+
+          return member.error;
+        }
+
+
+        const res =
+          await memberPushRoute(
+            req,
+            env,
+            member.dev,
+            p,
+            m
+          );
+
+
+        return (
+          res ||
+          bad(
+            req,
+            'not_found',
+            404
+          )
+        );
+      }
+
+
+      /* --------------------------------------------------------
          投票 管理API
          -------------------------------------------------------- */
 
@@ -270,10 +337,11 @@ export default {
 
         const e2 =
           a.source ===
-          'env'
+            'env'
             ? env
             : {
                 ...env,
+
                 ADMIN_TOKEN:
                   a.token,
               };
@@ -307,10 +375,11 @@ export default {
 
         const e2 =
           a.source ===
-          'env'
+            'env'
             ? env
             : {
                 ...env,
+
                 ADMIN_TOKEN:
                   a.token,
               };
@@ -349,8 +418,8 @@ export default {
       /* --------------------------------------------------------
          アカウント削除
 
-         index.jsで本体データを削除した後、
-         投票データも削除する。
+         本体削除成功後、
+         投票とPushデータも削除。
          -------------------------------------------------------- */
 
       if (
@@ -367,9 +436,6 @@ export default {
           );
 
 
-        /*
-         * 既存Workerへ処理を渡す。
-         */
         const res =
           await worker.fetch(
             req,
@@ -393,12 +459,29 @@ export default {
 
           } catch (e) {
 
-            /*
-             * 本体削除が成功しているので
-             * cleanup失敗でレスポンスを失敗には戻さない。
-             */
             console.error(
               'vote_cleanup_error',
+              member.dev.member_id,
+              (
+                e &&
+                e.stack
+              ) ||
+              e
+            );
+          }
+
+
+          try {
+
+            await cleanupPushForMember(
+              env,
+              member.dev.member_id
+            );
+
+          } catch (e) {
+
+            console.error(
+              'push_cleanup_error',
               member.dev.member_id,
               (
                 e &&
@@ -415,7 +498,7 @@ export default {
 
 
       /* --------------------------------------------------------
-         admin.js の既存一般API
+         admin.js 既存一般API
          -------------------------------------------------------- */
 
       if (
@@ -450,7 +533,10 @@ export default {
           );
 
 
-        if (res) {
+        if (
+          res
+        ) {
+
           return res;
         }
       }
@@ -473,6 +559,7 @@ export default {
       return json(
         req,
         {
+
           ok:
             false,
 
@@ -484,13 +571,54 @@ export default {
     }
 
 
-    /*
-     * 既存API / 静的ファイルは従来どおり。
-     */
     return worker.fetch(
       req,
       env,
       ctx
+    );
+  },
+
+
+  /* ==========================================================
+     Android Web Push Cron
+     ========================================================== */
+
+  async scheduled(
+    controller,
+    env,
+    ctx
+  ) {
+
+    ctx.waitUntil(
+
+      sendDuePushes(
+        env
+      )
+        .then(
+          result => {
+
+            console.log(
+              'push_cron',
+              controller.cron,
+              JSON.stringify(
+                result
+              )
+            );
+          }
+        )
+        .catch(
+          e => {
+
+            console.error(
+              'push_cron_error',
+              (
+                e &&
+                e.stack
+              ) ||
+              e
+            );
+          }
+        )
     );
   },
 };

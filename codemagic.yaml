@@ -1,134 +1,295 @@
 # みんやせ / codemagic.yaml
 #
+# iOS App Store build
+#
 # 前提
-#   - リポジトリ直下の index.html / style.css / app.js / tsuda-fx.js /
-#     privacy.html / terms.html / support.html と gazo/ を www/ にコピーし、
-#     それを Capacitor の webDir として iOS アプリに同梱する。
-#   - サーバは Cloudflare Workers（https://tdtd.la-kofu.workers.dev）のまま。
-#     アプリからは絶対URLでAPIを叩く（index.html の MINYASE_API_BASE）。
-#   - Codemagic UI 側に事前登録が必要なもの
-#       Team integrations > Developer Portal : App Store Connect API キー
-#       codemagic.yaml settings > Code signing identities : 配布証明書とプロファイル
-#   - APP_STORE_APPLE_ID は App Store Connect の
-#     一般 > App情報 > Apple ID の数値。
+#   - リポジトリ直下のWebファイルを www/ にコピーする
+#   - Capacitor の webDir は www
+#   - API は Cloudflare Workers
+#   - Bundle ID: com.minyase.app
+#   - Apple ID: 6808256800
+#
+# Codemagic UI 側に必要なもの
+#   - App Store Connect API integration: Codemagic
+#   - Distribution certificate
+#   - App Store provisioning profile
 
 workflows:
+
   ios-minyase:
+
     name: MINYASE iOS
+
     max_build_duration: 60
+
     instance_type: mac_mini_m2
 
+
     integrations:
-      # Codemagic UI に登録した App Store Connect API キー
+
       app_store_connect: Codemagic
 
+
     environment:
+
       node: 20
+
       xcode: latest
+
       cocoapods: default
 
+
       ios_signing:
+
         distribution_type: app_store
+
         bundle_identifier: com.minyase.app
 
+
       vars:
+
         XCODE_WORKSPACE: "ios/App/App.xcworkspace"
+
         XCODE_SCHEME: "App"
+
         APP_STORE_APPLE_ID: 6808256800
 
+
     scripts:
+
+
       - name: 依存の取得
+
         script: |
+
           set -e
+
           npm install
 
-      - name: 配信するWebファイルを www/ に集める
+
+      - name: 配信するWebファイルを www に集める
+
         script: |
+
           set -e
+
           npm run build
-          ls -l www
 
-      - name: iOS プロジェクトを用意する
+          echo "===== www contents ====="
+
+          ls -la www
+
+
+      - name: iOSプロジェクトを用意する
+
         script: |
+
           set -e
+
           if [ ! -d "ios" ]; then
+
+            echo "iOS project does not exist. Creating it."
+
             npx cap add ios
-          fi
 
-      - name: アイコンとスプラッシュを生成する
-        script: |
-          set -e
-          if [ -f "resources/icon.png" ]; then
-            npx @capacitor/assets generate --ios
           else
-            echo "resources/icon.png がありません。既定のアイコンのままビルドします。"
-            echo "App Store 提出にはアイコンが必須なので、1024x1024 の PNG を置いてください。"
+
+            echo "Existing iOS project found."
+
           fi
 
-      - name: Web ファイルをネイティブ側へ同期する
+
+      - name: App icon と Splash を生成する
+
         script: |
+
           set -e
+
+          if [ ! -f "resources/icon.png" ]; then
+
+            echo "ERROR: resources/icon.png がありません"
+
+            exit 1
+
+          fi
+
+          echo "Generating iOS assets..."
+
+          npx @capacitor/assets generate --ios
+
+
+      - name: WebファイルをiOSへ同期する
+
+        script: |
+
+          set -e
+
           npx cap sync ios
 
-      - name: CocoaPods
+
+      - name: iOS Privacy Usage Description を設定する
+
         script: |
+
           set -e
-          cd ios/App
-          pod install
 
-      - name: 署名設定を Xcode プロジェクトへ適用する
-        script: |
-          set -e
-          xcode-project use-profiles
+          PLIST="ios/App/App/Info.plist"
 
-      - name: ビルド番号を採番する
-        script: |
-          set -e
-          cd "$CM_BUILD_DIR/ios/App"
+          if [ ! -f "$PLIST" ]; then
 
-          LATEST_BUILD_NUMBER=$(
-            app-store-connect get-latest-app-store-build-number "$APP_STORE_APPLE_ID" || true
-          )
+            echo "ERROR: Info.plist が見つかりません"
 
-          if [ -z "$LATEST_BUILD_NUMBER" ]; then
-            NEXT=$BUILD_NUMBER
-          else
-            NEXT=$((LATEST_BUILD_NUMBER + 1))
+            exit 1
+
           fi
 
-          echo "build number: $NEXT"
+
+          echo "Setting NSPhotoLibraryUsageDescription..."
+
+          /usr/libexec/PlistBuddy \
+            -c "Set :NSPhotoLibraryUsageDescription プロフィール画像を設定するために写真ライブラリを使用します。" \
+            "$PLIST" \
+          || \
+          /usr/libexec/PlistBuddy \
+            -c "Add :NSPhotoLibraryUsageDescription string プロフィール画像を設定するために写真ライブラリを使用します。" \
+            "$PLIST"
+
+
+          echo "Setting NSCameraUsageDescription..."
+
+          /usr/libexec/PlistBuddy \
+            -c "Set :NSCameraUsageDescription プロフィール画像を撮影するためにカメラを使用します。" \
+            "$PLIST" \
+          || \
+          /usr/libexec/PlistBuddy \
+            -c "Add :NSCameraUsageDescription string プロフィール画像を撮影するためにカメラを使用します。" \
+            "$PLIST"
+
+
+          echo "===== Privacy descriptions ====="
+
+          /usr/libexec/PlistBuddy \
+            -c "Print :NSPhotoLibraryUsageDescription" \
+            "$PLIST"
+
+          /usr/libexec/PlistBuddy \
+            -c "Print :NSCameraUsageDescription" \
+            "$PLIST"
+
+
+          echo "===== Info.plist validation ====="
+
+          plutil -lint "$PLIST"
+
+
+      - name: CocoaPods
+
+        script: |
+
+          set -e
+
+          cd ios/App
+
+          pod install
+
+
+      - name: 署名設定をXcodeプロジェクトへ適用する
+
+        script: |
+
+          set -e
+
+          xcode-project use-profiles
+
+
+      - name: ビルド番号を採番する
+
+        script: |
+
+          set -e
+
+          cd "$CM_BUILD_DIR/ios/App"
+
+
+          LATEST_BUILD_NUMBER=$(
+
+            app-store-connect \
+              get-latest-app-store-build-number \
+              "$APP_STORE_APPLE_ID" \
+            || true
+
+          )
+
+
+          if [ -z "$LATEST_BUILD_NUMBER" ]; then
+
+            NEXT=$BUILD_NUMBER
+
+          else
+
+            NEXT=$((LATEST_BUILD_NUMBER + 1))
+
+          fi
+
+
+          echo "Next build number: $NEXT"
+
           agvtool new-version -all "$NEXT"
 
-      - name: ipa を作る
+
+      - name: IPAを作る
+
         script: |
+
           set -e
+
           cd "$CM_BUILD_DIR/ios/App"
+
 
           xcode-project build-ipa \
             --workspace "$CM_BUILD_DIR/$XCODE_WORKSPACE" \
             --scheme "$XCODE_SCHEME"
 
+
     artifacts:
+
       - ios/App/build/ios/ipa/*.ipa
+
       - /tmp/xcodebuild_logs/*.log
+
       - $HOME/Library/Developer/Xcode/DerivedData/**/Build/**/*.app
+
       - $HOME/Library/Developer/Xcode/DerivedData/**/Build/**/*.dSYM
 
+
     publishing:
+
+
       email:
+
         recipients:
+
           - jomon@jomonkusama.com
+
+
         notify:
+
           success: true
+
           failure: true
 
+
       app_store_connect:
+
         auth: integration
 
-        # IPAはApp Store Connectへアップロードするが、
-        # TestFlight Beta App Reviewへの提出は自動で行わない。
-        # 初回はApp Store Connectの画面から手動で外部テスト審査へ出す。
+
+        # IPA は App Store Connect へアップロードする。
+        # TestFlight Beta Review は自動提出しない。
         submit_to_testflight: false
 
-        # App Store本審査への提出も手動で行う。
+
+        # App Store本審査も自動提出しない。
+        # 新しいビルドを実機確認後、
+        # App Store Connectから手動で選択して提出する。
         submit_to_app_store: false

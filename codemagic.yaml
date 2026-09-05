@@ -8,6 +8,7 @@
 #   - API は Cloudflare Workers
 #   - Bundle ID: com.minyase.app
 #   - Apple ID: 6808256800
+#   - iPhone専用としてビルドする
 #
 # Codemagic UI 側に必要なもの
 #   - App Store Connect API integration: Codemagic
@@ -125,6 +126,154 @@ workflows:
           set -e
 
           npx cap sync ios
+
+
+      - name: iPhone専用に設定する
+
+        script: |
+
+          set -e
+
+          PBXPROJ="ios/App/App.xcodeproj/project.pbxproj"
+
+          if [ ! -f "$PBXPROJ" ]; then
+
+            echo "ERROR: Xcode project が見つかりません"
+
+            exit 1
+
+          fi
+
+
+          echo "===== Current TARGETED_DEVICE_FAMILY ====="
+
+          grep -n "TARGETED_DEVICE_FAMILY" "$PBXPROJ" || true
+
+
+          python3 <<'PY'
+
+          from pathlib import Path
+          import re
+
+          path = Path(
+              "ios/App/App.xcodeproj/project.pbxproj"
+          )
+
+          text = path.read_text(
+              encoding="utf-8"
+          )
+
+          pattern = (
+              r'TARGETED_DEVICE_FAMILY'
+              r'\s*=\s*'
+              r'[^;]+;'
+          )
+
+          replacement = (
+              'TARGETED_DEVICE_FAMILY = 1;'
+          )
+
+          new_text, count = re.subn(
+              pattern,
+              replacement,
+              text
+          )
+
+          if count == 0:
+              raise SystemExit(
+                  "ERROR: "
+                  "TARGETED_DEVICE_FAMILY "
+                  "がXcode project内にありません"
+              )
+
+          path.write_text(
+              new_text,
+              encoding="utf-8"
+          )
+
+          print(
+              "Updated "
+              + str(count)
+              + " TARGETED_DEVICE_FAMILY setting(s)"
+          )
+
+          check_text = path.read_text(
+              encoding="utf-8"
+          )
+
+          values = re.findall(
+              r'TARGETED_DEVICE_FAMILY'
+              r'\s*=\s*'
+              r'([^;]+);',
+              check_text
+          )
+
+          cleaned = [
+              v.strip().strip('"')
+              for v in values
+          ]
+
+          if (
+              not cleaned
+              or any(
+                  value != "1"
+                  for value in cleaned
+              )
+          ):
+              raise SystemExit(
+                  "ERROR: "
+                  "iPhone専用設定への変更に失敗しました: "
+                  + repr(cleaned)
+              )
+
+          print(
+              "TARGETED_DEVICE_FAMILY verified: "
+              + repr(cleaned)
+          )
+
+          PY
+
+
+          echo "===== Updated TARGETED_DEVICE_FAMILY ====="
+
+          grep -n \
+            "TARGETED_DEVICE_FAMILY" \
+            "$PBXPROJ"
+
+
+          echo "===== Xcode Release setting ====="
+
+          ACTUAL=$(
+
+            xcodebuild \
+              -project ios/App/App.xcodeproj \
+              -target App \
+              -configuration Release \
+              -showBuildSettings \
+              2>/dev/null \
+            | awk \
+              -F ' = ' \
+              '/TARGETED_DEVICE_FAMILY/ {
+                print $2;
+                exit
+              }'
+
+          )
+
+
+          echo "TARGETED_DEVICE_FAMILY=$ACTUAL"
+
+
+          if [ "$ACTUAL" != "1" ]; then
+
+            echo "ERROR: Release build がiPhone専用になっていません"
+
+            exit 1
+
+          fi
+
+
+          echo "OK: iPhone only"
 
 
       - name: iOS Privacy Usage Description を設定する
@@ -284,8 +433,8 @@ workflows:
         auth: integration
 
 
-        # IPA は App Store Connect へアップロードする。
-        # TestFlight Beta Review は自動提出しない。
+        # IPAはApp Store Connectへアップロードする。
+        # TestFlight Beta Reviewは自動提出しない。
         submit_to_testflight: false
 
 

@@ -2,15 +2,19 @@
 
 import app from './entry.js';
 
+import {
+  externalRoute
+} from './external.js';
+
 
 /* ============================================================
    みんやせ / worker/root.js
 
    Cloudflare Workers の最上位エントリーポイント。
 
-   Android TWA の Digital Asset Links を
-   /.well-known/assetlinks.json で確実に返し、
-   それ以外は既存 worker/entry.js にそのまま渡す。
+   ・Android TWA Digital Asset Links
+   ・外部連携API
+   ・それ以外は worker/entry.js
    ============================================================ */
 
 
@@ -132,6 +136,10 @@ export default {
       );
 
 
+    /* ==========================================================
+       Digital Asset Links
+       ========================================================== */
+
     if (
       url.pathname ===
         ASSET_LINKS_PATH &&
@@ -149,6 +157,27 @@ export default {
       );
     }
 
+
+    /* ==========================================================
+       外部連携API
+       ========================================================== */
+
+    if (
+      url.pathname ===
+        '/api/external/weights'
+    ) {
+
+      return await externalRoute(
+        req,
+        env,
+        url
+      );
+    }
+
+
+    /* ==========================================================
+       通常API
+       ========================================================== */
 
     return app.fetch(
       req,

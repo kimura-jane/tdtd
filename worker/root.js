@@ -10,10 +10,9 @@ import {
 /* ============================================================
    みんやせ / worker/root.js
 
-   Cloudflare Workers 最上位エントリーポイント。
+   Cloudflare Workers の最上位エントリーポイント。
 
    ・Android TWA Digital Asset Links
-   ・既存管理画面への管理機能追加
    ・外部連携API
    ・それ以外は worker/entry.js
    ============================================================ */
@@ -24,9 +23,6 @@ const ASSET_LINKS_PATH =
 
 const ASSET_LINKS_SOURCE_PATH =
   '/assetlinks.json';
-
-const ADMIN_PATH =
-  '/admin.html';
 
 
 /* ============================================================
@@ -50,7 +46,7 @@ async function serveAssetLinks(
       sourceUrl.toString(),
       {
         method:
-          'GET'
+          'GET',
       }
     );
 
@@ -66,13 +62,15 @@ async function serveAssetLinks(
   ) {
 
     return new Response(
-      JSON.stringify({
-        ok:
-          false,
+      JSON.stringify(
+        {
+          ok:
+            false,
 
-        error:
-          'assetlinks_source_not_found'
-      }),
+          error:
+            'assetlinks_source_not_found',
+        }
+      ),
       {
         status:
           500,
@@ -85,8 +83,8 @@ async function serveAssetLinks(
             'no-store',
 
           'X-Content-Type-Options':
-            'nosniff'
-        }
+            'nosniff',
+        },
       }
     );
   }
@@ -113,136 +111,8 @@ async function serveAssetLinks(
           'public, max-age=300',
 
         'X-Content-Type-Options':
-          'nosniff'
-      }
-    }
-  );
-}
-
-
-/* ============================================================
-   既存管理画面
-   ============================================================ */
-
-async function serveAdmin(
-  req,
-  env
-) {
-
-  /*
-   * Static Assetsから既存admin.htmlを取得。
-   */
-  const response =
-    await env.ASSETS.fetch(
-      req
-    );
-
-
-  if (
-    !response.ok ||
-    req.method ===
-      'HEAD'
-  ) {
-
-    return response;
-  }
-
-
-  const type =
-    String(
-      response.headers.get(
-        'content-type'
-      ) ||
-      ''
-    )
-      .toLowerCase();
-
-
-  if (
-    !type.includes(
-      'text/html'
-    )
-  ) {
-
-    return response;
-  }
-
-
-  let html =
-    await response.text();
-
-
-  const script =
-    '<script src="/admin-privacy.js?v=20260906a"></script>';
-
-
-  /*
-   * 二重挿入防止。
-   */
-  if (
-    !html.includes(
-      '/admin-privacy.js'
-    )
-  ) {
-
-    if (
-      html.includes(
-        '</body>'
-      )
-    ) {
-
-      html =
-        html.replace(
-          '</body>',
-          script +
-          '\n\n</body>'
-        );
-
-    } else {
-
-      html +=
-        '\n' +
-        script;
-    }
-  }
-
-
-  const headers =
-    new Headers(
-      response.headers
-    );
-
-
-  headers.delete(
-    'content-length'
-  );
-
-
-  /*
-   * 管理画面はキャッシュさせない。
-   */
-  headers.set(
-    'cache-control',
-    'no-store'
-  );
-
-
-  headers.set(
-    'content-type',
-    'text/html; charset=utf-8'
-  );
-
-
-  return new Response(
-    html,
-    {
-      status:
-        response.status,
-
-      statusText:
-        response.statusText,
-
-      headers
+          'nosniff',
+      },
     }
   );
 }
@@ -289,28 +159,6 @@ export default {
 
 
     /* ==========================================================
-       既存管理画面
-       ========================================================== */
-
-    if (
-      url.pathname ===
-        ADMIN_PATH &&
-      (
-        req.method ===
-          'GET' ||
-        req.method ===
-          'HEAD'
-      )
-    ) {
-
-      return await serveAdmin(
-        req,
-        env
-      );
-    }
-
-
-    /* ==========================================================
        外部連携API
        ========================================================== */
 
@@ -340,7 +188,7 @@ export default {
 
 
   /* ==========================================================
-     Cron
+     Cron は既存 entry.js にそのまま渡す
      ========================================================== */
 
   async scheduled(
@@ -354,5 +202,5 @@ export default {
       env,
       ctx
     );
-  }
+  },
 };

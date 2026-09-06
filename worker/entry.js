@@ -32,6 +32,8 @@ import {
 import {
   memberWeightPrivacyRoute,
   adminWeightPrivacyRoute,
+  selfWeightPrivacyRoute,
+  prepareJoinWeightPrivacy,
   cleanupWeightPrivacyForMember,
   filterRankingWeightPrivacy,
   filterMemberWeightPrivacy
@@ -40,9 +42,6 @@ import {
 
 /* ============================================================
    みんやせ / worker/entry.js
-
-   管理API・投票API・Push API・体重公開制御を先に振り分け、
-   既存APIは worker/index.js へ渡す。
    ============================================================ */
 
 
@@ -65,7 +64,9 @@ let tokCache =
    ADMIN_TOKEN
    ============================================================ */
 
-async function adminToken(env) {
+async function adminToken(
+  env
+) {
 
   const fromEnv =
     env.ADMIN_TOKEN;
@@ -78,7 +79,6 @@ async function adminToken(env) {
   ) {
 
     return {
-
       token:
         fromEnv.trim(),
 
@@ -102,11 +102,8 @@ async function adminToken(env) {
       await env.DB
         .prepare(`
           SELECT v
-
           FROM app_config
-
-          WHERE
-            k='admin_token'
+          WHERE k='admin_token'
         `)
         .first();
 
@@ -124,7 +121,6 @@ async function adminToken(env) {
     ) {
 
       tokCache = {
-
         token:
           v,
 
@@ -140,7 +136,6 @@ async function adminToken(env) {
 
 
   return {
-
     token:
       '',
 
@@ -151,7 +146,7 @@ async function adminToken(env) {
 
 
 /* ============================================================
-   一般ユーザー取得
+   一般ユーザー
    ============================================================ */
 
 async function getMember(
@@ -165,7 +160,8 @@ async function getMember(
         'x-device-id'
       ) ||
       ''
-    ).trim();
+    )
+      .trim();
 
 
   if (
@@ -175,7 +171,6 @@ async function getMember(
   ) {
 
     return {
-
       error:
         bad(
           req,
@@ -189,11 +184,8 @@ async function getMember(
     await env.DB
       .prepare(`
         SELECT *
-
         FROM devices
-
-        WHERE
-          device_id=?
+        WHERE device_id=?
       `)
       .bind(
         deviceId
@@ -206,7 +198,6 @@ async function getMember(
   ) {
 
     return {
-
       error:
         bad(
           req,
@@ -220,11 +211,11 @@ async function getMember(
   if (
     Number(
       dev.banned
-    ) === 1
+    ) ===
+      1
   ) {
 
     return {
-
       error:
         bad(
           req,
@@ -286,7 +277,7 @@ export default {
     try {
 
       /* --------------------------------------------------------
-         Android Push 一般API
+         Android Push
          -------------------------------------------------------- */
 
       if (
@@ -373,8 +364,6 @@ export default {
 
       /* --------------------------------------------------------
          ユーザー管理 管理API
-
-         generic /api/admin/* より先に処理する。
          -------------------------------------------------------- */
 
       if (
@@ -452,7 +441,7 @@ export default {
 
 
       /* --------------------------------------------------------
-         既存 管理API
+         その他 管理API
          -------------------------------------------------------- */
 
       if (
@@ -490,7 +479,41 @@ export default {
 
 
       /* --------------------------------------------------------
-         体重公開設定 オーナー / リーダーAPI
+         本人の体重公開設定
+         -------------------------------------------------------- */
+
+      if (
+        p ===
+          '/api/me/weight-privacy'
+      ) {
+
+        const member =
+          await getMember(
+            req,
+            env
+          );
+
+
+        if (
+          member.error
+        ) {
+
+          return member.error;
+        }
+
+
+        return await selfWeightPrivacyRoute(
+          req,
+          env,
+          member.dev,
+          p,
+          m
+        );
+      }
+
+
+      /* --------------------------------------------------------
+         オーナー / リーダー
          -------------------------------------------------------- */
 
       if (
@@ -524,7 +547,54 @@ export default {
 
 
       /* --------------------------------------------------------
-         投票 一般API
+         グループ参加
+
+         joinGroupでgroup_idが付く前に
+         本人の公開設定を保存する。
+
+         これにより公開グループへ入った瞬間に
+         既存体重が一瞬見える問題を防ぐ。
+         -------------------------------------------------------- */
+
+      if (
+        p ===
+          '/api/groups/join' &&
+        m ===
+          'POST'
+      ) {
+
+        const member =
+          await getMember(
+            req,
+            env
+          );
+
+
+        if (
+          member.error
+        ) {
+
+          return member.error;
+        }
+
+
+        await prepareJoinWeightPrivacy(
+          req,
+          env,
+          member.dev
+        );
+
+
+        return worker.fetch(
+          req,
+          env,
+          ctx
+        );
+      }
+
+
+      /* --------------------------------------------------------
+         投票
          -------------------------------------------------------- */
 
       if (
@@ -545,9 +615,6 @@ export default {
 
       /* --------------------------------------------------------
          アカウント削除
-
-         本体削除成功後、
-         投票・Push・体重公開設定も削除。
          -------------------------------------------------------- */
 
       if (
@@ -648,9 +715,6 @@ export default {
 
       /* --------------------------------------------------------
          ランキング
-
-         本体でランキングを作ったあと、
-         weight_hidden の人だけ実体重を除去する。
          -------------------------------------------------------- */
 
       if (
@@ -676,7 +740,7 @@ export default {
 
 
       /* --------------------------------------------------------
-         admin.js 既存一般API
+         admin.js 一般API
          -------------------------------------------------------- */
 
       if (
@@ -741,7 +805,6 @@ export default {
       return json(
         req,
         {
-
           ok:
             false,
 
@@ -762,7 +825,7 @@ export default {
 
 
   /* ==========================================================
-     Android Web Push Cron
+     Push Cron
      ========================================================== */
 
   async scheduled(

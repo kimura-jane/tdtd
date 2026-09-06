@@ -1,5 +1,10 @@
 'use strict';
 
+import {
+  hiddenWeightSet
+} from './weight-privacy.js';
+
+
 /* ============================================================
    みんやせ / worker/external.js
 
@@ -10,23 +15,10 @@
    Authorization:
      Bearer <EXTERNAL_API_SECRET>
 
-   body:
-   {
-     "member_ids": [
-       "XXXXXXXXXX",
-       "YYYYYYYYYY"
-     ],
-
-     "from": "2026-09-01",
-     "to": "2026-12-31"
-   }
-
-   from / to は省略可能。
-
-   ・最大50人
-   ・device_id は返さない
-   ・指定された member_id だけ返す
-   ・Vercelのサーバー側から呼ぶ
+   非表示ユーザー：
+     ・kgは返さない
+     ・weightsにも含めない
+     ・loss_kgだけ返す
    ============================================================ */
 
 
@@ -128,35 +120,17 @@ function auth(
     ).trim();
 
 
-  const prefix =
-    'Bearer ';
-
-
-  if (
-    !value.startsWith(
-      prefix
-    )
-  ) {
-
-    return {
-      ok:
-        false,
-
-      response:
-        bad(
-          'unauthorized',
-          401
-        ),
-    };
-  }
+  const match =
+    /^Bearer\s+(.+)$/i
+      .exec(
+        value
+      );
 
 
   const token =
-    value
-      .slice(
-        prefix.length
-      )
-      .trim();
+    match
+      ? match[1].trim()
+      : '';
 
 
   if (
@@ -193,10 +167,12 @@ function isYmd(v) {
   if (
     typeof v !==
       'string' ||
-    !/^\d{4}-\d{2}-\d{2}$/.test(
-      v
-    )
+    !/^\d{4}-\d{2}-\d{2}$/
+      .test(
+        v
+      )
   ) {
+
     return false;
   }
 
@@ -210,17 +186,34 @@ function isYmd(v) {
 }
 
 
+function round1(
+  value
+) {
+
+  return Math.round(
+    Number(
+      value
+    ) *
+    10
+  ) /
+  10;
+}
+
+
 /* ============================================================
    member_id
    ============================================================ */
 
-function cleanMemberIds(raw) {
+function cleanMemberIds(
+  raw
+) {
 
   if (
     !Array.isArray(
       raw
     )
   ) {
+
     return null;
   }
 
@@ -251,6 +244,7 @@ function cleanMemberIds(raw) {
         id
       )
     ) {
+
       return null;
     }
 
@@ -277,6 +271,7 @@ function cleanMemberIds(raw) {
     out.length >
       MAX_MEMBERS
   ) {
+
     return null;
   }
 
@@ -289,7 +284,9 @@ function cleanMemberIds(raw) {
    JSON
    ============================================================ */
 
-async function readBody(req) {
+async function readBody(
+  req
+) {
 
   try {
 
@@ -313,6 +310,212 @@ async function readBody(req) {
 
 
 /* ============================================================
+   減量幅
+   ============================================================ */
+
+async function lossMap(
+  env,
+  memberIds
+) {
+
+  const out =
+    new Map();
+
+
+  if (
+    !memberIds.length
+  ) {
+
+    return out;
+  }
+
+
+  const ph =
+    memberIds
+      .map(
+        () => '?'
+      )
+      .join(
+        ','
+      );
+
+
+  const rs =
+    await env.DB
+      .prepare(`
+        SELECT
+          member_id,
+          ymd,
+          kg,
+          ra,
+          rd
+
+        FROM (
+          SELECT
+            d.member_id,
+            w.ymd,
+            w.kg,
+
+            ROW_NUMBER() OVER (
+              PARTITION BY d.member_id
+              ORDER BY w.ymd ASC
+            ) AS ra,
+
+            ROW_NUMBER() OVER (
+              PARTITION BY d.member_id
+              ORDER BY w.ymd DESC
+            ) AS rd
+
+          FROM devices d
+
+          LEFT JOIN groups g
+            ON g.group_id=
+               d.group_id
+
+          INNER JOIN weights w
+            ON w.device_id=
+               d.device_id
+
+          WHERE
+            d.member_id IN (${ph})
+
+            AND w.ymd >=
+              COALESCE(
+                g.start_ymd,
+                '1900-01-01'
+              )
+        )
+
+        WHERE
+          ra=1
+          OR rd=1
+      `)
+      .bind(
+        ...memberIds
+      )
+      .all();
+
+
+  const temp =
+    new Map();
+
+
+  for (
+    const row of
+    (
+      rs.results ||
+      []
+    )
+  ) {
+
+    const id =
+      String(
+        row.member_id
+      );
+
+
+    let item =
+      temp.get(
+        id
+      );
+
+
+    if (!item) {
+
+      item = {
+        first:
+          null,
+
+        last:
+          null,
+      };
+
+
+      temp.set(
+        id,
+        item
+      );
+    }
+
+
+    if (
+      Number(
+        row.ra
+      ) ===
+        1
+    ) {
+
+      item.first = {
+        ymd:
+          row.ymd,
+
+        kg:
+          Number(
+            row.kg
+          ),
+      };
+    }
+
+
+    if (
+      Number(
+        row.rd
+      ) ===
+        1
+    ) {
+
+      item.last = {
+        ymd:
+          row.ymd,
+
+        kg:
+          Number(
+            row.kg
+          ),
+      };
+    }
+  }
+
+
+  for (
+    const [
+      id,
+      item
+    ] of
+    temp
+  ) {
+
+    if (
+      !item.first ||
+      !item.last ||
+      item.first.ymd ===
+        item.last.ymd
+    ) {
+
+      out.set(
+        id,
+        null
+      );
+
+      continue;
+    }
+
+
+    out.set(
+      id,
+      round1(
+        item.first.kg -
+        item.last.kg
+      )
+    );
+  }
+
+
+  return out;
+}
+
+
+/* ============================================================
    体重取得
    ============================================================ */
 
@@ -331,6 +534,7 @@ async function getWeights(
   if (
     !a.ok
   ) {
+
     return a.response;
   }
 
@@ -388,7 +592,8 @@ async function getWeights(
 
 
   if (
-    from !== null &&
+    from !==
+      null &&
     !isYmd(
       from
     )
@@ -401,7 +606,8 @@ async function getWeights(
 
 
   if (
-    to !== null &&
+    to !==
+      null &&
     !isYmd(
       to
     )
@@ -414,8 +620,10 @@ async function getWeights(
 
 
   if (
-    from !== null &&
-    to !== null &&
+    from !==
+      null &&
+    to !==
+      null &&
     from > to
   ) {
 
@@ -426,7 +634,7 @@ async function getWeights(
 
 
   /* ==========================================================
-     メンバー情報
+     メンバー
      ========================================================== */
 
   const placeholders =
@@ -446,19 +654,28 @@ async function getWeights(
           d.member_id,
           d.nickname,
           d.group_id,
-          g.name AS group_name
+          g.name AS group_name,
+          g.start_ymd AS group_start_ymd
 
         FROM devices d
 
         LEFT JOIN groups g
-          ON g.group_id = d.group_id
+          ON g.group_id=
+             d.group_id
 
         WHERE
           d.member_id IN (${placeholders})
-          AND COALESCE(d.banned, 0) = 0
+
+          AND COALESCE(
+            d.banned,
+            0
+          )=0
 
         ORDER BY
-          COALESCE(g.name, ''),
+          COALESCE(
+            g.name,
+            ''
+          ),
           d.nickname,
           d.member_id
       `)
@@ -482,8 +699,32 @@ async function getWeights(
     );
 
 
+  const hidden =
+    await hiddenWeightSet(
+      env,
+      validIds
+    );
+
+
+  const losses =
+    await lossMap(
+      env,
+      validIds
+    );
+
+
+  const visibleIds =
+    validIds.filter(
+      id =>
+        !hidden.has(
+          id
+        )
+    );
+
+
   /* ==========================================================
-     体重
+     実体重
+     非表示ユーザーはSQL対象から外す
      ========================================================== */
 
   let weights =
@@ -491,11 +732,11 @@ async function getWeights(
 
 
   if (
-    validIds.length
+    visibleIds.length
   ) {
 
     const weightPlaceholders =
-      validIds
+      visibleIds
         .map(
           () => '?'
         )
@@ -510,7 +751,7 @@ async function getWeights(
 
 
     const binds = [
-      ...validIds
+      ...visibleIds
     ];
 
 
@@ -556,10 +797,13 @@ async function getWeights(
           FROM weights w
 
           INNER JOIN devices d
-            ON d.device_id = w.device_id
+            ON d.device_id=
+               w.device_id
 
           WHERE
-            ${where.join('\n            AND ')}
+            ${where.join(
+              '\n            AND '
+            )}
 
           ORDER BY
             w.ymd ASC,
@@ -593,7 +837,6 @@ async function getWeights(
     weights =
       rows.map(
         r => ({
-
           member_id:
             String(
               r.member_id
@@ -610,7 +853,8 @@ async function getWeights(
             ),
 
           updated_at:
-            r.updated_at == null
+            r.updated_at ==
+              null
               ? null
               : Number(
                   r.updated_at
@@ -654,34 +898,61 @@ async function getWeights(
 
     members:
       memberRows.map(
-        r => ({
+        r => {
 
-          member_id:
+          const id =
             String(
               r.member_id
-            ),
+            );
 
-          nickname:
-            r.nickname == null
-              ? null
-              : String(
-                  r.nickname
-                ),
 
-          group_id:
-            r.group_id == null
-              ? null
-              : String(
-                  r.group_id
-                ),
+          return {
+            member_id:
+              id,
 
-          group_name:
-            r.group_name == null
-              ? null
-              : String(
-                  r.group_name
-                ),
-        })
+            nickname:
+              r.nickname ==
+                null
+                ? null
+                : String(
+                    r.nickname
+                  ),
+
+            group_id:
+              r.group_id ==
+                null
+                ? null
+                : String(
+                    r.group_id
+                  ),
+
+            group_name:
+              r.group_name ==
+                null
+                ? null
+                : String(
+                    r.group_name
+                  ),
+
+            group_start_ymd:
+              r.group_start_ymd ||
+              null,
+
+            weight_hidden:
+              hidden.has(
+                id
+              ),
+
+            loss_kg:
+              losses.has(
+                id
+              )
+                ? losses.get(
+                    id
+                  )
+                : null,
+          };
+        }
       ),
 
     weights,
@@ -703,6 +974,7 @@ export async function externalRoute(
     url.pathname !==
       '/api/external/weights'
   ) {
+
     return null;
   }
 

@@ -3,35 +3,73 @@
 /* ============================================================
    みんやせ / admin-privacy.js
 
-   既存の管理画面へ
-   「個別体重シークレット」を追加する。
+   既存 admin.html に以下を追加する。
 
-   管理画面
-     ↓
-   グループをタップ
-     ↓
-   そのグループのメンバー一覧
-     ↓
-   メンバーをタップ
-     ↓
-   シークレット ON / OFF
+   1. グループ一覧の行をタップ可能にする
+   2. タップしたグループのユーザーだけ表示する
+   3. ユーザー詳細に体重公開設定を追加する
+   4. シークレット ON / OFF
 
-   シークレット時：
-     ・実体重は非表示
-     ・減量幅は表示
+   シークレット：
+     ・公開ランキングでは実体重を出さない
+     ・減量幅だけ表示
+     ・外部APIにも実体重を渡さない
    ============================================================ */
 
 (function () {
 
+  'use strict';
+
+
+  /* ============================================================
+     必須要素
+     ============================================================ */
+
+  const groupTable =
+    document.getElementById(
+      'gTbl'
+    );
+
+
+  const userModal =
+    document.getElementById(
+      'userModal'
+    );
+
+
+  const detailBody =
+    document.getElementById(
+      'uDetailBody'
+    );
+
+
+  const detailId =
+    document.getElementById(
+      'uDetailId'
+    );
+
+
   if (
-    typeof api !==
-      'function' ||
-    typeof openUserDetail !==
-      'function'
+    !groupTable ||
+    !userModal ||
+    !detailBody ||
+    !detailId
   ) {
+
+    console.error(
+      'admin_privacy_required_element_missing'
+    );
 
     return;
   }
+
+
+  const privacyState =
+    new Map();
+
+
+  let loadingMemberId =
+    null;
 
 
   /* ============================================================
@@ -39,61 +77,164 @@
      ============================================================ */
 
   function errorText(
-    e
+    error
   ) {
 
     try {
 
-      return emsg(
-        e
-      );
+      if (
+        typeof emsg ===
+          'function'
+      ) {
 
-    } catch {
+        return emsg(
+          error
+        );
+      }
 
-      return (
-        e &&
-        e.message
-      )
-        ? e.message
-        : 'エラー';
-    }
+    } catch {}
+
+
+    return (
+      error &&
+      error.message
+    )
+      ? String(
+          error.message
+        )
+      : 'エラー';
   }
 
 
   /* ============================================================
-     グループ → メンバー一覧
+     現在のmember_id
+     ============================================================ */
+
+  function currentMemberId() {
+
+    const value =
+      String(
+        detailId.textContent ||
+        ''
+      )
+        .trim()
+        .toUpperCase();
+
+
+    if (
+      !/^[0-9A-Z]{6,32}$/
+        .test(
+          value
+        )
+    ) {
+
+      return null;
+    }
+
+
+    return value;
+  }
+
+
+  /* ============================================================
+     管理画面タブ切替
+     ============================================================ */
+
+  function userTabButton() {
+
+    return document
+      .querySelector(
+        '#adminNav button[data-t="users"]'
+      );
+  }
+
+
+  /* ============================================================
+     グループ → ユーザー一覧
      ============================================================ */
 
   function openGroupMembers(
     groupId
   ) {
 
-    const select =
+    const groupSelect =
       document.getElementById(
         'uGroup'
       );
 
 
+    const search =
+      document.getElementById(
+        'uSearch'
+      );
+
+
+    const state =
+      document.getElementById(
+        'uState'
+      );
+
+
+    const notify =
+      document.getElementById(
+        'uNotify'
+      );
+
+
+    const quiz =
+      document.getElementById(
+        'uQuiz'
+      );
+
+
     /*
-     * 先にグループを指定しておく。
-     *
-     * USERS未取得の場合も、
-     * ユーザータブを開いたあとloadUsers()が
-     * この条件を使って描画する。
+     * グループをタップしたら、
+     * 他の絞り込み条件はリセットして
+     * そのグループ全員を確実に表示する。
      */
     if (
-      select
+      search
+    ) {
+      search.value =
+        '';
+    }
+
+
+    if (
+      state
+    ) {
+      state.value =
+        '';
+    }
+
+
+    if (
+      notify
+    ) {
+      notify.value =
+        '';
+    }
+
+
+    if (
+      quiz
+    ) {
+      quiz.value =
+        '';
+    }
+
+
+    if (
+      groupSelect
     ) {
 
-      select.value =
+      groupSelect.value =
         groupId;
     }
 
 
     const tab =
-      document.querySelector(
-        '#adminNav button[data-t="users"]'
-      );
+      userTabButton();
 
 
     if (
@@ -105,27 +246,28 @@
 
 
     /*
-     * タブ切替でselectが変化していないことを
-     * 念のため再確認。
+     * タブ切替後も指定グループを維持。
      */
     if (
-      select
+      groupSelect
     ) {
 
-      select.value =
+      groupSelect.value =
         groupId;
     }
 
 
-    /*
-     * USERSがすでにある場合は
-     * その場で絞り込み。
-     */
     try {
 
       if (
-        USERS &&
-        USERS.length
+        typeof USERS !==
+          'undefined' &&
+        Array.isArray(
+          USERS
+        ) &&
+        USERS.length &&
+        typeof renderUsers ===
+          'function'
       ) {
 
         renderUsers();
@@ -136,24 +278,10 @@
 
 
   /* ============================================================
-     グループ表をタップ可能にする
+     グループ一覧をタップ可能にする
      ============================================================ */
 
   function decorateGroupRows() {
-
-    const table =
-      document.getElementById(
-        'gTbl'
-      );
-
-
-    if (
-      !table
-    ) {
-
-      return;
-    }
-
 
     let groups =
       [];
@@ -161,14 +289,19 @@
 
     try {
 
-      groups =
-        GROUPS || [];
+      if (
+        typeof GROUPS !==
+          'undefined' &&
+        Array.isArray(
+          GROUPS
+        )
+      ) {
 
-    } catch {
+        groups =
+          GROUPS;
+      }
 
-      groups =
-        [];
-    }
+    } catch {}
 
 
     if (
@@ -181,7 +314,7 @@
 
     const rows =
       [
-        ...table
+        ...groupTable
           .querySelectorAll(
             'tr'
           )
@@ -212,78 +345,148 @@
         }
 
 
+        tr.dataset.groupId =
+          String(
+            group.id
+          );
+
+
+        tr.tabIndex =
+          0;
+
+
+        tr.setAttribute(
+          'role',
+          'button'
+        );
+
+
+        tr.setAttribute(
+          'aria-label',
+          (
+            group.name ||
+            group.id
+          ) +
+          ' のメンバーを表示'
+        );
+
+
         tr.style.cursor =
           'pointer';
 
 
         tr.title =
-          'メンバーを見る';
-
-
-        tr.onclick =
-          e => {
-
-            /*
-             * 今後ボタン等が追加されても
-             * その操作を邪魔しない。
-             */
-            if (
-              e.target.closest(
-                'button,a,input,select,textarea'
-              )
-            ) {
-
-              return;
-            }
-
-
-            openGroupMembers(
-              group.id
-            );
-          };
+          'タップしてメンバーを見る';
       }
     );
   }
 
 
-  const groupTable =
-    document.getElementById(
-      'gTbl'
+  /*
+   * グループ表が書き換わるたびに
+   * datasetを付け直す。
+   */
+  const groupObserver =
+    new MutationObserver(
+      () => {
+
+        decorateGroupRows();
+      }
     );
 
 
-  if (
-    groupTable
-  ) {
+  groupObserver.observe(
+    groupTable,
+    {
+      childList:
+        true,
 
-    /*
-     * loadGroups()で表が作り直されるたびに
-     * クリック処理を付け直す。
-     */
-    const observer =
-      new MutationObserver(
-        () => {
+      subtree:
+        true
+    }
+  );
 
-          decorateGroupRows();
-        }
+
+  groupTable.addEventListener(
+    'click',
+    event => {
+
+      const tr =
+        event.target.closest(
+          'tr[data-group-id]'
+        );
+
+
+      if (
+        !tr ||
+        !groupTable.contains(
+          tr
+        )
+      ) {
+
+        return;
+      }
+
+
+      /*
+       * 将来ボタン等を追加した場合は
+       * その操作を横取りしない。
+       */
+      if (
+        event.target.closest(
+          'button,a,input,select,textarea'
+        )
+      ) {
+
+        return;
+      }
+
+
+      openGroupMembers(
+        tr.dataset.groupId
       );
+    }
+  );
 
 
-    observer.observe(
-      groupTable,
-      {
-        childList:
-          true,
+  groupTable.addEventListener(
+    'keydown',
+    event => {
 
-        subtree:
-          true
+      if (
+        event.key !==
+          'Enter' &&
+        event.key !==
+          ' '
+      ) {
+
+        return;
       }
-    );
-  }
+
+
+      const tr =
+        event.target.closest(
+          'tr[data-group-id]'
+        );
+
+
+      if (!tr) {
+        return;
+      }
+
+
+      event.preventDefault();
+
+
+      openGroupMembers(
+        tr.dataset.groupId
+      );
+    }
+  );
 
 
   /* ============================================================
-     ユーザー詳細へ公開設定カードを追加
+     体重公開設定カード
      ============================================================ */
 
   function ensurePrivacyCard() {
@@ -299,20 +502,6 @@
     ) {
 
       return card;
-    }
-
-
-    const grid =
-      document.getElementById(
-        'uDetailBody'
-      );
-
-
-    if (
-      !grid
-    ) {
-
-      return null;
     }
 
 
@@ -360,15 +549,14 @@
 
         <div class="small-note">
           シークレットにすると、
-          体重公開グループでも実体重は表示せず、
+          アプリの公開ランキングや外部連携では
+          実体重を表示せず、
           減量幅だけを表示します。
+          管理画面では体重履歴を確認できます。
         </div>
       `;
 
 
-    /*
-     * 「体重」カードのすぐ後ろへ追加。
-     */
     const weightTable =
       document.getElementById(
         'uWeightSummaryTbl'
@@ -384,18 +572,17 @@
 
 
     if (
-      weightCard &&
-      weightCard.nextSibling
+      weightCard
     ) {
 
-      grid.insertBefore(
-        card,
-        weightCard.nextSibling
+      weightCard.insertAdjacentElement(
+        'afterend',
+        card
       );
 
     } else {
 
-      grid.appendChild(
+      detailBody.appendChild(
         card
       );
     }
@@ -406,7 +593,7 @@
 
 
   /* ============================================================
-     状態表示
+     公開状態描画
      ============================================================ */
 
   function renderPrivacy(
@@ -415,6 +602,12 @@
   ) {
 
     ensurePrivacyCard();
+
+
+    privacyState.set(
+      memberId,
+      !!hidden
+    );
 
 
     const status =
@@ -426,12 +619,6 @@
     const button =
       document.getElementById(
         'btnWeightSecret'
-      );
-
-
-    const msg =
-      document.getElementById(
-        'uPrivacyMsg'
       );
 
 
@@ -466,28 +653,25 @@
       );
 
 
-      if (
-        hidden
-      ) {
-
-        const note =
-          document.createElement(
-            'span'
-          );
-
-
-        note.className =
-          'mut';
-
-
-        note.textContent =
-          '実体重非表示・変化量のみ';
-
-
-        status.appendChild(
-          note
+      const text =
+        document.createElement(
+          'span'
         );
-      }
+
+
+      text.className =
+        'mut';
+
+
+      text.textContent =
+        hidden
+          ? '実体重非表示・減量幅のみ'
+          : 'グループ設定に従って実体重を表示';
+
+
+      status.appendChild(
+        text
+      );
     }
 
 
@@ -499,52 +683,49 @@
         false;
 
 
-      button.className =
-        hidden
-          ? ''
-          : 'pri';
-
-
       button.textContent =
         hidden
           ? 'シークレット解除'
           : 'シークレットにする';
 
 
-      button.onclick =
-        () => {
-
-          changePrivacy(
-            memberId,
-            !hidden
-          );
-        };
-    }
-
-
-    if (
-      msg
-    ) {
-
-      msg.textContent =
-        '';
-
-
-      msg.className =
-        'msg';
+      button.className =
+        hidden
+          ? ''
+          : 'pri';
     }
   }
 
 
   /* ============================================================
-     状態取得
+     公開状態取得
      ============================================================ */
 
   async function loadPrivacy(
     memberId
   ) {
 
+    if (
+      !memberId ||
+      loadingMemberId ===
+        memberId
+    ) {
+
+      return;
+    }
+
+
     ensurePrivacyCard();
+
+
+    loadingMemberId =
+      memberId;
+
+
+    const status =
+      document.getElementById(
+        'uPrivacyStatus'
+      );
 
 
     const button =
@@ -560,6 +741,34 @@
 
 
     if (
+      status
+    ) {
+
+      status.innerHTML =
+        '';
+
+
+      const span =
+        document.createElement(
+          'span'
+        );
+
+
+      span.className =
+        'mut';
+
+
+      span.textContent =
+        '読み込み中…';
+
+
+      status.appendChild(
+        span
+      );
+    }
+
+
+    if (
       button
     ) {
 
@@ -569,6 +778,19 @@
 
       button.textContent =
         '読み込み中…';
+    }
+
+
+    if (
+      msg
+    ) {
+
+      msg.textContent =
+        '';
+
+
+      msg.className =
+        'msg';
     }
 
 
@@ -584,20 +806,16 @@
 
 
       /*
-       * 別ユーザーへ切り替わっていたら
-       * 古いレスポンスを描画しない。
+       * 通信中に別ユーザーへ切り替わったら
+       * 古い結果を表示しない。
        */
-      try {
-
-        if (
-          CURRENT_USER !==
+      if (
+        currentMemberId() !==
           memberId
-        ) {
+      ) {
 
-          return;
-        }
-
-      } catch {}
+        return;
+      }
 
 
       const hidden =
@@ -614,20 +832,42 @@
       );
 
 
-    } catch (e) {
+    } catch (error) {
 
       if (
-        msg
+        currentMemberId() !==
+          memberId
       ) {
 
-        msg.textContent =
-          errorText(
-            e
+        return;
+      }
+
+
+      if (
+        status
+      ) {
+
+        status.innerHTML =
+          '';
+
+
+        const span =
+          document.createElement(
+            'span'
           );
 
 
-        msg.className =
-          'msg ng';
+        span.className =
+          'result-bad';
+
+
+        span.textContent =
+          '取得できません';
+
+
+        status.appendChild(
+          span
+        );
       }
 
 
@@ -642,65 +882,108 @@
         button.textContent =
           '取得できません';
       }
+
+
+      if (
+        msg
+      ) {
+
+        msg.textContent =
+          errorText(
+            error
+          );
+
+
+        msg.className =
+          'msg ng';
+      }
+
+
+    } finally {
+
+      if (
+        loadingMemberId ===
+          memberId
+      ) {
+
+        loadingMemberId =
+          null;
+      }
     }
   }
 
 
   /* ============================================================
-     ON / OFF
+     シークレット切替
      ============================================================ */
 
-  async function changePrivacy(
-    memberId,
-    hidden
-  ) {
+  async function changePrivacy() {
 
-    let user =
-      null;
+    const memberId =
+      currentMemberId();
+
+
+    if (
+      !memberId
+    ) {
+
+      return;
+    }
+
+
+    const current =
+      !!privacyState.get(
+        memberId
+      );
+
+
+    const next =
+      !current;
+
+
+    let name =
+      memberId;
 
 
     try {
 
-      user =
-        CURRENT_USER_DATA;
+      if (
+        typeof CURRENT_USER_DATA !==
+          'undefined' &&
+        CURRENT_USER_DATA
+      ) {
+
+        name =
+          CURRENT_USER_DATA.nickname ||
+          CURRENT_USER_DATA.member_id ||
+          memberId;
+      }
 
     } catch {}
 
 
-    const name =
-      user &&
-      (
-        user.nickname ||
-        user.member_id
-      )
-        ? (
-            user.nickname ||
-            user.member_id
-          )
-        : memberId;
-
-
-    const text =
-      hidden
+    const confirmText =
+      next
         ? (
             name +
             ' をシークレットにします。\n\n' +
-            '実体重は表示されず、' +
-            '減量幅だけ表示されます。\n\n' +
+            '公開ランキングと外部連携では' +
+            '実体重を出さず、' +
+            '減量幅だけを表示します。\n\n' +
             '実行しますか？'
           )
         : (
             name +
             ' のシークレットを解除します。\n\n' +
             '体重公開グループでは' +
-            '実体重が表示されます。\n\n' +
+            '実体重が再び表示されます。\n\n' +
             '実行しますか？'
           );
 
 
     if (
       !confirm(
-        text
+        confirmText
       )
     ) {
 
@@ -760,13 +1043,13 @@
             body:
               JSON.stringify({
                 hidden:
-                  !!hidden
+                  next
               })
           }
         );
 
 
-      const next =
+      const hidden =
         !!(
           data &&
           data.member &&
@@ -776,7 +1059,7 @@
 
       renderPrivacy(
         memberId,
-        next
+        hidden
       );
 
 
@@ -785,7 +1068,7 @@
       ) {
 
         msg.textContent =
-          next
+          hidden
             ? 'シークレットにしました'
             : 'シークレットを解除しました';
 
@@ -795,22 +1078,7 @@
       }
 
 
-    } catch (e) {
-
-      if (
-        msg
-      ) {
-
-        msg.textContent =
-          errorText(
-            e
-          );
-
-
-        msg.className =
-          'msg ng';
-      }
-
+    } catch (error) {
 
       if (
         button
@@ -819,57 +1087,144 @@
         button.disabled =
           false;
       }
+
+
+      if (
+        msg
+      ) {
+
+        msg.textContent =
+          errorText(
+            error
+          );
+
+
+        msg.className =
+          'msg ng';
+      }
     }
   }
 
 
   /* ============================================================
-     既存ユーザー詳細を拡張
+     ユーザー詳細を監視
      ============================================================ */
 
-  const originalOpenUserDetail =
-    openUserDetail;
+  function detailChanged() {
 
-
-  window.openUserDetail =
-    async function (
-      memberId
+    if (
+      userModal.hidden
     ) {
 
-      /*
-       * まず既存管理画面のユーザー詳細を
-       * そのまま表示。
-       */
-      await originalOpenUserDetail(
-        memberId
-      );
+      return;
+    }
 
 
-      try {
-
-        if (
-          CURRENT_USER !==
-          memberId
-        ) {
-
-          return;
-        }
-
-      } catch {}
+    const memberId =
+      currentMemberId();
 
 
-      /*
-       * その後、公開設定だけ追加取得。
-       */
-      await loadPrivacy(
-        memberId
-      );
-    };
+    if (
+      !memberId
+    ) {
+
+      return;
+    }
+
+
+    ensurePrivacyCard();
+
+
+    loadPrivacy(
+      memberId
+    );
+  }
+
+
+  const detailObserver =
+    new MutationObserver(
+      () => {
+
+        detailChanged();
+      }
+    );
+
+
+  detailObserver.observe(
+    userModal,
+    {
+      attributes:
+        true,
+
+      attributeFilter:
+        [
+          'hidden'
+        ]
+    }
+  );
+
+
+  detailObserver.observe(
+    detailId,
+    {
+      childList:
+        true,
+
+      characterData:
+        true,
+
+      subtree:
+        true
+    }
+  );
 
 
   /*
-   * すでにグループ一覧が表示済みの場合。
+   * 管理画面がユーザー詳細の中身を
+   * 書き換えたタイミングも見る。
    */
+  detailObserver.observe(
+    detailBody,
+    {
+      attributes:
+        true,
+
+      attributeFilter:
+        [
+          'hidden'
+        ]
+    }
+  );
+
+
+  /* ============================================================
+     ボタン
+     ============================================================ */
+
+  ensurePrivacyCard();
+
+
+  const privacyButton =
+    document.getElementById(
+      'btnWeightSecret'
+    );
+
+
+  if (
+    privacyButton
+  ) {
+
+    privacyButton.addEventListener(
+      'click',
+      changePrivacy
+    );
+  }
+
+
+  /* ============================================================
+     初期処理
+     ============================================================ */
+
   decorateGroupRows();
 
 })();

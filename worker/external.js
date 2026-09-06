@@ -1,0 +1,736 @@
+'use strict';
+
+/* ============================================================
+   みんやせ / worker/external.js
+
+   外部サーバー連携専用・読み取り専用API
+
+   POST /api/external/weights
+
+   Authorization:
+     Bearer <EXTERNAL_API_SECRET>
+
+   body:
+   {
+     "member_ids": [
+       "XXXXXXXXXX",
+       "YYYYYYYYYY"
+     ],
+
+     "from": "2026-09-01",
+     "to": "2026-12-31"
+   }
+
+   from / to は省略可能。
+
+   ・最大50人
+   ・device_id は返さない
+   ・指定された member_id だけ返す
+   ・Vercelのサーバー側から呼ぶ
+   ============================================================ */
+
+
+const MEMBER_ID_RE =
+  /^[0-9A-Z]{6,32}$/;
+
+const MAX_MEMBERS =
+  50;
+
+const MAX_ROWS =
+  10000;
+
+
+/* ============================================================
+   レスポンス
+   ============================================================ */
+
+function reply(
+  body,
+  status = 200
+) {
+
+  return new Response(
+    JSON.stringify(
+      body
+    ),
+    {
+      status,
+
+      headers: {
+        'content-type':
+          'application/json; charset=utf-8',
+
+        'cache-control':
+          'no-store',
+
+        'x-content-type-options':
+          'nosniff',
+      },
+    }
+  );
+}
+
+
+function bad(
+  error,
+  status = 400
+) {
+
+  return reply(
+    {
+      ok:
+        false,
+
+      error,
+    },
+    status
+  );
+}
+
+
+/* ============================================================
+   認証
+   ============================================================ */
+
+function auth(
+  req,
+  env
+) {
+
+  const secret =
+    typeof env.EXTERNAL_API_SECRET ===
+      'string'
+      ? env.EXTERNAL_API_SECRET.trim()
+      : '';
+
+
+  if (!secret) {
+
+    return {
+      ok:
+        false,
+
+      response:
+        bad(
+          'external_api_not_configured',
+          503
+        ),
+    };
+  }
+
+
+  const value =
+    (
+      req.headers.get(
+        'authorization'
+      ) ||
+      ''
+    ).trim();
+
+
+  const prefix =
+    'Bearer ';
+
+
+  if (
+    !value.startsWith(
+      prefix
+    )
+  ) {
+
+    return {
+      ok:
+        false,
+
+      response:
+        bad(
+          'unauthorized',
+          401
+        ),
+    };
+  }
+
+
+  const token =
+    value
+      .slice(
+        prefix.length
+      )
+      .trim();
+
+
+  if (
+    !token ||
+    token !== secret
+  ) {
+
+    return {
+      ok:
+        false,
+
+      response:
+        bad(
+          'unauthorized',
+          401
+        ),
+    };
+  }
+
+
+  return {
+    ok:
+      true,
+  };
+}
+
+
+/* ============================================================
+   日付
+   ============================================================ */
+
+function isYmd(v) {
+
+  if (
+    typeof v !==
+      'string' ||
+    !/^\d{4}-\d{2}-\d{2}$/.test(
+      v
+    )
+  ) {
+    return false;
+  }
+
+
+  return !Number.isNaN(
+    Date.parse(
+      v +
+      'T00:00:00+09:00'
+    )
+  );
+}
+
+
+/* ============================================================
+   member_id
+   ============================================================ */
+
+function cleanMemberIds(raw) {
+
+  if (
+    !Array.isArray(
+      raw
+    )
+  ) {
+    return null;
+  }
+
+
+  const out =
+    [];
+
+  const seen =
+    new Set();
+
+
+  for (
+    const value of
+    raw
+  ) {
+
+    const id =
+      String(
+        value ||
+        ''
+      )
+        .trim()
+        .toUpperCase();
+
+
+    if (
+      !MEMBER_ID_RE.test(
+        id
+      )
+    ) {
+      return null;
+    }
+
+
+    if (
+      !seen.has(
+        id
+      )
+    ) {
+
+      seen.add(
+        id
+      );
+
+      out.push(
+        id
+      );
+    }
+  }
+
+
+  if (
+    !out.length ||
+    out.length >
+      MAX_MEMBERS
+  ) {
+    return null;
+  }
+
+
+  return out;
+}
+
+
+/* ============================================================
+   JSON
+   ============================================================ */
+
+async function readBody(req) {
+
+  try {
+
+    const b =
+      await req.json();
+
+
+    return (
+      b &&
+      typeof b ===
+        'object'
+    )
+      ? b
+      : {};
+
+  } catch {
+
+    return {};
+  }
+}
+
+
+/* ============================================================
+   体重取得
+   ============================================================ */
+
+async function getWeights(
+  req,
+  env
+) {
+
+  const a =
+    auth(
+      req,
+      env
+    );
+
+
+  if (
+    !a.ok
+  ) {
+    return a.response;
+  }
+
+
+  if (
+    req.method !==
+      'POST'
+  ) {
+
+    return bad(
+      'method_not_allowed',
+      405
+    );
+  }
+
+
+  const body =
+    await readBody(
+      req
+    );
+
+
+  const memberIds =
+    cleanMemberIds(
+      body.member_ids
+    );
+
+
+  if (
+    !memberIds
+  ) {
+
+    return bad(
+      'bad_member_ids'
+    );
+  }
+
+
+  const from =
+    body.from == null ||
+    body.from === ''
+      ? null
+      : String(
+          body.from
+        );
+
+
+  const to =
+    body.to == null ||
+    body.to === ''
+      ? null
+      : String(
+          body.to
+        );
+
+
+  if (
+    from !== null &&
+    !isYmd(
+      from
+    )
+  ) {
+
+    return bad(
+      'bad_from'
+    );
+  }
+
+
+  if (
+    to !== null &&
+    !isYmd(
+      to
+    )
+  ) {
+
+    return bad(
+      'bad_to'
+    );
+  }
+
+
+  if (
+    from !== null &&
+    to !== null &&
+    from > to
+  ) {
+
+    return bad(
+      'bad_range'
+    );
+  }
+
+
+  /* ==========================================================
+     メンバー情報
+     ========================================================== */
+
+  const placeholders =
+    memberIds
+      .map(
+        () => '?'
+      )
+      .join(
+        ','
+      );
+
+
+  const memberResult =
+    await env.DB
+      .prepare(`
+        SELECT
+          d.member_id,
+          d.nickname,
+          d.group_id,
+          g.name AS group_name
+
+        FROM devices d
+
+        LEFT JOIN groups g
+          ON g.group_id = d.group_id
+
+        WHERE
+          d.member_id IN (${placeholders})
+          AND COALESCE(d.banned, 0) = 0
+
+        ORDER BY
+          COALESCE(g.name, ''),
+          d.nickname,
+          d.member_id
+      `)
+      .bind(
+        ...memberIds
+      )
+      .all();
+
+
+  const memberRows =
+    memberResult.results ||
+    [];
+
+
+  const validIds =
+    memberRows.map(
+      r =>
+        String(
+          r.member_id
+        )
+    );
+
+
+  /* ==========================================================
+     体重
+     ========================================================== */
+
+  let weights =
+    [];
+
+
+  if (
+    validIds.length
+  ) {
+
+    const weightPlaceholders =
+      validIds
+        .map(
+          () => '?'
+        )
+        .join(
+          ','
+        );
+
+
+    const where = [
+      `d.member_id IN (${weightPlaceholders})`
+    ];
+
+
+    const binds = [
+      ...validIds
+    ];
+
+
+    if (
+      from !== null
+    ) {
+
+      where.push(
+        'w.ymd >= ?'
+      );
+
+
+      binds.push(
+        from
+      );
+    }
+
+
+    if (
+      to !== null
+    ) {
+
+      where.push(
+        'w.ymd <= ?'
+      );
+
+
+      binds.push(
+        to
+      );
+    }
+
+
+    const result =
+      await env.DB
+        .prepare(`
+          SELECT
+            d.member_id,
+            w.ymd,
+            w.kg,
+            w.updated_at
+
+          FROM weights w
+
+          INNER JOIN devices d
+            ON d.device_id = w.device_id
+
+          WHERE
+            ${where.join('\n            AND ')}
+
+          ORDER BY
+            w.ymd ASC,
+            d.member_id ASC
+
+          LIMIT ${MAX_ROWS + 1}
+        `)
+        .bind(
+          ...binds
+        )
+        .all();
+
+
+    const rows =
+      result.results ||
+      [];
+
+
+    if (
+      rows.length >
+      MAX_ROWS
+    ) {
+
+      return bad(
+        'too_many_rows',
+        413
+      );
+    }
+
+
+    weights =
+      rows.map(
+        r => ({
+
+          member_id:
+            String(
+              r.member_id
+            ),
+
+          ymd:
+            String(
+              r.ymd
+            ),
+
+          kg:
+            Number(
+              r.kg
+            ),
+
+          updated_at:
+            r.updated_at == null
+              ? null
+              : Number(
+                  r.updated_at
+                ),
+        })
+      );
+  }
+
+
+  const returned =
+    new Set(
+      validIds
+    );
+
+
+  /* ==========================================================
+     返却
+     ========================================================== */
+
+  return reply({
+
+    ok:
+      true,
+
+    generated_at:
+      Date.now(),
+
+    requested_count:
+      memberIds.length,
+
+    returned_count:
+      memberRows.length,
+
+    missing_member_ids:
+      memberIds.filter(
+        id =>
+          !returned.has(
+            id
+          )
+      ),
+
+    members:
+      memberRows.map(
+        r => ({
+
+          member_id:
+            String(
+              r.member_id
+            ),
+
+          nickname:
+            r.nickname == null
+              ? null
+              : String(
+                  r.nickname
+                ),
+
+          group_id:
+            r.group_id == null
+              ? null
+              : String(
+                  r.group_id
+                ),
+
+          group_name:
+            r.group_name == null
+              ? null
+              : String(
+                  r.group_name
+                ),
+        })
+      ),
+
+    weights,
+  });
+}
+
+
+/* ============================================================
+   Router
+   ============================================================ */
+
+export async function externalRoute(
+  req,
+  env,
+  url
+) {
+
+  if (
+    url.pathname !==
+      '/api/external/weights'
+  ) {
+    return null;
+  }
+
+
+  try {
+
+    return await getWeights(
+      req,
+      env
+    );
+
+  } catch (e) {
+
+    console.error(
+      'external_api_error',
+      url.pathname,
+      req.method,
+      (
+        e &&
+        e.stack
+      ) ||
+      e
+    );
+
+
+    return bad(
+      'server_error',
+      500
+    );
+  }
+}

@@ -11,7 +11,7 @@ keep_vars = true
 [assets]
 directory = "."
 binding = "ASSETS"
-run_worker_first = ["/.well-known/*"]
+run_worker_first = ["/.well-known/*", "/admin.html"]
 
 [triggers]
 crons = [ "*/15 * * * *" ]

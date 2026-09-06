@@ -29,11 +29,19 @@ import {
   sendDuePushes
 } from './push.js';
 
+import {
+  memberWeightPrivacyRoute,
+  adminWeightPrivacyRoute,
+  cleanupWeightPrivacyForMember,
+  filterRankingWeightPrivacy,
+  filterMemberWeightPrivacy
+} from './weight-privacy.js';
+
 
 /* ============================================================
    みんやせ / worker/entry.js
 
-   管理API・投票API・Push APIを先に振り分け、
+   管理API・投票API・Push API・体重公開制御を先に振り分け、
    既存APIは worker/index.js へ渡す。
    ============================================================ */
 
@@ -324,6 +332,46 @@ export default {
 
 
       /* --------------------------------------------------------
+         体重公開設定 管理API
+         -------------------------------------------------------- */
+
+      if (
+        p ===
+          '/api/admin/weight-privacy' ||
+        p.startsWith(
+          '/api/admin/weight-privacy/'
+        )
+      ) {
+
+        const a =
+          await adminToken(
+            env
+          );
+
+
+        const e2 =
+          a.source ===
+            'env'
+            ? env
+            : {
+                ...env,
+
+                ADMIN_TOKEN:
+                  a.token,
+              };
+
+
+        return await adminWeightPrivacyRoute(
+          req,
+          e2,
+          url,
+          p,
+          m
+        );
+      }
+
+
+      /* --------------------------------------------------------
          ユーザー管理 管理API
 
          generic /api/admin/* より先に処理する。
@@ -442,6 +490,40 @@ export default {
 
 
       /* --------------------------------------------------------
+         体重公開設定 オーナー / リーダーAPI
+         -------------------------------------------------------- */
+
+      if (
+        p ===
+          '/api/groups/weight-privacy'
+      ) {
+
+        const member =
+          await getMember(
+            req,
+            env
+          );
+
+
+        if (
+          member.error
+        ) {
+
+          return member.error;
+        }
+
+
+        return await memberWeightPrivacyRoute(
+          req,
+          env,
+          member.dev,
+          p,
+          m
+        );
+      }
+
+
+      /* --------------------------------------------------------
          投票 一般API
          -------------------------------------------------------- */
 
@@ -465,7 +547,7 @@ export default {
          アカウント削除
 
          本体削除成功後、
-         投票とPushデータも削除。
+         投票・Push・体重公開設定も削除。
          -------------------------------------------------------- */
 
       if (
@@ -536,10 +618,60 @@ export default {
               e
             );
           }
+
+
+          try {
+
+            await cleanupWeightPrivacyForMember(
+              env,
+              member.dev.member_id
+            );
+
+          } catch (e) {
+
+            console.error(
+              'weight_privacy_cleanup_error',
+              member.dev.member_id,
+              (
+                e &&
+                e.stack
+              ) ||
+              e
+            );
+          }
         }
 
 
         return res;
+      }
+
+
+      /* --------------------------------------------------------
+         ランキング
+
+         本体でランキングを作ったあと、
+         weight_hidden の人だけ実体重を除去する。
+         -------------------------------------------------------- */
+
+      if (
+        p ===
+          '/api/ranking' &&
+        m ===
+          'GET'
+      ) {
+
+        const res =
+          await worker.fetch(
+            req,
+            env,
+            ctx
+          );
+
+
+        return await filterRankingWeightPrivacy(
+          res,
+          env
+        );
       }
 
 
@@ -583,7 +715,11 @@ export default {
           res
         ) {
 
-          return res;
+          return await filterMemberWeightPrivacy(
+            p,
+            res,
+            env
+          );
         }
       }
 

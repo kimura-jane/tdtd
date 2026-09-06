@@ -9,13 +9,25 @@ import {
 /* ============================================================
    みんやせ / worker/weight-privacy.js
 
-   ユーザー単位の体重公開制御
+   個人単位の体重公開設定
 
-   ・hidden=1 の人は実体重を公開しない
-   ・管理画面からhiddenにした人は管理者固定（locked）
-   ・lockedの人はオーナー / リーダーから解除できない
-   ・減量幅は表示する
-   ・member_id 単位なのでグループ移動後も設定を維持
+   公開状態
+   --------------------------------
+   通常
+     実体重 + 増減量
+
+   本人非公開
+     増減量のみ
+     本人 + 管理者だけ解除可能
+
+   管理者固定
+     増減量のみ
+     管理者だけ解除可能
+
+   オーナー / リーダー非公開
+     増減量のみ
+     オーナー / リーダーが解除可能
+
    ============================================================ */
 
 
@@ -28,7 +40,7 @@ let tableReady =
 
 
 /* ============================================================
-   テーブル
+   DB
    ============================================================ */
 
 export async function ensureWeightPrivacyTable(
@@ -54,6 +66,15 @@ export async function ensureWeightPrivacyTable(
     .run();
 
 
+  /*
+   * locked=1 の場合、
+   * オーナー / リーダーから変更できない。
+   *
+   * updated_by:
+   *   admin
+   *   admin-migration
+   *   self
+   */
   await env.DB
     .prepare(`
       CREATE TABLE IF NOT EXISTS weight_privacy_lock (
@@ -67,20 +88,17 @@ export async function ensureWeightPrivacyTable(
 
 
   /*
-   * すでに管理画面からシークレット設定済みの人は
-   * 初回実行時にそのまま「管理者固定」へ移行する。
-   *
-   * オーナー / リーダーが設定したhiddenは固定しない。
+   * 既に管理画面からシークレットにしていた人を
+   * 管理者固定へ移行。
    */
   await env.DB
     .prepare(`
-      INSERT INTO weight_privacy_lock
-        (
-          member_id,
-          locked,
-          updated_at,
-          updated_by
-        )
+      INSERT INTO weight_privacy_lock (
+        member_id,
+        locked,
+        updated_at,
+        updated_by
+      )
 
       SELECT
         member_id,
@@ -134,17 +152,17 @@ function normalizeMemberId(
 }
 
 
-function cleanMemberIds(
-  memberIds
+function cleanIds(
+  values
 ) {
 
   return [
     ...new Set(
       (
         Array.isArray(
-          memberIds
+          values
         )
-          ? memberIds
+          ? values
           : []
       )
         .map(
@@ -166,6 +184,33 @@ async function readBody(
 
     const b =
       await req.json();
+
+
+    return (
+      b &&
+      typeof b ===
+        'object'
+    )
+      ? b
+      : {};
+
+  } catch {
+
+    return {};
+  }
+}
+
+
+async function readBodyClone(
+  req
+) {
+
+  try {
+
+    const b =
+      await req
+        .clone()
+        .json();
 
 
     return (
@@ -206,7 +251,6 @@ function safeEqual(
     x.length !==
       y.length
   ) {
-
     return false;
   }
 
@@ -250,7 +294,7 @@ function adminOk(
 
 
   if (!want) {
-    return null;
+    return false;
   }
 
 
@@ -291,7 +335,174 @@ function adminOk(
 
 
 /* ============================================================
-   hidden / locked 状態
+   状態取得
+   ============================================================ */
+
+async function privacyState(
+  env,
+  memberId
+) {
+
+  await ensureWeightPrivacyTable(
+    env
+  );
+
+
+  const id =
+    normalizeMemberId(
+      memberId
+    );
+
+
+  if (!id) {
+
+    return {
+      member_id:
+        null,
+
+      weight_hidden:
+        false,
+
+      weight_locked:
+        false,
+
+      weight_lock_kind:
+        null,
+
+      hidden_by:
+        null,
+    };
+  }
+
+
+  const row =
+    await env.DB
+      .prepare(`
+        SELECT
+
+          COALESCE(
+            (
+              SELECT hidden
+              FROM weight_privacy
+              WHERE member_id=?
+            ),
+            0
+          ) AS hidden,
+
+          (
+            SELECT updated_by
+            FROM weight_privacy
+            WHERE member_id=?
+          ) AS hidden_by,
+
+          COALESCE(
+            (
+              SELECT locked
+              FROM weight_privacy_lock
+              WHERE member_id=?
+            ),
+            0
+          ) AS locked,
+
+          (
+            SELECT updated_by
+            FROM weight_privacy_lock
+            WHERE member_id=?
+          ) AS lock_by
+      `)
+      .bind(
+        id,
+        id,
+        id,
+        id
+      )
+      .first();
+
+
+  const locked =
+    Number(
+      row &&
+      row.locked ||
+      0
+    ) ===
+      1;
+
+
+  const lockBy =
+    row &&
+    row.lock_by
+      ? String(
+          row.lock_by
+        )
+      : null;
+
+
+  let lockKind =
+    null;
+
+
+  if (
+    locked
+  ) {
+
+    if (
+      lockBy ===
+        'self'
+    ) {
+
+      lockKind =
+        'self';
+
+    } else if (
+      lockBy &&
+      lockBy.startsWith(
+        'admin'
+      )
+    ) {
+
+      lockKind =
+        'admin';
+
+    } else {
+
+      lockKind =
+        'other';
+    }
+  }
+
+
+  return {
+    member_id:
+      id,
+
+    weight_hidden:
+      Number(
+        row &&
+        row.hidden ||
+        0
+      ) ===
+        1 ||
+      locked,
+
+    weight_locked:
+      locked,
+
+    weight_lock_kind:
+      lockKind,
+
+    hidden_by:
+      row &&
+      row.hidden_by
+        ? String(
+            row.hidden_by
+          )
+        : null,
+  };
+}
+
+
+/* ============================================================
+   一括状態
    ============================================================ */
 
 export async function hiddenWeightSet(
@@ -305,7 +516,7 @@ export async function hiddenWeightSet(
 
 
   const ids =
-    cleanMemberIds(
+    cleanIds(
       memberIds
     );
 
@@ -329,14 +540,16 @@ export async function hiddenWeightSet(
 
 
   /*
-   * lockedはhiddenより強い。
-   * 万一hiddenとの整合が崩れてもlockedなら必ず隠す。
+   * lockがあればhidden列の状態に関係なく
+   * 必ず非公開扱い。
    */
   const rs =
     await env.DB
       .prepare(`
         SELECT member_id
+
         FROM weight_privacy
+
         WHERE
           hidden=1
           AND member_id IN (${ph})
@@ -344,7 +557,9 @@ export async function hiddenWeightSet(
         UNION
 
         SELECT member_id
+
         FROM weight_privacy_lock
+
         WHERE
           locked=1
           AND member_id IN (${ph})
@@ -371,7 +586,7 @@ export async function hiddenWeightSet(
 }
 
 
-async function lockedWeightSet(
+async function lockMap(
   env,
   memberIds
 ) {
@@ -382,16 +597,20 @@ async function lockedWeightSet(
 
 
   const ids =
-    cleanMemberIds(
+    cleanIds(
       memberIds
     );
+
+
+  const map =
+    new Map();
 
 
   if (
     !ids.length
   ) {
 
-    return new Set();
+    return map;
   }
 
 
@@ -408,8 +627,13 @@ async function lockedWeightSet(
   const rs =
     await env.DB
       .prepare(`
-        SELECT member_id
+        SELECT
+          member_id,
+          locked,
+          updated_by
+
         FROM weight_privacy_lock
+
         WHERE
           locked=1
           AND member_id IN (${ph})
@@ -420,18 +644,55 @@ async function lockedWeightSet(
       .all();
 
 
-  return new Set(
+  for (
+    const r of
     (
       rs.results ||
       []
     )
-      .map(
-        r =>
-          String(
-            r.member_id
+  ) {
+
+    const by =
+      r.updated_by
+        ? String(
+            r.updated_by
           )
+        : '';
+
+
+    let kind =
+      'other';
+
+
+    if (
+      by ===
+        'self'
+    ) {
+
+      kind =
+        'self';
+
+    } else if (
+      by.startsWith(
+        'admin'
       )
-  );
+    ) {
+
+      kind =
+        'admin';
+    }
+
+
+    map.set(
+      String(
+        r.member_id
+      ),
+      kind
+    );
+  }
+
+
+  return map;
 }
 
 
@@ -440,62 +701,20 @@ export async function isWeightHidden(
   memberId
 ) {
 
-  const id =
-    normalizeMemberId(
+  const state =
+    await privacyState(
+      env,
       memberId
     );
 
 
-  if (!id) {
-    return false;
-  }
-
-
-  const set =
-    await hiddenWeightSet(
-      env,
-      [
-        id
-      ]
-    );
-
-
-  return set.has(
-    id
-  );
+  return state.weight_hidden;
 }
 
 
-async function isWeightLocked(
-  env,
-  memberId
-) {
-
-  const id =
-    normalizeMemberId(
-      memberId
-    );
-
-
-  if (!id) {
-    return false;
-  }
-
-
-  const set =
-    await lockedWeightSet(
-      env,
-      [
-        id
-      ]
-    );
-
-
-  return set.has(
-    id
-  );
-}
-
+/* ============================================================
+   保存
+   ============================================================ */
 
 export async function setWeightHidden(
   env,
@@ -529,21 +748,19 @@ export async function setWeightHidden(
 
   await env.DB
     .prepare(`
-      INSERT INTO weight_privacy
-        (
-          member_id,
-          hidden,
-          updated_at,
-          updated_by
-        )
+      INSERT INTO weight_privacy (
+        member_id,
+        hidden,
+        updated_at,
+        updated_by
+      )
 
-      VALUES
-        (
-          ?,
-          ?,
-          ?,
-          ?
-        )
+      VALUES (
+        ?,
+        ?,
+        ?,
+        ?
+      )
 
       ON CONFLICT(member_id)
       DO UPDATE SET
@@ -576,7 +793,7 @@ export async function setWeightHidden(
 }
 
 
-async function setWeightLocked(
+async function setWeightLock(
   env,
   memberId,
   locked,
@@ -608,21 +825,19 @@ async function setWeightLocked(
 
   await env.DB
     .prepare(`
-      INSERT INTO weight_privacy_lock
-        (
-          member_id,
-          locked,
-          updated_at,
-          updated_by
-        )
+      INSERT INTO weight_privacy_lock (
+        member_id,
+        locked,
+        updated_at,
+        updated_by
+      )
 
-      VALUES
-        (
-          ?,
-          ?,
-          ?,
-          ?
-        )
+      VALUES (
+        ?,
+        ?,
+        ?,
+        ?
+      )
 
       ON CONFLICT(member_id)
       DO UPDATE SET
@@ -642,18 +857,339 @@ async function setWeightLocked(
     .run();
 
 
-  return {
-    member_id:
+  return now;
+}
+
+
+/* ============================================================
+   本人設定
+   ============================================================ */
+
+async function setSelfPrivacy(
+  env,
+  memberId,
+  hidden,
+  {
+    adminLockedNoop = false
+  } = {}
+) {
+
+  const id =
+    normalizeMemberId(
+      memberId
+    );
+
+
+  if (!id) {
+
+    return {
+      error:
+        'bad_member_id',
+    };
+  }
+
+
+  const before =
+    await privacyState(
+      env,
+      id
+    );
+
+
+  /*
+   * 管理者固定は本人でも解除不可。
+   *
+   * join時だけはエラーにせず、
+   * 管理者固定をそのまま維持して参加させる。
+   */
+  if (
+    before.weight_locked &&
+    before.weight_lock_kind ===
+      'admin'
+  ) {
+
+    if (
+      adminLockedNoop
+    ) {
+
+      return {
+        state:
+          before,
+      };
+    }
+
+
+    return {
+      error:
+        'weight_privacy_locked',
+    };
+  }
+
+
+  if (
+    hidden
+  ) {
+
+    await setWeightHidden(
+      env,
       id,
+      true,
+      'self'
+    );
 
-    weight_locked:
-      !!locked,
 
-    updated_at:
-      now,
+    await setWeightLock(
+      env,
+      id,
+      true,
+      'self'
+    );
+
+  } else {
+
+    /*
+     * 自分で設定したlockだけ解除できる。
+     * owner/leader由来でhiddenの場合も
+     * 本人は公開へ戻せる。
+     */
+    if (
+      before.weight_locked &&
+      before.weight_lock_kind !==
+        'self'
+    ) {
+
+      return {
+        error:
+          'weight_privacy_locked',
+      };
+    }
+
+
+    await setWeightLock(
+      env,
+      id,
+      false,
+      'self'
+    );
+
+
+    await setWeightHidden(
+      env,
+      id,
+      false,
+      'self'
+    );
+  }
+
+
+  return {
+    state:
+      await privacyState(
+        env,
+        id
+      ),
   };
 }
 
+
+/* ============================================================
+   参加時の本人設定
+
+   req.clone()を読むので、
+   本来の /api/groups/join はそのままbodyを読める。
+   ============================================================ */
+
+export async function prepareJoinWeightPrivacy(
+  req,
+  env,
+  dev
+) {
+
+  /*
+   * 既にグループ所属中なら何もしない。
+   * 本来のjoinGroupにalready_in_groupを返させる。
+   */
+  if (
+    !dev ||
+    dev.group_id
+  ) {
+
+    return;
+  }
+
+
+  const body =
+    await readBodyClone(
+      req
+    );
+
+
+  /*
+   * 古いアプリはこのフィールドを送らない。
+   * その場合は既存挙動を維持する。
+   */
+  if (
+    typeof body.weight_hidden !==
+      'boolean'
+  ) {
+
+    return;
+  }
+
+
+  await setSelfPrivacy(
+    env,
+    dev.member_id,
+    body.weight_hidden,
+    {
+      adminLockedNoop:
+        true,
+    }
+  );
+}
+
+
+/* ============================================================
+   本人用API
+   ============================================================ */
+
+export async function selfWeightPrivacyRoute(
+  req,
+  env,
+  dev,
+  p,
+  m
+) {
+
+  if (
+    p !==
+      '/api/me/weight-privacy'
+  ) {
+
+    return null;
+  }
+
+
+  if (
+    !dev.group_id
+  ) {
+
+    return bad(
+      req,
+      'not_in_group'
+    );
+  }
+
+
+  if (
+    m ===
+      'GET'
+  ) {
+
+    const state =
+      await privacyState(
+        env,
+        dev.member_id
+      );
+
+
+    return json(
+      req,
+      {
+        ok:
+          true,
+
+        weight_hidden:
+          state.weight_hidden,
+
+        weight_locked:
+          state.weight_locked,
+
+        weight_lock_kind:
+          state.weight_lock_kind,
+      }
+    );
+  }
+
+
+  if (
+    m !==
+      'POST' &&
+    m !==
+      'PATCH'
+  ) {
+
+    return bad(
+      req,
+      'method_not_allowed',
+      405
+    );
+  }
+
+
+  const body =
+    await readBody(
+      req
+    );
+
+
+  if (
+    typeof body.hidden !==
+      'boolean'
+  ) {
+
+    return bad(
+      req,
+      'bad_hidden'
+    );
+  }
+
+
+  const result =
+    await setSelfPrivacy(
+      env,
+      dev.member_id,
+      body.hidden
+    );
+
+
+  if (
+    result.error
+  ) {
+
+    return bad(
+      req,
+      result.error,
+      result.error ===
+        'weight_privacy_locked'
+        ? 403
+        : 400
+    );
+  }
+
+
+  return json(
+    req,
+    {
+      ok:
+        true,
+
+      weight_hidden:
+        result.state.weight_hidden,
+
+      weight_locked:
+        result.state.weight_locked,
+
+      weight_lock_kind:
+        result.state.weight_lock_kind,
+    }
+  );
+}
+
+
+/* ============================================================
+   削除
+   ============================================================ */
 
 export async function cleanupWeightPrivacyForMember(
   env,
@@ -769,7 +1305,9 @@ async function canManageGroup(
       dev.device_id;
 
 
-  if (owner) {
+  if (
+    owner
+  ) {
 
     return {
       ok:
@@ -818,7 +1356,9 @@ async function canManageGroup(
   }
 
 
-  if (!leader) {
+  if (
+    !leader
+  ) {
 
     return {
       ok:
@@ -846,7 +1386,7 @@ async function canManageGroup(
 
 
 /* ============================================================
-   オーナー / リーダー用API
+   オーナー / リーダー用
    ============================================================ */
 
 export async function memberWeightPrivacyRoute(
@@ -979,15 +1519,19 @@ export async function memberWeightPrivacyRoute(
   }
 
 
-  /*
-   * 管理者固定は最優先。
-   * 古いクライアントから解除要求が来てもサーバーで拒否する。
-   */
-  if (
-    await isWeightLocked(
+  const state =
+    await privacyState(
       env,
       memberId
-    )
+    );
+
+
+  /*
+   * 本人設定または管理者固定は
+   * オーナー / リーダーから変更不可。
+   */
+  if (
+    state.weight_locked
   ) {
 
     return bad(
@@ -1027,6 +1571,9 @@ export async function memberWeightPrivacyRoute(
         weight_locked:
           false,
 
+        weight_lock_kind:
+          null,
+
         updated_at:
           result.updated_at,
       },
@@ -1036,7 +1583,7 @@ export async function memberWeightPrivacyRoute(
 
 
 /* ============================================================
-   管理者用API
+   管理者用
    ============================================================ */
 
 export async function adminWeightPrivacyRoute(
@@ -1080,7 +1627,7 @@ export async function adminWeightPrivacyRoute(
 
 
   /*
-   * 全員一覧
+   * 一覧
    */
   if (
     p ===
@@ -1100,8 +1647,9 @@ export async function adminWeightPrivacyRoute(
             g.name AS group_name,
 
             CASE
-              WHEN COALESCE(wpl.locked, 0)=1 THEN 1
-              ELSE COALESCE(wp.hidden, 0)
+              WHEN COALESCE(wpl.locked,0)=1
+                THEN 1
+              ELSE COALESCE(wp.hidden,0)
             END AS weight_hidden,
 
             COALESCE(
@@ -1109,45 +1657,34 @@ export async function adminWeightPrivacyRoute(
               0
             ) AS weight_locked,
 
+            wpl.updated_by AS weight_lock_by,
+
             (
               SELECT COUNT(*)
               FROM weights w
-              WHERE
-                w.device_id=
-                  d.device_id
+              WHERE w.device_id=d.device_id
             ) AS weight_count,
 
             (
               SELECT MAX(w.ymd)
               FROM weights w
-              WHERE
-                w.device_id=
-                  d.device_id
+              WHERE w.device_id=d.device_id
             ) AS last_weight_ymd
 
           FROM devices d
 
           LEFT JOIN groups g
-            ON g.group_id=
-               d.group_id
+            ON g.group_id=d.group_id
 
           LEFT JOIN weight_privacy wp
-            ON wp.member_id=
-               d.member_id
+            ON wp.member_id=d.member_id
 
           LEFT JOIN weight_privacy_lock wpl
-            ON wpl.member_id=
-               d.member_id
+            ON wpl.member_id=d.member_id
 
           ORDER BY
-            COALESCE(
-              g.name,
-              ''
-            ),
-            COALESCE(
-              d.nickname,
-              ''
-            ),
+            COALESCE(g.name,''),
+            COALESCE(d.nickname,''),
             d.member_id
         `)
         .all();
@@ -1165,53 +1702,87 @@ export async function adminWeightPrivacyRoute(
             []
           )
             .map(
-              r => ({
-                member_id:
-                  r.member_id,
+              r => {
 
-                nickname:
-                  r.nickname ||
-                  null,
+                const lockBy =
+                  r.weight_lock_by
+                    ? String(
+                        r.weight_lock_by
+                      )
+                    : null;
 
-                group_id:
-                  r.group_id ||
-                  null,
 
-                group_name:
-                  r.group_name ||
-                  null,
+                let lockKind =
+                  null;
 
-                weight_hidden:
-                  Number(
-                    r.weight_hidden ||
-                    0
-                  ) ===
-                    1,
 
-                weight_locked:
+                if (
                   Number(
                     r.weight_locked ||
                     0
                   ) ===
-                    1,
+                    1
+                ) {
 
-                weight_count:
-                  Number(
-                    r.weight_count ||
-                    0
-                  ),
+                  lockKind =
+                    lockBy ===
+                      'self'
+                      ? 'self'
+                      : 'admin';
+                }
 
-                last_weight_ymd:
-                  r.last_weight_ymd ||
-                  null,
 
-                banned:
-                  Number(
-                    r.banned ||
-                    0
-                  ) ===
-                    1,
-              })
+                return {
+                  member_id:
+                    r.member_id,
+
+                  nickname:
+                    r.nickname ||
+                    null,
+
+                  group_id:
+                    r.group_id ||
+                    null,
+
+                  group_name:
+                    r.group_name ||
+                    null,
+
+                  weight_hidden:
+                    Number(
+                      r.weight_hidden ||
+                      0
+                    ) ===
+                      1,
+
+                  weight_locked:
+                    Number(
+                      r.weight_locked ||
+                      0
+                    ) ===
+                      1,
+
+                  weight_lock_kind:
+                    lockKind,
+
+                  weight_count:
+                    Number(
+                      r.weight_count ||
+                      0
+                    ),
+
+                  last_weight_ymd:
+                    r.last_weight_ymd ||
+                    null,
+
+                  banned:
+                    Number(
+                      r.banned ||
+                      0
+                    ) ===
+                      1,
+                };
+              }
             ),
       }
     );
@@ -1265,11 +1836,9 @@ export async function adminWeightPrivacyRoute(
         FROM devices d
 
         LEFT JOIN groups g
-          ON g.group_id=
-             d.group_id
+          ON g.group_id=d.group_id
 
-        WHERE
-          d.member_id=?
+        WHERE d.member_id=?
       `)
       .bind(
         memberId
@@ -1287,25 +1856,15 @@ export async function adminWeightPrivacyRoute(
   }
 
 
-  /*
-   * 1人取得
-   */
   if (
     m ===
       'GET'
   ) {
 
-    const hidden =
-      await isWeightHidden(
+    const state =
+      await privacyState(
         env,
-        target.member_id
-      );
-
-
-    const locked =
-      await isWeightLocked(
-        env,
-        target.member_id
+        memberId
       );
 
 
@@ -1332,53 +1891,70 @@ export async function adminWeightPrivacyRoute(
             null,
 
           weight_hidden:
-            hidden,
+            state.weight_hidden,
 
           weight_locked:
-            locked,
+            state.weight_locked,
+
+          weight_lock_kind:
+            state.weight_lock_kind,
         },
       }
     );
   }
 
 
-  /*
-   * 設定変更
-   *
-   * 管理画面からシークレットONにした場合は
-   * 必ず管理者固定もON。
-   * 解除した場合は固定も解除して公開へ戻す。
-   */
   if (
-    m ===
-      'POST' ||
-    m ===
+    m !==
+      'POST' &&
+    m !==
       'PATCH'
   ) {
 
-    const body =
-      await readBody(
-        req
-      );
+    return bad(
+      req,
+      'method_not_allowed',
+      405
+    );
+  }
 
 
-    if (
-      typeof body.hidden !==
-        'boolean'
-    ) {
-
-      return bad(
-        req,
-        'bad_hidden'
-      );
-    }
+  const body =
+    await readBody(
+      req
+    );
 
 
-    if (
-      body.hidden
-    ) {
+  if (
+    typeof body.hidden !==
+      'boolean'
+  ) {
 
-      await setWeightHidden(
+    return bad(
+      req,
+      'bad_hidden'
+    );
+  }
+
+
+  /*
+   * 管理画面でシークレットON
+   * → 管理者固定
+   */
+  if (
+    body.hidden
+  ) {
+
+    await setWeightHidden(
+      env,
+      memberId,
+      true,
+      'admin'
+    );
+
+
+    const now =
+      await setWeightLock(
         env,
         memberId,
         true,
@@ -1386,71 +1962,6 @@ export async function adminWeightPrivacyRoute(
       );
 
 
-      const lock =
-        await setWeightLocked(
-          env,
-          memberId,
-          true,
-          'admin'
-        );
-
-
-      return json(
-        req,
-        {
-          ok:
-            true,
-
-          member: {
-            member_id:
-              target.member_id,
-
-            nickname:
-              target.nickname ||
-              null,
-
-            group_id:
-              target.group_id ||
-              null,
-
-            group_name:
-              target.group_name ||
-              null,
-
-            weight_hidden:
-              true,
-
-            weight_locked:
-              true,
-
-            updated_at:
-              lock.updated_at,
-          },
-        }
-      );
-    }
-
-
-    /*
-     * 解除時は先に固定を外してから公開へ戻す。
-     */
-    await setWeightLocked(
-      env,
-      memberId,
-      false,
-      'admin'
-    );
-
-
-    const result =
-      await setWeightHidden(
-        env,
-        memberId,
-        false,
-        'admin'
-      );
-
-
     return json(
       req,
       {
@@ -1474,29 +1985,83 @@ export async function adminWeightPrivacyRoute(
             null,
 
           weight_hidden:
-            false,
+            true,
 
           weight_locked:
-            false,
+            true,
+
+          weight_lock_kind:
+            'admin',
 
           updated_at:
-            result.updated_at,
+            now,
         },
       }
     );
   }
 
 
-  return bad(
+  /*
+   * 管理者は本人設定も含めて解除可能。
+   */
+  await setWeightLock(
+    env,
+    memberId,
+    false,
+    'admin'
+  );
+
+
+  const result =
+    await setWeightHidden(
+      env,
+      memberId,
+      false,
+      'admin'
+    );
+
+
+  return json(
     req,
-    'method_not_allowed',
-    405
+    {
+      ok:
+        true,
+
+      member: {
+        member_id:
+          target.member_id,
+
+        nickname:
+          target.nickname ||
+          null,
+
+        group_id:
+          target.group_id ||
+          null,
+
+        group_name:
+          target.group_name ||
+          null,
+
+        weight_hidden:
+          false,
+
+        weight_locked:
+          false,
+
+        weight_lock_kind:
+          null,
+
+        updated_at:
+          result.updated_at,
+      },
+    }
   );
 }
 
 
 /* ============================================================
-   JSONレスポンスを作り直す
+   JSONレスポンス処理
    ============================================================ */
 
 async function jsonResponseData(
@@ -1589,7 +2154,7 @@ function rebuiltJsonResponse(
 
 
 /* ============================================================
-   ランキングの実体重を隠す
+   ランキング
    ============================================================ */
 
 export async function filterRankingWeightPrivacy(
@@ -1628,7 +2193,7 @@ export async function filterRankingWeightPrivacy(
 
   const [
     hidden,
-    locked
+    locks
   ] =
     await Promise.all([
       hiddenWeightSet(
@@ -1636,7 +2201,7 @@ export async function filterRankingWeightPrivacy(
         ids
       ),
 
-      lockedWeightSet(
+      lockMap(
         env,
         ids
       ),
@@ -1668,24 +2233,34 @@ export async function filterRankingWeightPrivacy(
       );
 
 
+    const lockKind =
+      locks.get(
+        id
+      ) ||
+      null;
+
+
     row.weight_hidden =
       hide;
 
 
     row.weight_locked =
-      locked.has(
-        id
-      );
+      !!lockKind;
 
 
-    if (!hide) {
+    row.weight_lock_kind =
+      lockKind;
+
+
+    if (
+      !hide
+    ) {
       continue;
     }
 
 
     /*
-     * loss は残す。
-     * 実体重だけ消す。
+     * lossは残す。
      */
     for (
       const key of
@@ -1709,7 +2284,9 @@ export async function filterRankingWeightPrivacy(
           )
       ) {
 
-        row[key] =
+        row[
+          key
+        ] =
           null;
       }
     }
@@ -1724,7 +2301,7 @@ export async function filterRankingWeightPrivacy(
 
 
 /* ============================================================
-   日付ビューの実体重を隠す
+   日付ビュー
    ============================================================ */
 
 async function filterDayResponse(
@@ -1763,7 +2340,7 @@ async function filterDayResponse(
 
   const [
     hidden,
-    locked
+    locks
   ] =
     await Promise.all([
       hiddenWeightSet(
@@ -1771,7 +2348,7 @@ async function filterDayResponse(
         ids
       ),
 
-      lockedWeightSet(
+      lockMap(
         env,
         ids
       ),
@@ -1790,7 +2367,9 @@ async function filterDayResponse(
     data.members
   ) {
 
-    if (!row) {
+    if (
+      !row
+    ) {
       continue;
     }
 
@@ -1810,18 +2389,30 @@ async function filterDayResponse(
       );
 
 
+    const lockKind =
+      id
+        ? locks.get(
+            id
+          ) ||
+          null
+        : null;
+
+
     row.weight_hidden =
-      !!hide;
+      hide;
 
 
     row.weight_locked =
-      !!id &&
-      locked.has(
-        id
-      );
+      !!lockKind;
 
 
-    if (hide) {
+    row.weight_lock_kind =
+      lockKind;
+
+
+    if (
+      hide
+    ) {
 
       row.weight =
         null;
@@ -1846,6 +2437,7 @@ async function filterDayResponse(
         Number(
           row.weight
         );
+
 
       hasVisibleWeight =
         true;
@@ -1909,7 +2501,9 @@ function parseCsv(
   ) {
 
     const c =
-      s[i];
+      s[
+        i
+      ];
 
 
     if (
@@ -1917,11 +2511,14 @@ function parseCsv(
     ) {
 
       if (
-        c === '"'
+        c ===
+          '"'
       ) {
 
         if (
-          s[i + 1] ===
+          s[
+            i + 1
+          ] ===
             '"'
         ) {
 
@@ -1942,19 +2539,22 @@ function parseCsv(
           c;
       }
 
+
       continue;
     }
 
 
     if (
-      c === '"'
+      c ===
+        '"'
     ) {
 
       quoted =
         true;
 
     } else if (
-      c === ','
+      c ===
+        ','
     ) {
 
       row.push(
@@ -1965,7 +2565,8 @@ function parseCsv(
         '';
 
     } else if (
-      c === '\n'
+      c ===
+        '\n'
     ) {
 
       row.push(
@@ -1983,7 +2584,8 @@ function parseCsv(
         '';
 
     } else if (
-      c !== '\r'
+      c !==
+        '\r'
     ) {
 
       cur +=
@@ -1993,7 +2595,8 @@ function parseCsv(
 
 
   if (
-    cur !== '' ||
+    cur !==
+      '' ||
     row.length
   ) {
 
@@ -2077,7 +2680,9 @@ async function filterCsvResponse(
 
 
   const head =
-    rows[0]
+    rows[
+      0
+    ]
       .map(
         v =>
           String(
@@ -2108,32 +2713,18 @@ async function filterCsvResponse(
       0
   ) {
 
-    const headers =
-      new Headers(
-        response.headers
-      );
-
-
-    headers.delete(
-      'content-length'
-    );
-
-
     return new Response(
       text,
-      {
-        status:
-          response.status,
-
-        headers,
-      }
+      response
     );
   }
 
 
   const ids =
     rows
-      .slice(1)
+      .slice(
+        1
+      )
       .map(
         row =>
           normalizeMemberId(
@@ -2156,7 +2747,9 @@ async function filterCsvResponse(
 
   for (
     const row of
-    rows.slice(1)
+    rows.slice(
+      1
+    )
   ) {
 
     const id =
@@ -2227,7 +2820,7 @@ async function filterCsvResponse(
 
 
 /* ============================================================
-   admin.js一般ユーザー向けレスポンス
+   一般ユーザー向けレスポンス
    ============================================================ */
 
 export async function filterMemberWeightPrivacy(

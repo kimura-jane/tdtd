@@ -1260,7 +1260,7 @@ window.MINYASE_API_BASE =
 </script>
 
 
-<script src="./app.js?v=20260905c"></script>
+<script src="./app.js?v=20260907d"></script>
 
 <script src="./leader.js?v=20260907c"></script>
 
@@ -1269,78 +1269,6 @@ window.MINYASE_API_BASE =
 <script src="./notify.js?v=20260905c"></script>
 
 <script src="./vote.js?v=20260905c"></script>
-
-
-<!-- =========================================================
-     旧app.jsとの互換：
-     画像は即公開ではなく承認待ちになったため、
-     成功メッセージを新仕様へ合わせる。
-     ========================================================= -->
-
-<script>
-
-(() => {
-
-  const msg =
-    document.getElementById(
-      'imsg'
-    );
-
-
-  if (
-    !msg ||
-    typeof MutationObserver !==
-      'function'
-  ) {
-
-    return;
-  }
-
-
-  const fix =
-    () => {
-
-      if (
-        String(
-          msg.textContent ||
-          ''
-        )
-          .trim() ===
-        'アイコンを設定しました'
-      ) {
-
-        msg.textContent =
-          '確認中です。承認後に公開されます。';
-      }
-    };
-
-
-  const observer =
-    new MutationObserver(
-      fix
-    );
-
-
-  observer.observe(
-    msg,
-    {
-      childList:
-        true,
-
-      subtree:
-        true,
-
-      characterData:
-        true
-    }
-  );
-
-
-  fix();
-
-})();
-
-</script>
 
 
 <!-- =========================================================

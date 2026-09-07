@@ -69,7 +69,8 @@ function safeEqual(a, b) {
     return false;
   }
 
-  let d = 0;
+  let diff =
+    0;
 
   for (
     let i = 0;
@@ -77,12 +78,12 @@ function safeEqual(a, b) {
     i++
   ) {
 
-    d |=
+    diff |=
       x.charCodeAt(i) ^
       y.charCodeAt(i);
   }
 
-  return d === 0;
+  return diff === 0;
 }
 
 
@@ -90,14 +91,15 @@ async function readJson(req) {
 
   try {
 
-    const b =
+    const body =
       await req.json();
 
     return (
-      b &&
-      typeof b === 'object'
+      body &&
+      typeof body ===
+        'object'
     )
-      ? b
+      ? body
       : {};
 
   } catch {
@@ -128,32 +130,33 @@ async function responseJson(response) {
 
 
 function rebuildJson(
-  req,
   response,
   data
 ) {
 
-  const h =
+  const headers =
     new Headers(
       response.headers
     );
 
-  h.delete(
+  headers.delete(
     'content-length'
   );
 
-  h.set(
+  headers.set(
     'content-type',
     'application/json; charset=utf-8'
   );
 
-  h.set(
+  headers.set(
     'cache-control',
     'no-store'
   );
 
   return new Response(
-    JSON.stringify(data),
+    JSON.stringify(
+      data
+    ),
     {
       status:
         response.status,
@@ -161,10 +164,26 @@ function rebuildJson(
       statusText:
         response.statusText,
 
-      headers:
-        h,
+      headers,
     }
   );
+}
+
+
+function normalizeMemberId(raw) {
+
+  const id =
+    String(
+      raw ||
+      ''
+    )
+      .trim()
+      .toUpperCase();
+
+  return MEMBER_ID_RE
+    .test(id)
+      ? id
+      : null;
 }
 
 
@@ -173,7 +192,7 @@ async function currentDevice(
   env
 ) {
 
-  const id =
+  const deviceId =
     String(
       req.headers.get(
         'x-device-id'
@@ -183,7 +202,9 @@ async function currentDevice(
       .trim();
 
   if (
-    !DEVICE_ID_RE.test(id)
+    !DEVICE_ID_RE.test(
+      deviceId
+    )
   ) {
 
     return {
@@ -202,7 +223,9 @@ async function currentDevice(
         FROM devices
         WHERE device_id=?
       `)
-      .bind(id)
+      .bind(
+        deviceId
+      )
       .first();
 
   if (!dev) {
@@ -248,7 +271,9 @@ export async function ensureSafetyTables(
   env
 ) {
 
-  if (tablesReady) {
+  if (
+    tablesReady
+  ) {
 
     return;
   }
@@ -342,26 +367,28 @@ export async function ensureSafetyTables(
 
 
 /* ============================================================
-   ADMIN_TOKEN
+   管理者認証
    ============================================================ */
 
 async function adminToken(env) {
 
-  const a =
+  const fromEnv =
     String(
       env.ADMIN_TOKEN ||
       ''
     )
       .trim();
 
-  if (a) {
+  if (
+    fromEnv
+  ) {
 
-    return a;
+    return fromEnv;
   }
 
   try {
 
-    const r =
+    const row =
       await env.DB
         .prepare(`
           SELECT v
@@ -371,8 +398,8 @@ async function adminToken(env) {
         .first();
 
     return String(
-      r &&
-      r.v ||
+      row &&
+      row.v ||
       ''
     )
       .trim();
@@ -399,7 +426,7 @@ async function adminAuthorized(
     return false;
   }
 
-  const raw =
+  const auth =
     String(
       req.headers.get(
         'authorization'
@@ -408,13 +435,15 @@ async function adminAuthorized(
     )
       .trim();
 
-  const m =
+  const match =
     /^Bearer\s+(.+)$/i
-      .exec(raw);
+      .exec(
+        auth
+      );
 
   const got =
-    m
-      ? m[1].trim()
+    match
+      ? match[1].trim()
       : String(
           req.headers.get(
             'x-admin-token'
@@ -431,7 +460,7 @@ async function adminAuthorized(
 
 
 /* ============================================================
-   外部WEB対象グループ
+   外部WEB グループ設定
    ============================================================ */
 
 async function groupExternalEnabled(
@@ -439,7 +468,9 @@ async function groupExternalEnabled(
   groupId
 ) {
 
-  if (!groupId) {
+  if (
+    !groupId
+  ) {
 
     return false;
   }
@@ -448,20 +479,22 @@ async function groupExternalEnabled(
     env
   );
 
-  const r =
+  const row =
     await env.DB
       .prepare(`
         SELECT enabled
         FROM group_external
         WHERE group_id=?
       `)
-      .bind(groupId)
+      .bind(
+        groupId
+      )
       .first();
 
   return (
     Number(
-      r &&
-      r.enabled ||
+      row &&
+      row.enabled ||
       0
     ) === 1
   );
@@ -486,7 +519,7 @@ async function externalConsentValue(
     env
   );
 
-  const r =
+  const row =
     await env.DB
       .prepare(`
         SELECT consented
@@ -503,8 +536,8 @@ async function externalConsentValue(
 
   return (
     Number(
-      r &&
-      r.consented ||
+      row &&
+      row.consented ||
       0
     ) === 1
   );
@@ -512,15 +545,17 @@ async function externalConsentValue(
 
 
 /* ============================================================
-   参加用グループ情報
+   リーダー
    ============================================================ */
 
 async function leaderIds(
   env,
-  gid
+  groupId
 ) {
 
-  if (!gid) {
+  if (
+    !groupId
+  ) {
 
     return [];
   }
@@ -534,7 +569,9 @@ async function leaderIds(
           FROM group_leaders
           WHERE group_id=?
         `)
-        .bind(gid)
+        .bind(
+          groupId
+        )
         .all();
 
     return (
@@ -542,8 +579,8 @@ async function leaderIds(
       []
     )
       .map(
-        r =>
-          r.member_id
+        row =>
+          row.member_id
       );
 
   } catch {
@@ -567,7 +604,7 @@ async function groupView(
     return null;
   }
 
-  const c =
+  const count =
     await env.DB
       .prepare(`
         SELECT COUNT(*) AS n
@@ -599,7 +636,7 @@ async function groupView(
       dev.member_id
     );
 
-  const manage =
+  const canManage =
     owner ||
     leader;
 
@@ -626,8 +663,8 @@ async function groupView(
 
     members:
       Number(
-        c &&
-        c.n ||
+        count &&
+        count.n ||
         0
       ),
 
@@ -638,7 +675,7 @@ async function groupView(
       leader,
 
     can_manage:
-      manage,
+      canManage,
 
     leader_count:
       leaders.length,
@@ -647,7 +684,7 @@ async function groupView(
       5,
 
     code:
-      manage
+      canManage
         ? group.group_id
         : null,
 
@@ -661,7 +698,7 @@ async function groupView(
 
 
 /* ============================================================
-   参加時 privacy
+   グループ参加時のprivacy
    ============================================================ */
 
 async function adminLocked(
@@ -669,7 +706,7 @@ async function adminLocked(
   memberId
 ) {
 
-  const r =
+  const row =
     await env.DB
       .prepare(`
         SELECT
@@ -678,16 +715,19 @@ async function adminLocked(
         FROM weight_privacy_lock
         WHERE member_id=?
       `)
-      .bind(memberId)
+      .bind(
+        memberId
+      )
       .first();
 
   return !!(
-    r &&
+    row &&
     Number(
-      r.locked
+      row.locked ||
+      0
     ) === 1 &&
     String(
-      r.updated_by ||
+      row.updated_by ||
       ''
     )
       .startsWith(
@@ -710,7 +750,7 @@ async function joinStatements(
   const now =
     Date.now();
 
-  const stmts = [
+  const statements = [
 
     env.DB
       .prepare(`
@@ -739,18 +779,21 @@ async function joinStatements(
       ),
   ];
 
+  /*
+   * 管理者シークレット固定だけは
+   * 参加画面の本人選択で解除させない。
+   */
   const locked =
     await adminLocked(
       env,
       dev.member_id
     );
 
-  /*
-   * 管理者固定中は本人の選択で解除しない。
-   */
-  if (!locked) {
+  if (
+    !locked
+  ) {
 
-    stmts.push(
+    statements.push(
 
       env.DB
         .prepare(`
@@ -761,6 +804,7 @@ async function joinStatements(
             updated_by
           )
           VALUES (?,?,?,'self')
+
           ON CONFLICT(member_id)
           DO UPDATE SET
             hidden=excluded.hidden,
@@ -784,6 +828,7 @@ async function joinStatements(
             updated_by
           )
           VALUES (?,?,?,'self')
+
           ON CONFLICT(member_id)
           DO UPDATE SET
             locked=excluded.locked,
@@ -800,13 +845,18 @@ async function joinStatements(
     );
   }
 
-  const extEnabled =
+  const externalEnabled =
     await groupExternalEnabled(
       env,
       group.group_id
     );
 
-  stmts.push(
+  /*
+   * 同意はmember_id + group_id単位。
+   * 外部対象でないグループなら必ず0。
+   */
+  statements.push(
+
     env.DB
       .prepare(`
         INSERT INTO external_consent (
@@ -816,6 +866,7 @@ async function joinStatements(
           updated_at
         )
         VALUES (?,?,?,?)
+
         ON CONFLICT(member_id,group_id)
         DO UPDATE SET
           consented=excluded.consented,
@@ -824,7 +875,7 @@ async function joinStatements(
       .bind(
         dev.member_id,
         group.group_id,
-        extEnabled &&
+        externalEnabled &&
         externalConsent
           ? 1
           : 0,
@@ -832,16 +883,15 @@ async function joinStatements(
       )
   );
 
-  return stmts;
+  return statements;
 }
 
 
 /* ============================================================
    安全なグループ参加
 
-   重要：
-   membership と privacy と consent を同じbatchで確定。
-   参加失敗時にprivacyだけ変わる問題を防ぐ。
+   membership / privacy / consent を
+   同じD1 batchで確定する。
    ============================================================ */
 
 export async function joinGroupSafely(
@@ -859,7 +909,9 @@ export async function joinGroupSafely(
       env
     );
 
-  if (member.error) {
+  if (
+    member.error
+  ) {
 
     return member.error;
   }
@@ -892,17 +944,19 @@ export async function joinGroupSafely(
     );
   }
 
-  const b =
+  const body =
     await readJson(
       req
     );
 
-  const gid =
+  const groupId =
     normalizeCode(
-      b.code
+      body.code
     );
 
-  if (!gid) {
+  if (
+    !groupId
+  ) {
 
     return bad(
       req,
@@ -910,17 +964,21 @@ export async function joinGroupSafely(
     );
   }
 
-  const g =
+  const group =
     await env.DB
       .prepare(`
         SELECT *
         FROM groups
         WHERE group_id=?
       `)
-      .bind(gid)
+      .bind(
+        groupId
+      )
       .first();
 
-  if (!g) {
+  if (
+    !group
+  ) {
 
     return bad(
       req,
@@ -929,7 +987,7 @@ export async function joinGroupSafely(
     );
   }
 
-  const banned =
+  const ban =
     await env.DB
       .prepare(`
         SELECT member_id
@@ -939,12 +997,14 @@ export async function joinGroupSafely(
           AND member_id=?
       `)
       .bind(
-        gid,
+        groupId,
         dev.member_id
       )
       .first();
 
-  if (banned) {
+  if (
+    ban
+  ) {
 
     return bad(
       req,
@@ -962,7 +1022,9 @@ export async function joinGroupSafely(
           group_id=?
           AND banned=0
       `)
-      .bind(gid)
+      .bind(
+        groupId
+      )
       .first();
 
   if (
@@ -972,7 +1034,7 @@ export async function joinGroupSafely(
       0
     ) >=
     Number(
-      g.max_members ||
+      group.max_members ||
       100
     )
   ) {
@@ -983,36 +1045,39 @@ export async function joinGroupSafely(
     );
   }
 
+  /*
+   * 非公開グループなら必ずhidden。
+   *
+   * 公開グループでも、
+   * 古いクライアント等がweight_hiddenを送らない場合は
+   * 安全側のhidden=true。
+   */
   const groupShowsWeight =
     Number(
-      g.show_weight
+      group.show_weight
     ) === 1;
 
-  /*
-   * 古いアプリがweight_hiddenを送らなくても
-   * 安全側の非公開にする。
-   */
   const hidden =
     !groupShowsWeight ||
-    b.weight_hidden !==
+    body.weight_hidden !==
       false;
 
-  const stmts =
+  const statements =
     await joinStatements(
       env,
       dev,
-      g,
+      group,
       {
         hidden,
 
         externalConsent:
-          b.external_consent ===
+          body.external_consent ===
             true,
       }
     );
 
   await env.DB.batch(
-    stmts
+    statements
   );
 
   const fresh =
@@ -1036,7 +1101,7 @@ export async function joinGroupSafely(
       group:
         await groupView(
           env,
-          g,
+          group,
           fresh
         ),
 
@@ -1047,7 +1112,7 @@ export async function joinGroupSafely(
         await externalConsentValue(
           env,
           dev.member_id,
-          g.group_id
+          group.group_id
         ),
     }
   );
@@ -1085,7 +1150,6 @@ export async function augmentGroupPreview(
     );
 
   return rebuildJson(
-    req,
     response,
     data
   );
@@ -1093,7 +1157,7 @@ export async function augmentGroupPreview(
 
 
 /* ============================================================
-   本人 外部WEB同意
+   本人：外部WEB同意
    ============================================================ */
 
 export async function externalConsentRoute(
@@ -1111,7 +1175,9 @@ export async function externalConsentRoute(
       env
     );
 
-  if (member.error) {
+  if (
+    member.error
+  ) {
 
     return member.error;
   }
@@ -1174,7 +1240,9 @@ export async function externalConsentRoute(
     );
   }
 
-  if (!enabled) {
+  if (
+    !enabled
+  ) {
 
     return bad(
       req,
@@ -1182,13 +1250,13 @@ export async function externalConsentRoute(
     );
   }
 
-  const b =
+  const body =
     await readJson(
       req
     );
 
   if (
-    typeof b.consented !==
+    typeof body.consented !==
       'boolean'
   ) {
 
@@ -1207,6 +1275,7 @@ export async function externalConsentRoute(
         updated_at
       )
       VALUES (?,?,?,?)
+
       ON CONFLICT(member_id,group_id)
       DO UPDATE SET
         consented=excluded.consented,
@@ -1215,7 +1284,7 @@ export async function externalConsentRoute(
     .bind(
       dev.member_id,
       dev.group_id,
-      b.consented
+      body.consented
         ? 1
         : 0,
       Date.now()
@@ -1223,10 +1292,11 @@ export async function externalConsentRoute(
     .run();
 
   /*
-   * 撤回したら未送信キューも破棄。
+   * 同意撤回時は
+   * まだ送っていないキューを消す。
    */
   if (
-    !b.consented
+    !body.consented
   ) {
 
     await env.DB
@@ -1253,7 +1323,7 @@ export async function externalConsentRoute(
         true,
 
       consented:
-        b.consented,
+        body.consented,
     }
   );
 }
@@ -1278,7 +1348,9 @@ async function pendingIcon(
       FROM icon_pending
       WHERE member_id=?
     `)
-    .bind(memberId)
+    .bind(
+      memberId
+    )
     .first();
 }
 
@@ -1294,7 +1366,9 @@ export async function memberIconRoute(
       env
     );
 
-  if (member.error) {
+  if (
+    member.error
+  ) {
 
     return member.error;
   }
@@ -1317,7 +1391,7 @@ export async function memberIconRoute(
         dev.member_id
       );
 
-    const ver =
+    const version =
       Number(
         dev.icon_ver ||
         0
@@ -1330,15 +1404,15 @@ export async function memberIconRoute(
           true,
 
         icon_ver:
-          ver,
+          version,
 
         icon_url:
-          ver > 0
+          version > 0
             ? (
                 '/i/' +
                 dev.member_id +
                 '.jpg?v=' +
-                ver
+                version
               )
             : null,
 
@@ -1380,7 +1454,7 @@ export async function memberIconRoute(
       );
     }
 
-    const len =
+    const length =
       Number(
         req.headers.get(
           'content-length'
@@ -1389,8 +1463,8 @@ export async function memberIconRoute(
       );
 
     if (
-      len &&
-      len >
+      length &&
+      length >
         ICON_MAX_BYTES
     ) {
 
@@ -1401,10 +1475,12 @@ export async function memberIconRoute(
       );
     }
 
-    const buf =
+    const buffer =
       await req.arrayBuffer();
 
-    if (!buf.byteLength) {
+    if (
+      !buffer.byteLength
+    ) {
 
       return bad(
         req,
@@ -1413,7 +1489,7 @@ export async function memberIconRoute(
     }
 
     if (
-      buf.byteLength >
+      buffer.byteLength >
         ICON_MAX_BYTES
     ) {
 
@@ -1426,7 +1502,7 @@ export async function memberIconRoute(
 
     const bytes =
       new Uint8Array(
-        buf
+        buffer
       );
 
     if (
@@ -1444,7 +1520,9 @@ export async function memberIconRoute(
       );
     }
 
-    if (!env.ICONS) {
+    if (
+      !env.ICONS
+    ) {
 
       return bad(
         req,
@@ -1453,17 +1531,18 @@ export async function memberIconRoute(
       );
     }
 
-    const key =
+    const objectKey =
       pendingIconKey(
         dev.member_id
       );
 
     /*
-     * 公開キーへは書かない。
+     * 公開用 icon/ には入れず、
+     * pending-icon/ に保存。
      */
     await env.ICONS.put(
-      key,
-      buf,
+      objectKey,
+      buffer,
       {
         httpMetadata: {
           contentType:
@@ -1481,6 +1560,7 @@ export async function memberIconRoute(
           bytes
         )
         VALUES (?,?,?,?)
+
         ON CONFLICT(member_id)
         DO UPDATE SET
           object_key=excluded.object_key,
@@ -1489,13 +1569,13 @@ export async function memberIconRoute(
       `)
       .bind(
         dev.member_id,
-        key,
+        objectKey,
         Date.now(),
-        buf.byteLength
+        buffer.byteLength
       )
       .run();
 
-    const ver =
+    const version =
       Number(
         dev.icon_ver ||
         0
@@ -1511,15 +1591,15 @@ export async function memberIconRoute(
           true,
 
         icon_ver:
-          ver,
+          version,
 
         icon_url:
-          ver > 0
+          version > 0
             ? (
                 '/i/' +
                 dev.member_id +
                 '.jpg?v=' +
-                ver
+                version
               )
             : null,
       }
@@ -1531,14 +1611,8 @@ export async function memberIconRoute(
       'DELETE'
   ) {
 
-    const ver =
-      Number(
-        dev.icon_ver ||
-        0
-      );
-
     /*
-     * まずDB上で即座に非表示にする。
+     * D1上では先に非表示。
      */
     await env.DB.batch([
 
@@ -1567,7 +1641,9 @@ export async function memberIconRoute(
 
     try {
 
-      if (env.ICONS) {
+      if (
+        env.ICONS
+      ) {
 
         await env.ICONS.delete(
           iconKey(
@@ -1588,7 +1664,9 @@ export async function memberIconRoute(
         true;
     }
 
-    if (failed) {
+    if (
+      failed
+    ) {
 
       await queueCleanup(
         env,
@@ -1611,8 +1689,8 @@ export async function memberIconRoute(
         icon_url:
           null,
 
-        previous_version:
-          ver,
+        pending:
+          false,
       }
     );
   }
@@ -1627,8 +1705,6 @@ export async function memberIconRoute(
 
 /* ============================================================
    公開アイコン
-
-   承認済み + 利用中 + 非BAN のものだけ配信。
    ============================================================ */
 
 export async function publicIconRoute(
@@ -1644,18 +1720,15 @@ export async function publicIconRoute(
     );
 
   const memberId =
-    raw
-      .replace(
+    normalizeMemberId(
+      raw.replace(
         /\.jpe?g$/i,
         ''
       )
-      .trim()
-      .toUpperCase();
+    );
 
   if (
-    !MEMBER_ID_RE.test(
-      memberId
-    )
+    !memberId
   ) {
 
     return new Response(
@@ -1708,7 +1781,9 @@ export async function publicIconRoute(
     );
   }
 
-  if (!env.ICONS) {
+  if (
+    !env.ICONS
+  ) {
 
     return new Response(
       'no_bucket',
@@ -1719,14 +1794,16 @@ export async function publicIconRoute(
     );
   }
 
-  const obj =
+  const object =
     await env.ICONS.get(
       iconKey(
         memberId
       )
     );
 
-  if (!obj) {
+  if (
+    !object
+  ) {
 
     return new Response(
       'not_found',
@@ -1742,37 +1819,38 @@ export async function publicIconRoute(
     );
   }
 
-  const h =
+  const headers =
     new Headers();
 
-  obj.writeHttpMetadata(
-    h
+  object.writeHttpMetadata(
+    headers
   );
 
-  h.set(
+  headers.set(
     'content-type',
     'image/jpeg'
   );
 
-  h.set(
+  headers.set(
     'etag',
-    obj.httpEtag
+    object.httpEtag
   );
 
   /*
-   * 1年immutableをやめる。
+   * 旧1年immutableを廃止。
+   * 削除・通報対応を反映しやすくする。
    */
-  h.set(
+  headers.set(
     'cache-control',
     'public, max-age=300, must-revalidate'
   );
 
-  h.set(
+  headers.set(
     'access-control-allow-origin',
     '*'
   );
 
-  h.set(
+  headers.set(
     'x-content-type-options',
     'nosniff'
   );
@@ -1788,20 +1866,18 @@ export async function publicIconRoute(
         status:
           200,
 
-        headers:
-          h,
+        headers,
       }
     );
   }
 
   return new Response(
-    obj.body,
+    object.body,
     {
       status:
         200,
 
-      headers:
-        h,
+      headers,
     }
   );
 }
@@ -1820,7 +1896,7 @@ function arrayBufferToBase64(
       buffer
     );
 
-  let out =
+  let output =
     '';
 
   const step =
@@ -1832,7 +1908,7 @@ function arrayBufferToBase64(
     i += step
   ) {
 
-    out +=
+    output +=
       String.fromCharCode(
         ...bytes.subarray(
           i,
@@ -1844,12 +1920,14 @@ function arrayBufferToBase64(
       );
   }
 
-  return btoa(out);
+  return btoa(
+    output
+  );
 }
 
 
 /* ============================================================
-   管理者：画像
+   管理：承認待ち画像
    ============================================================ */
 
 async function adminPendingList(
@@ -1866,13 +1944,18 @@ async function adminPendingList(
           p.bytes,
           d.nickname,
           d.group_id,
-          g.name AS group_name,
-          d.icon_ver
+          d.banned,
+          d.icon_ver,
+          g.name AS group_name
+
         FROM icon_pending p
+
         LEFT JOIN devices d
           ON d.member_id=p.member_id
+
         LEFT JOIN groups g
           ON g.group_id=d.group_id
+
         ORDER BY p.uploaded_at ASC
       `)
       .all();
@@ -1897,13 +1980,15 @@ async function adminPendingImage(
   memberId
 ) {
 
-  const p =
+  const pending =
     await pendingIcon(
       env,
       memberId
     );
 
-  if (!p) {
+  if (
+    !pending
+  ) {
 
     return bad(
       req,
@@ -1912,7 +1997,9 @@ async function adminPendingImage(
     );
   }
 
-  if (!env.ICONS) {
+  if (
+    !env.ICONS
+  ) {
 
     return bad(
       req,
@@ -1921,12 +2008,14 @@ async function adminPendingImage(
     );
   }
 
-  const obj =
+  const object =
     await env.ICONS.get(
-      p.object_key
+      pending.object_key
     );
 
-  if (!obj) {
+  if (
+    !object
+  ) {
 
     return bad(
       req,
@@ -1935,8 +2024,8 @@ async function adminPendingImage(
     );
   }
 
-  const buf =
-    await obj.arrayBuffer();
+  const buffer =
+    await object.arrayBuffer();
 
   return json(
     req,
@@ -1951,7 +2040,7 @@ async function adminPendingImage(
         (
           'data:image/jpeg;base64,' +
           arrayBufferToBase64(
-            buf
+            buffer
           )
         ),
     }
@@ -1965,22 +2054,15 @@ async function approveIcon(
   memberId
 ) {
 
-  if (!env.ICONS) {
-
-    return bad(
-      req,
-      'no_bucket',
-      503
-    );
-  }
-
-  const p =
+  const pending =
     await pendingIcon(
       env,
       memberId
     );
 
-  if (!p) {
+  if (
+    !pending
+  ) {
 
     return bad(
       req,
@@ -1988,51 +2070,25 @@ async function approveIcon(
       404
     );
   }
-
-  const obj =
-    await env.ICONS.get(
-      p.object_key
-    );
-
-  if (!obj) {
-
-    return bad(
-      req,
-      'pending_icon_not_found',
-      404
-    );
-  }
-
-  const buf =
-    await obj.arrayBuffer();
-
-  /*
-   * 承認時だけ公開キーへコピー。
-   */
-  await env.ICONS.put(
-    iconKey(
-      memberId
-    ),
-    buf,
-    {
-      httpMetadata: {
-        contentType:
-          'image/jpeg',
-      },
-    }
-  );
 
   const dev =
     await env.DB
       .prepare(`
-        SELECT icon_ver
+        SELECT
+          member_id,
+          icon_ver,
+          banned
         FROM devices
         WHERE member_id=?
       `)
-      .bind(memberId)
+      .bind(
+        memberId
+      )
       .first();
 
-  if (!dev) {
+  if (
+    !dev
+  ) {
 
     return bad(
       req,
@@ -2041,7 +2097,67 @@ async function approveIcon(
     );
   }
 
-  const ver =
+  if (
+    Number(
+      dev.banned ||
+      0
+    ) === 1
+  ) {
+
+    return bad(
+      req,
+      'banned',
+      403
+    );
+  }
+
+  if (
+    !env.ICONS
+  ) {
+
+    return bad(
+      req,
+      'no_bucket',
+      503
+    );
+  }
+
+  const object =
+    await env.ICONS.get(
+      pending.object_key
+    );
+
+  if (
+    !object
+  ) {
+
+    return bad(
+      req,
+      'pending_icon_not_found',
+      404
+    );
+  }
+
+  const buffer =
+    await object.arrayBuffer();
+
+  /*
+   * 管理者承認後だけ公開用キーへ。
+   */
+  await env.ICONS.put(
+    iconKey(
+      memberId
+    ),
+    buffer,
+    {
+      httpMetadata: {
+        contentType:
+          'image/jpeg',
+      },
+    }
+  );
+
+  const version =
     Number(
       dev.icon_ver ||
       0
@@ -2057,7 +2173,7 @@ async function approveIcon(
         WHERE member_id=?
       `)
       .bind(
-        ver,
+        version,
         memberId
       ),
 
@@ -2074,10 +2190,19 @@ async function approveIcon(
   try {
 
     await env.ICONS.delete(
-      p.object_key
+      pending.object_key
     );
 
-  } catch {}
+  } catch {
+
+    await queueCleanup(
+      env,
+      'pending-icon-delete',
+      memberId,
+      null,
+      {}
+    );
+  }
 
   return json(
     req,
@@ -2092,14 +2217,14 @@ async function approveIcon(
         true,
 
       icon_ver:
-        ver,
+        version,
 
       icon_url:
         (
           '/i/' +
           memberId +
           '.jpg?v=' +
-          ver
+          version
         ),
     }
   );
@@ -2112,7 +2237,7 @@ async function rejectIcon(
   memberId
 ) {
 
-  const p =
+  const pending =
     await pendingIcon(
       env,
       memberId
@@ -2129,14 +2254,14 @@ async function rejectIcon(
     .run();
 
   if (
-    p &&
+    pending &&
     env.ICONS
   ) {
 
     try {
 
       await env.ICONS.delete(
-        p.object_key
+        pending.object_key
       );
 
     } catch {
@@ -2200,7 +2325,9 @@ async function adminDeleteIcon(
 
   try {
 
-    if (env.ICONS) {
+    if (
+      env.ICONS
+    ) {
 
       await env.ICONS.delete(
         iconKey(
@@ -2221,7 +2348,9 @@ async function adminDeleteIcon(
       true;
   }
 
-  if (failed) {
+  if (
+    failed
+  ) {
 
     await queueCleanup(
       env,
@@ -2249,7 +2378,7 @@ async function adminDeleteIcon(
 
 
 /* ============================================================
-   管理者：外部WEB対象グループ
+   管理：外部WEB対象グループ
    ============================================================ */
 
 async function adminGroups(
@@ -2281,9 +2410,12 @@ async function adminGroups(
 
           (
             SELECT COUNT(*)
+
             FROM external_consent ec
+
             JOIN devices d
               ON d.member_id=ec.member_id
+
             WHERE
               ec.group_id=g.group_id
               AND ec.consented=1
@@ -2312,35 +2444,35 @@ async function adminGroups(
           []
         )
           .map(
-            g => ({
+            row => ({
               group_id:
-                g.group_id,
+                row.group_id,
 
               name:
-                g.name,
+                row.name,
 
               start_ymd:
-                g.start_ymd,
+                row.start_ymd,
 
               show_weight:
                 Number(
-                  g.show_weight
+                  row.show_weight
                 ) === 1,
 
               external_enabled:
                 Number(
-                  g.external_enabled
+                  row.external_enabled
                 ) === 1,
 
               members:
                 Number(
-                  g.members ||
+                  row.members ||
                   0
                 ),
 
               consented:
                 Number(
-                  g.consented ||
+                  row.consented ||
                   0
                 ),
             })
@@ -2356,17 +2488,21 @@ async function setGroupExternal(
   groupId
 ) {
 
-  const g =
+  const group =
     await env.DB
       .prepare(`
         SELECT group_id
         FROM groups
         WHERE group_id=?
       `)
-      .bind(groupId)
+      .bind(
+        groupId
+      )
       .first();
 
-  if (!g) {
+  if (
+    !group
+  ) {
 
     return bad(
       req,
@@ -2375,13 +2511,13 @@ async function setGroupExternal(
     );
   }
 
-  const b =
+  const body =
     await readJson(
       req
     );
 
   if (
-    typeof b.enabled !==
+    typeof body.enabled !==
       'boolean'
   ) {
 
@@ -2391,9 +2527,6 @@ async function setGroupExternal(
     );
   }
 
-  const now =
-    Date.now();
-
   await env.DB
     .prepare(`
       INSERT INTO group_external (
@@ -2402,6 +2535,7 @@ async function setGroupExternal(
         updated_at
       )
       VALUES (?,?,?)
+
       ON CONFLICT(group_id)
       DO UPDATE SET
         enabled=excluded.enabled,
@@ -2409,18 +2543,19 @@ async function setGroupExternal(
     `)
     .bind(
       groupId,
-      b.enabled
+      body.enabled
         ? 1
         : 0,
-      now
+      Date.now()
     )
     .run();
 
   /*
-   * OFFにした場合は、
-   * 古い同意を次回ON時に再利用しない。
+   * OFFにしたら既存同意を将来再利用しない。
    */
-  if (!b.enabled) {
+  if (
+    !body.enabled
+  ) {
 
     await env.DB.batch([
 
@@ -2429,14 +2564,18 @@ async function setGroupExternal(
           DELETE FROM external_consent
           WHERE group_id=?
         `)
-        .bind(groupId),
+        .bind(
+          groupId
+        ),
 
       env.DB
         .prepare(`
           DELETE FROM external_queue
           WHERE group_id=?
         `)
-        .bind(groupId),
+        .bind(
+          groupId
+        ),
     ]);
   }
 
@@ -2450,14 +2589,14 @@ async function setGroupExternal(
         groupId,
 
       external_enabled:
-        b.enabled,
+        body.enabled,
     }
   );
 }
 
 
 /* ============================================================
-   管理者 summary
+   外部送信設定
    ============================================================ */
 
 function externalSenderConfigured(
@@ -2469,10 +2608,12 @@ function externalSenderConfigured(
       env.EXTERNAL_PUSH_URL ||
       ''
     ).trim() &&
+
     String(
       env.EXTERNAL_PUSH_AUTH_HEADER ||
       ''
     ).trim() &&
+
     String(
       env.EXTERNAL_PUSH_AUTH_VALUE ||
       ''
@@ -2480,6 +2621,10 @@ function externalSenderConfigured(
   );
 }
 
+
+/* ============================================================
+   管理：Safety summary
+   ============================================================ */
 
 async function safetySummary(
   req,
@@ -2489,7 +2634,7 @@ async function safetySummary(
   const [
     icons,
     cleanup,
-    queue,
+    external,
     reports
   ] =
     await Promise.all([
@@ -2552,8 +2697,8 @@ async function safetySummary(
 
       external_queue:
         Number(
-          queue &&
-          queue.n ||
+          external &&
+          external.n ||
           0
         ),
 
@@ -2574,7 +2719,7 @@ async function safetySummary(
 
 
 /* ============================================================
-   管理者 safety route
+   管理 Safety API
    ============================================================ */
 
 export async function adminSafetyRoute(
@@ -2587,13 +2732,12 @@ export async function adminSafetyRoute(
     env
   );
 
-  const ok =
-    await adminAuthorized(
+  if (
+    !await adminAuthorized(
       req,
       env
-    );
-
-  if (!ok) {
+    )
+  ) {
 
     return bad(
       req,
@@ -2602,20 +2746,20 @@ export async function adminSafetyRoute(
     );
   }
 
-  const p =
+  const path =
     url.pathname
       .replace(
         /\/+$/,
         ''
       );
 
-  const m =
+  const method =
     req.method;
 
   if (
-    p ===
+    path ===
       '/api/admin/safety/summary' &&
-    m ===
+    method ===
       'GET'
   ) {
 
@@ -2626,9 +2770,9 @@ export async function adminSafetyRoute(
   }
 
   if (
-    p ===
+    path ===
       '/api/admin/safety/icon-pending' &&
-    m ===
+    method ===
       'GET'
   ) {
 
@@ -2639,9 +2783,9 @@ export async function adminSafetyRoute(
   }
 
   if (
-    p ===
+    path ===
       '/api/admin/safety/groups' &&
-    m ===
+    method ===
       'GET'
   ) {
 
@@ -2653,14 +2797,16 @@ export async function adminSafetyRoute(
 
   const groupMatch =
     /^\/api\/admin\/safety\/groups\/([0-9A-Z]{8})\/external$/
-      .exec(p);
+      .exec(
+        path
+      );
 
   if (
     groupMatch &&
     (
-      m ===
+      method ===
         'POST' ||
-      m ===
+      method ===
         'PATCH'
     )
   ) {
@@ -2674,11 +2820,13 @@ export async function adminSafetyRoute(
 
   const imageMatch =
     /^\/api\/admin\/safety\/icon-pending\/([0-9A-Z]{6,32})\/image$/
-      .exec(p);
+      .exec(
+        path
+      );
 
   if (
     imageMatch &&
-    m ===
+    method ===
       'GET'
   ) {
 
@@ -2691,11 +2839,13 @@ export async function adminSafetyRoute(
 
   const approveMatch =
     /^\/api\/admin\/safety\/icon-pending\/([0-9A-Z]{6,32})\/approve$/
-      .exec(p);
+      .exec(
+        path
+      );
 
   if (
     approveMatch &&
-    m ===
+    method ===
       'POST'
   ) {
 
@@ -2708,11 +2858,13 @@ export async function adminSafetyRoute(
 
   const rejectMatch =
     /^\/api\/admin\/safety\/icon-pending\/([0-9A-Z]{6,32})\/reject$/
-      .exec(p);
+      .exec(
+        path
+      );
 
   if (
     rejectMatch &&
-    m ===
+    method ===
       'POST'
   ) {
 
@@ -2723,20 +2875,22 @@ export async function adminSafetyRoute(
     );
   }
 
-  const deleteIconMatch =
+  const deleteMatch =
     /^\/api\/admin\/safety\/icon\/([0-9A-Z]{6,32})$/
-      .exec(p);
+      .exec(
+        path
+      );
 
   if (
-    deleteIconMatch &&
-    m ===
+    deleteMatch &&
+    method ===
       'DELETE'
   ) {
 
     return await adminDeleteIcon(
       req,
       env,
-      deleteIconMatch[1]
+      deleteMatch[1]
     );
   }
 
@@ -2757,7 +2911,7 @@ async function mutualBlockedSet(
   dev
 ) {
 
-  const out =
+  const result =
     new Set();
 
   const own =
@@ -2773,31 +2927,36 @@ async function mutualBlockedSet(
       .all();
 
   for (
-    const r of
+    const row of
     own.results ||
     []
   ) {
 
     if (
-      r.blocked_member_id
+      row.blocked_member_id
     ) {
 
-      out.add(
-        r.blocked_member_id
+      result.add(
+        String(
+          row.blocked_member_id
+        )
       );
     }
   }
 
   /*
-   * 自分をブロックしている人も通常表示から外す。
+   * 自分をブロックしている人も取得。
    */
   const reverse =
     await env.DB
       .prepare(`
         SELECT d.member_id
+
         FROM blocks b
+
         JOIN devices d
           ON d.device_id=b.device_id
+
         WHERE b.blocked_member_id=?
       `)
       .bind(
@@ -2806,22 +2965,24 @@ async function mutualBlockedSet(
       .all();
 
   for (
-    const r of
+    const row of
     reverse.results ||
     []
   ) {
 
     if (
-      r.member_id
+      row.member_id
     ) {
 
-      out.add(
-        r.member_id
+      result.add(
+        String(
+          row.member_id
+        )
       );
     }
   }
 
-  return out;
+  return result;
 }
 
 
@@ -2836,7 +2997,9 @@ export async function blockedRivalPost(
       env
     );
 
-  if (member.error) {
+  if (
+    member.error
+  ) {
 
     return member.error;
   }
@@ -2850,14 +3013,13 @@ export async function blockedRivalPost(
       );
 
   const target =
-    String(
-      body.member_id ||
-      ''
-    )
-      .trim()
-      .toUpperCase();
+    normalizeMemberId(
+      body.member_id
+    );
 
-  if (!target) {
+  if (
+    !target
+  ) {
 
     return null;
   }
@@ -2882,6 +3044,146 @@ export async function blockedRivalPost(
   }
 
   return null;
+}
+
+
+function dayMemberId(row) {
+
+  if (
+    !row
+  ) {
+
+    return null;
+  }
+
+  return normalizeMemberId(
+    row.member_id ||
+    row.id
+  );
+}
+
+
+function recalcDayResponse(
+  data
+) {
+
+  if (
+    !data ||
+    !Array.isArray(
+      data.members
+    )
+  ) {
+
+    return;
+  }
+
+  let total =
+    0;
+
+  let hasWeight =
+    false;
+
+  let recorded =
+    0;
+
+  const filledIds =
+    [];
+
+  for (
+    const row of
+    data.members
+  ) {
+
+    if (
+      !row
+    ) {
+
+      continue;
+    }
+
+    if (
+      row.weight !==
+        null &&
+      row.weight !==
+        undefined &&
+      Number.isFinite(
+        Number(
+          row.weight
+        )
+      )
+    ) {
+
+      total +=
+        Number(
+          row.weight
+        );
+
+      hasWeight =
+        true;
+    }
+
+    /*
+     * exact record:
+     * ymdが指定日でfilledではない。
+     *
+     * weight非公開ユーザーでも
+     * ymdは残っているので記録済みとして数えられる。
+     */
+    if (
+      !row.filled &&
+      row.ymd &&
+      data.date &&
+      String(
+        row.ymd
+      ) ===
+        String(
+          data.date
+        )
+    ) {
+
+      recorded++;
+    }
+
+    if (
+      row.filled
+    ) {
+
+      const id =
+        dayMemberId(
+          row
+        );
+
+      if (
+        id
+      ) {
+
+        filledIds.push(
+          id
+        );
+      }
+    }
+  }
+
+  data.total =
+    hasWeight
+      ? round1(
+          total
+        )
+      : null;
+
+  data.recorded =
+    recorded;
+
+  data.count =
+    data.members.length;
+
+  if (
+    data.filled
+  ) {
+
+    data.filled_ids =
+      filledIds;
+  }
 }
 
 
@@ -2918,16 +3220,28 @@ export async function filterMutualBlocks(
       member.dev
     );
 
+  if (
+    !blocked.size
+  ) {
+
+    return response;
+  }
+
   const data =
     await responseJson(
       response
     );
 
-  if (!data) {
+  if (
+    !data
+  ) {
 
     return response;
   }
 
+  /*
+   * ランキング
+   */
   if (
     Array.isArray(
       data.rows
@@ -2936,18 +3250,35 @@ export async function filterMutualBlocks(
 
     data.rows =
       data.rows.filter(
-        row =>
-          (
+        row => {
+
+          if (
             row &&
             row.is_self
-          ) ||
-          !blocked.has(
-            row &&
-            row.member_id
-          )
+          ) {
+
+            return true;
+          }
+
+          const id =
+            normalizeMemberId(
+              row &&
+              row.member_id
+            );
+
+          return (
+            !id ||
+            !blocked.has(
+              id
+            )
+          );
+        }
       );
   }
 
+  /*
+   * ライバル一覧
+   */
   if (
     Array.isArray(
       data.rivals
@@ -2956,16 +3287,57 @@ export async function filterMutualBlocks(
 
     data.rivals =
       data.rivals.filter(
-        row =>
-          !blocked.has(
-            row &&
-            row.member_id
-          )
+        row => {
+
+          const id =
+            normalizeMemberId(
+              row &&
+              row.member_id
+            );
+
+          return (
+            !id ||
+            !blocked.has(
+              id
+            )
+          );
+        }
       );
   }
 
+  /*
+   * 日付別体重
+   */
+  if (
+    Array.isArray(
+      data.members
+    )
+  ) {
+
+    data.members =
+      data.members.filter(
+        row => {
+
+          const id =
+            dayMemberId(
+              row
+            );
+
+          return (
+            !id ||
+            !blocked.has(
+              id
+            )
+          );
+        }
+      );
+
+    recalcDayResponse(
+      data
+    );
+  }
+
   return rebuildJson(
-    req,
     response,
     data
   );
@@ -2975,7 +3347,7 @@ export async function filterMutualBlocks(
 /* ============================================================
    オーナー・リーダー管理用一覧
 
-   ブロックには影響されない。
+   ブロックでは消さない。
    ============================================================ */
 
 export async function manageMembersRoute(
@@ -2989,7 +3361,9 @@ export async function manageMembersRoute(
       env
     );
 
-  if (member.error) {
+  if (
+    member.error
+  ) {
 
     return member.error;
   }
@@ -3007,7 +3381,7 @@ export async function manageMembersRoute(
     );
   }
 
-  const g =
+  const group =
     await env.DB
       .prepare(`
         SELECT *
@@ -3019,7 +3393,9 @@ export async function manageMembersRoute(
       )
       .first();
 
-  if (!g) {
+  if (
+    !group
+  ) {
 
     return bad(
       req,
@@ -3029,15 +3405,15 @@ export async function manageMembersRoute(
   }
 
   const owner =
-    g.owner_id ===
+    group.owner_id ===
       dev.member_id ||
-    g.owner_id ===
+    group.owner_id ===
       dev.device_id;
 
   const leaders =
     await leaderIds(
       env,
-      g.group_id
+      group.group_id
     );
 
   const leader =
@@ -3062,6 +3438,7 @@ export async function manageMembersRoute(
     await env.DB
       .prepare(`
         SELECT
+          d.device_id,
           d.member_id,
           d.nickname,
           d.icon_ver,
@@ -3094,7 +3471,7 @@ export async function manageMembersRoute(
         ORDER BY d.joined_at ASC
       `)
       .bind(
-        g.group_id
+        group.group_id
       )
       .all();
 
@@ -3104,61 +3481,65 @@ export async function manageMembersRoute(
       []
     )
       .map(
-        r => {
+        row => {
 
           const lockBy =
             String(
-              r.weight_lock_by ||
+              row.weight_lock_by ||
               ''
             );
 
           const locked =
             Number(
-              r.weight_locked ||
+              row.weight_locked ||
               0
             ) === 1;
 
           return {
             member_id:
-              r.member_id,
+              row.member_id,
 
             nickname:
-              r.nickname ||
+              row.nickname ||
               null,
 
             icon_ver:
               Number(
-                r.icon_ver ||
+                row.icon_ver ||
                 0
               ),
 
             icon_url:
               Number(
-                r.icon_ver ||
+                row.icon_ver ||
                 0
               ) > 0
                 ? (
                     '/i/' +
-                    r.member_id +
+                    row.member_id +
                     '.jpg?v=' +
                     Number(
-                      r.icon_ver
+                      row.icon_ver
                     )
                   )
                 : null,
 
             is_owner:
-              r.member_id ===
-                g.owner_id,
+              (
+                group.owner_id ===
+                  row.member_id ||
+                group.owner_id ===
+                  row.device_id
+              ),
 
             is_leader:
               leaders.includes(
-                r.member_id
+                row.member_id
               ),
 
             weight_hidden:
               Number(
-                r.weight_hidden ||
+                row.weight_hidden ||
                 0
               ) === 1 ||
               locked,
@@ -3188,7 +3569,7 @@ export async function manageMembersRoute(
       group:
         await groupView(
           env,
-          g,
+          group,
           dev
         ),
 
@@ -3199,7 +3580,7 @@ export async function manageMembersRoute(
 
 
 /* ============================================================
-   H2: スタート日前の共有を除去
+   開始日前共有防止
    ============================================================ */
 
 function csvParse(text) {
@@ -3210,13 +3591,13 @@ function csvParse(text) {
   let row =
     [];
 
-  let cur =
+  let current =
     '';
 
-  let quote =
+  let quoted =
     false;
 
-  const src =
+  const source =
     String(
       text ||
       ''
@@ -3228,89 +3609,111 @@ function csvParse(text) {
 
   for (
     let i = 0;
-    i < src.length;
+    i < source.length;
     i++
   ) {
 
-    const c =
-      src[i];
+    const char =
+      source[i];
 
-    if (quote) {
+    if (
+      quoted
+    ) {
 
       if (
-        c === '"'
+        char ===
+          '"'
       ) {
 
         if (
-          src[i + 1] ===
+          source[
+            i + 1
+          ] ===
             '"'
         ) {
 
-          cur +=
+          current +=
             '"';
 
           i++;
 
         } else {
 
-          quote =
+          quoted =
             false;
         }
 
       } else {
 
-        cur += c;
+        current +=
+          char;
       }
 
       continue;
     }
 
     if (
-      c === '"'
+      char ===
+        '"'
     ) {
 
-      quote =
+      quoted =
         true;
 
     } else if (
-      c === ','
+      char ===
+        ','
     ) {
 
-      row.push(cur);
+      row.push(
+        current
+      );
 
-      cur =
+      current =
         '';
 
     } else if (
-      c === '\n'
+      char ===
+        '\n'
     ) {
 
-      row.push(cur);
+      row.push(
+        current
+      );
 
-      rows.push(row);
+      rows.push(
+        row
+      );
 
       row =
         [];
 
-      cur =
+      current =
         '';
 
     } else if (
-      c !== '\r'
+      char !==
+        '\r'
     ) {
 
-      cur += c;
+      current +=
+        char;
     }
   }
 
   if (
-    cur !== '' ||
+    current !==
+      '' ||
     row.length
   ) {
 
-    row.push(cur);
+    row.push(
+      current
+    );
 
-    rows.push(row);
+    rows.push(
+      row
+    );
   }
 
   return rows;
@@ -3319,36 +3722,39 @@ function csvParse(text) {
 
 function csvCell(value) {
 
-  const s =
+  const text =
     value ===
       null ||
     value ===
       undefined
       ? ''
-      : String(value);
+      : String(
+          value
+        );
 
   return /[",\r\n]/
-    .test(s)
+    .test(
+      text
+    )
       ? (
           '"' +
-          s.replace(
+          text.replace(
             /"/g,
             '""'
           ) +
           '"'
         )
-      : s;
+      : text;
 }
 
 
-async function groupStartForDevice(
+async function getGroupById(
   env,
-  dev
+  groupId
 ) {
 
   if (
-    !dev ||
-    !dev.group_id
+    !groupId
   ) {
 
     return null;
@@ -3358,14 +3764,97 @@ async function groupStartForDevice(
     .prepare(`
       SELECT
         group_id,
-        start_ymd
+        start_ymd,
+        show_weight,
+        name
       FROM groups
       WHERE group_id=?
     `)
     .bind(
-      dev.group_id
+      groupId
     )
     .first();
+}
+
+
+async function resolveShareGroup(
+  req,
+  env,
+  dev,
+  pathname,
+  data
+) {
+
+  /*
+   * 日付ビューはレスポンス自身のgroup.idを最優先。
+   *
+   * 他チームを見ている場合、
+   * 自分の所属グループのstart_ymdを使ってはいけない。
+   */
+  if (
+    pathname ===
+      '/api/group/day'
+  ) {
+
+    const responseGroupId =
+      data &&
+      data.group &&
+      (
+        data.group.id ||
+        data.group.group_id
+      );
+
+    const normalizedResponseId =
+      normalizeCode(
+        responseGroupId
+      );
+
+    if (
+      normalizedResponseId
+    ) {
+
+      return await getGroupById(
+        env,
+        normalizedResponseId
+      );
+    }
+  }
+
+  const url =
+    new URL(
+      req.url
+    );
+
+  const requested =
+    normalizeCode(
+      url.searchParams.get(
+        'gid'
+      ) ||
+      ''
+    );
+
+  if (
+    requested
+  ) {
+
+    return await getGroupById(
+      env,
+      requested
+    );
+  }
+
+  if (
+    dev &&
+    dev.group_id
+  ) {
+
+    return await getGroupById(
+      env,
+      dev.group_id
+    );
+  }
+
+  return null;
 }
 
 
@@ -3391,29 +3880,11 @@ export async function filterStartDateShare(
     );
 
   if (
-    member.error ||
-    !member.dev.group_id
+    member.error
   ) {
 
     return response;
   }
-
-  const g =
-    await groupStartForDevice(
-      env,
-      member.dev
-    );
-
-  if (
-    !g ||
-    !g.start_ymd
-  ) {
-
-    return response;
-  }
-
-  const start =
-    g.start_ymd;
 
   if (
     pathname ===
@@ -3435,115 +3906,87 @@ export async function filterStartDateShare(
       return response;
     }
 
-    let total =
-      0;
+    const group =
+      await resolveShareGroup(
+        req,
+        env,
+        member.dev,
+        pathname,
+        data
+      );
 
-    let visible =
-      false;
+    if (
+      !group ||
+      !group.start_ymd
+    ) {
 
-    let recorded =
-      0;
+      return response;
+    }
 
-    const filled =
-      [];
+    const start =
+      String(
+        group.start_ymd
+      );
 
+    /*
+     * 指定日自体がスタート日前なら全員null。
+     *
+     * 指定日は開始後でも、
+     * fill=lastで開始日前記録を拾った場合もnull。
+     */
     for (
-      const r of
+      const row of
       data.members
     ) {
 
-      if (!r) {
+      if (
+        !row
+      ) {
 
         continue;
       }
 
-      /*
-       * 指定日自体が開始日前なら全員null。
-       * fillで使われた元データも開始日前ならnull。
-       */
-      if (
-        String(
-          data.date ||
-          ''
-        ) <
-          start ||
+      const beforeStart =
         (
-          r.ymd &&
-          String(r.ymd) <
+          data.date &&
+          String(
+            data.date
+          ) <
             start
-        )
-      ) {
-
-        r.weight =
-          null;
-
-        r.ymd =
-          null;
-
-        r.recordedAt =
-          null;
-
-        r.filled =
-          false;
-      }
+        ) ||
+        (
+          row.ymd &&
+          String(
+            row.ymd
+          ) <
+            start
+        );
 
       if (
-        r.weight !==
-          null &&
-        r.weight !==
-          undefined &&
-        Number.isFinite(
-          Number(
-            r.weight
-          )
-        )
+        !beforeStart
       ) {
 
-        total +=
-          Number(
-            r.weight
-          );
-
-        visible =
-          true;
-
-        if (
-          !r.filled
-        ) {
-
-          recorded++;
-        }
-
-        if (
-          r.filled &&
-          r.id
-        ) {
-
-          filled.push(
-            r.id
-          );
-        }
+        continue;
       }
+
+      row.weight =
+        null;
+
+      row.ymd =
+        null;
+
+      row.recordedAt =
+        null;
+
+      row.filled =
+        false;
     }
 
-    data.total =
-      visible
-        ? round1(total)
-        : null;
-
-    data.recorded =
-      recorded;
-
-    if (
-      data.filled
-    ) {
-
-      data.filled_ids =
-        filled;
-    }
+    recalcDayResponse(
+      data
+    );
 
     return rebuildJson(
-      req,
       response,
       data
     );
@@ -3554,13 +3997,37 @@ export async function filterStartDateShare(
       '/api/export'
   ) {
 
+    const group =
+      await resolveShareGroup(
+        req,
+        env,
+        member.dev,
+        pathname,
+        null
+      );
+
+    if (
+      !group ||
+      !group.start_ymd
+    ) {
+
+      return response;
+    }
+
+    const start =
+      String(
+        group.start_ymd
+      );
+
     const text =
       await response
         .clone()
         .text();
 
     const rows =
-      csvParse(text);
+      csvParse(
+        text
+      );
 
     if (
       rows.length <
@@ -3570,17 +4037,19 @@ export async function filterStartDateShare(
       return response;
     }
 
-    const head =
+    const header =
       rows[0]
         .map(
-          x =>
-            String(x)
+          value =>
+            String(
+              value
+            )
               .trim()
               .toLowerCase()
         );
 
     const dateIndex =
-      head.indexOf(
+      header.indexOf(
         'date'
       );
 
@@ -3594,55 +4063,63 @@ export async function filterStartDateShare(
 
     const kept = [
       rows[0],
+
       ...rows
         .slice(1)
         .filter(
-          r =>
+          row =>
             String(
-              r[dateIndex] ||
+              row[
+                dateIndex
+              ] ||
               ''
             ) >=
               start
         ),
     ];
 
-    const out =
+    const output =
       '\uFEFF' +
       kept
         .map(
-          r =>
-            r.map(
-              csvCell
-            )
-              .join(',')
+          row =>
+            row
+              .map(
+                csvCell
+              )
+              .join(
+                ','
+              )
         )
         .join(
           '\r\n'
         ) +
       '\r\n';
 
-    const h =
+    const headers =
       new Headers(
         response.headers
       );
 
-    h.delete(
+    headers.delete(
       'content-length'
     );
 
-    h.set(
+    headers.set(
       'cache-control',
       'no-store'
     );
 
     return new Response(
-      out,
+      output,
       {
         status:
           response.status,
 
-        headers:
-          h,
+        statusText:
+          response.statusText,
+
+        headers,
       }
     );
   }
@@ -3654,6 +4131,65 @@ export async function filterStartDateShare(
 /* ============================================================
    削除再試行
    ============================================================ */
+
+function noSuchTable(error) {
+
+  const text =
+    String(
+      error &&
+      error.message ||
+      error ||
+      ''
+    )
+      .toLowerCase();
+
+  return (
+    text.includes(
+      'no such table'
+    ) ||
+    text.includes(
+      'does not exist'
+    )
+  );
+}
+
+
+async function optionalDelete(
+  env,
+  sql,
+  ...values
+) {
+
+  try {
+
+    await env.DB
+      .prepare(
+        sql
+      )
+      .bind(
+        ...values
+      )
+      .run();
+
+  } catch (error) {
+
+    /*
+     * optional機能のテーブルが
+     * まだ作られていない環境では無視。
+     */
+    if (
+      noSuchTable(
+        error
+      )
+    ) {
+
+      return;
+    }
+
+    throw error;
+  }
+}
+
 
 async function queueCleanup(
   env,
@@ -3728,7 +4264,7 @@ export async function captureDeleteContext(
 }
 
 
-async function deleteSafetyRows(
+async function cleanupMemberArtifacts(
   env,
   context
 ) {
@@ -3741,42 +4277,169 @@ async function deleteSafetyRows(
     return;
   }
 
-  const mid =
+  await ensureSafetyTables(
+    env
+  );
+
+  const memberId =
     context.member_id;
 
-  await env.DB.batch([
+  /*
+   * safety.js
+   */
+  await optionalDelete(
+    env,
+    `
+      DELETE FROM icon_pending
+      WHERE member_id=?
+    `,
+    memberId
+  );
 
-    env.DB
-      .prepare(`
-        DELETE FROM icon_pending
-        WHERE member_id=?
-      `)
-      .bind(mid),
+  await optionalDelete(
+    env,
+    `
+      DELETE FROM external_consent
+      WHERE member_id=?
+    `,
+    memberId
+  );
 
-    env.DB
-      .prepare(`
-        DELETE FROM external_consent
-        WHERE member_id=?
-      `)
-      .bind(mid),
+  await optionalDelete(
+    env,
+    `
+      DELETE FROM external_queue
+      WHERE member_id=?
+    `,
+    memberId
+  );
 
-    env.DB
-      .prepare(`
-        DELETE FROM external_queue
-        WHERE member_id=?
-      `)
-      .bind(mid),
-  ]);
+  /*
+   * entry.jsで削除失敗しても
+   * cron再試行側で再度削除。
+   */
 
-  if (env.ICONS) {
+  await optionalDelete(
+    env,
+    `
+      DELETE FROM vote_predictions
+      WHERE member_id=?
+    `,
+    memberId
+  );
+
+  await optionalDelete(
+    env,
+    `
+      DELETE FROM push_subscriptions
+      WHERE member_id=?
+    `,
+    memberId
+  );
+
+  await optionalDelete(
+    env,
+    `
+      DELETE FROM weight_privacy
+      WHERE member_id=?
+    `,
+    memberId
+  );
+
+  await optionalDelete(
+    env,
+    `
+      DELETE FROM weight_privacy_lock
+      WHERE member_id=?
+    `,
+    memberId
+  );
+
+  /*
+   * 念のため残存leader行も削除。
+   */
+  await optionalDelete(
+    env,
+    `
+      DELETE FROM group_leaders
+      WHERE member_id=?
+    `,
+    memberId
+  );
+
+  /*
+   * R2
+   */
+  if (
+    env.ICONS
+  ) {
 
     await env.ICONS.delete(
-      iconKey(mid)
+      iconKey(
+        memberId
+      )
     );
 
     await env.ICONS.delete(
-      pendingIconKey(mid)
+      pendingIconKey(
+        memberId
+      )
     );
+  }
+
+  /*
+   * アカウント削除でオーナーのグループが解散済みなら、
+   * orphanした外部連携情報も掃除する。
+   *
+   * 通常メンバー削除ならgroup自体が存在するため消さない。
+   */
+  if (
+    context.group_id
+  ) {
+
+    const group =
+      await env.DB
+        .prepare(`
+          SELECT group_id
+          FROM groups
+          WHERE group_id=?
+        `)
+        .bind(
+          context.group_id
+        )
+        .first();
+
+    if (
+      !group
+    ) {
+
+      await optionalDelete(
+        env,
+        `
+          DELETE FROM group_external
+          WHERE group_id=?
+        `,
+        context.group_id
+      );
+
+      await optionalDelete(
+        env,
+        `
+          DELETE FROM external_consent
+          WHERE group_id=?
+        `,
+        context.group_id
+      );
+
+      await optionalDelete(
+        env,
+        `
+          DELETE FROM external_queue
+          WHERE group_id=?
+        `,
+        context.group_id
+      );
+    }
   }
 }
 
@@ -3796,12 +4459,12 @@ export async function cleanupAfterDelete(
 
   try {
 
-    await deleteSafetyRows(
+    await cleanupMemberArtifacts(
       env,
       context
     );
 
-  } catch (e) {
+  } catch (error) {
 
     await queueCleanup(
       env,
@@ -3824,7 +4487,9 @@ async function runCleanupJob(
       'icon-delete'
   ) {
 
-    if (env.ICONS) {
+    if (
+      env.ICONS
+    ) {
 
       await env.ICONS.delete(
         iconKey(
@@ -3847,7 +4512,9 @@ async function runCleanupJob(
       'pending-icon-delete'
   ) {
 
-    if (env.ICONS) {
+    if (
+      env.ICONS
+    ) {
 
       await env.ICONS.delete(
         pendingIconKey(
@@ -3864,14 +4531,33 @@ async function runCleanupJob(
       'member-safety-delete'
   ) {
 
-    await deleteSafetyRows(
+    let payload =
+      {};
+
+    try {
+
+      payload =
+        JSON.parse(
+          job.payload ||
+          '{}'
+        );
+
+    } catch {}
+
+    await cleanupMemberArtifacts(
       env,
       {
         member_id:
           job.member_id,
 
+        device_id:
+          payload.device_id ||
+          null,
+
         group_id:
-          job.group_id,
+          job.group_id ||
+          payload.group_id ||
+          null,
       }
     );
 
@@ -3904,7 +4590,9 @@ export async function processCleanupJobs(
         ORDER BY id ASC
         LIMIT 25
       `)
-      .bind(now)
+      .bind(
+        now
+      )
       .all();
 
   let done =
@@ -3938,7 +4626,7 @@ export async function processCleanupJobs(
 
       done++;
 
-    } catch (e) {
+    } catch (error) {
 
       failed++;
 
@@ -3976,9 +4664,9 @@ export async function processCleanupJobs(
           Date.now() +
             wait,
           String(
-            e &&
-            e.message ||
-            e
+            error &&
+            error.message ||
+            error
           )
             .slice(
               0,
@@ -3998,7 +4686,7 @@ export async function processCleanupJobs(
 
 
 /* ============================================================
-   外部WEB push
+   外部WEB
    ============================================================ */
 
 async function effectiveWeightHidden(
@@ -4007,6 +4695,9 @@ async function effectiveWeightHidden(
   group
 ) {
 
+  /*
+   * グループ自体が体重非公開なら必ずhidden。
+   */
   if (
     !group ||
     Number(
@@ -4017,7 +4708,7 @@ async function effectiveWeightHidden(
     return true;
   }
 
-  const r =
+  const row =
     await env.DB
       .prepare(`
         SELECT
@@ -4048,13 +4739,14 @@ async function effectiveWeightHidden(
 
   return (
     Number(
-      r &&
-      r.hidden ||
+      row &&
+      row.hidden ||
       0
     ) === 1 ||
+
     Number(
-      r &&
-      r.locked ||
+      row &&
+      row.locked ||
       0
     ) === 1
   );
@@ -4074,11 +4766,14 @@ async function lossUntilDate(
         SELECT
           ymd,
           kg
+
         FROM weights
+
         WHERE
           device_id=?
           AND ymd>=?
           AND ymd<=?
+
         ORDER BY ymd ASC
       `)
       .bind(
@@ -4094,13 +4789,15 @@ async function lossUntilDate(
     [];
 
   if (
-    rows.length <
-      2
+    !rows.length
   ) {
 
     return null;
   }
 
+  /*
+   * 最初の1件なら0.0kg。
+   */
   return round1(
     Number(
       rows[0].kg
@@ -4117,24 +4814,149 @@ async function lossUntilDate(
 
 function jstIso(ms) {
 
-  const d =
+  const date =
     new Date(
-      ms +
+      Number(ms) +
       9 *
       60 *
       60 *
       1000
     );
 
-  return (
-    d.toISOString()
-      .replace(
-        'Z',
-        '+09:00'
-      )
-  );
+  return date
+    .toISOString()
+    .replace(
+      'Z',
+      '+09:00'
+    );
 }
 
+
+/* ============================================================
+   外部送信payloadを「送信直前」に再生成
+
+   重要：
+   queue登録時に公開だった人が、
+   送信前に非公開へ変更しても
+   古いweight_kgを送らない。
+   ============================================================ */
+
+async function buildExternalPayload(
+  env,
+  dev,
+  group,
+  measurementDate
+) {
+
+  if (
+    !dev ||
+    !group ||
+    !isYmd(
+      measurementDate
+    )
+  ) {
+
+    return null;
+  }
+
+  if (
+    group.start_ymd &&
+    measurementDate <
+      group.start_ymd
+  ) {
+
+    return null;
+  }
+
+  const weight =
+    await env.DB
+      .prepare(`
+        SELECT
+          ymd,
+          kg,
+          updated_at
+        FROM weights
+        WHERE
+          device_id=?
+          AND ymd=?
+      `)
+      .bind(
+        dev.device_id,
+        measurementDate
+      )
+      .first();
+
+  /*
+   * 保存後にユーザーが記録を削除した場合、
+   * 未送信の古い値は送らない。
+   *
+   * 送信済みデータの削除仕様は
+   * 相手API仕様確定後に別途対応する。
+   */
+  if (
+    !weight
+  ) {
+
+    return null;
+  }
+
+  const hidden =
+    await effectiveWeightHidden(
+      env,
+      dev.member_id,
+      group
+    );
+
+  const base = {
+    member_id:
+      dev.member_id,
+
+    measurement_date:
+      measurementDate,
+
+    recorded_at:
+      jstIso(
+        Number(
+          weight.updated_at ||
+          Date.now()
+        )
+      ),
+  };
+
+  if (
+    hidden
+  ) {
+
+    return {
+      ...base,
+
+      loss_kg:
+        await lossUntilDate(
+          env,
+          dev.device_id,
+          group.start_ymd,
+          measurementDate
+        ),
+    };
+  }
+
+  return {
+    ...base,
+
+    weight_kg:
+      Number(
+        weight.kg
+      ),
+  };
+}
+
+
+/* ============================================================
+   体重保存後キュー
+
+   queue内には生体重そのものを保存しない。
+   実際のpayloadは送信直前にD1から再生成する。
+   ============================================================ */
 
 export async function queueExternalAfterWeight(
   req,
@@ -4199,27 +5021,27 @@ export async function queueExternalAfterWeight(
 
   if (
     !data ||
-    !data.ymd ||
-    data.kg ===
-      undefined
+    !data.ymd
   ) {
 
     return;
   }
 
-  const ymd =
+  const measurementDate =
     String(
       data.ymd
     );
 
   if (
-    !isYmd(ymd)
+    !isYmd(
+      measurementDate
+    )
   ) {
 
     return;
   }
 
-  const g =
+  const group =
     await env.DB
       .prepare(`
         SELECT *
@@ -4231,73 +5053,23 @@ export async function queueExternalAfterWeight(
       )
       .first();
 
-  if (!g) {
-
-    return;
-  }
-
-  /*
-   * 開始日前は送らない。
-   */
   if (
-    g.start_ymd &&
-    ymd <
-      g.start_ymd
+    !group
   ) {
 
     return;
   }
 
-  const hidden =
-    await effectiveWeightHidden(
-      env,
-      dev.member_id,
-      g
-    );
+  /*
+   * 開始日前はqueueにすら入れない。
+   */
+  if (
+    group.start_ymd &&
+    measurementDate <
+      group.start_ymd
+  ) {
 
-  const now =
-    Date.now();
-
-  let payload;
-
-  if (hidden) {
-
-    payload = {
-      member_id:
-        dev.member_id,
-
-      measurement_date:
-        ymd,
-
-      recorded_at:
-        jstIso(now),
-
-      loss_kg:
-        await lossUntilDate(
-          env,
-          dev.device_id,
-          g.start_ymd,
-          ymd
-        ),
-    };
-
-  } else {
-
-    payload = {
-      member_id:
-        dev.member_id,
-
-      measurement_date:
-        ymd,
-
-      recorded_at:
-        jstIso(now),
-
-      weight_kg:
-        Number(
-          data.kg
-        ),
-    };
+    return;
   }
 
   await env.DB
@@ -4313,6 +5085,7 @@ export async function queueExternalAfterWeight(
         last_error
       )
       VALUES (?,?,?,?,?,0,0,NULL)
+
       ON CONFLICT(
         member_id,
         group_id,
@@ -4328,15 +5101,25 @@ export async function queueExternalAfterWeight(
     .bind(
       dev.member_id,
       dev.group_id,
-      ymd,
-      JSON.stringify(
-        payload
-      ),
-      now
+      measurementDate,
+
+      /*
+       * 機密データはここへ入れない。
+       */
+      JSON.stringify({
+        kind:
+          'weight'
+      }),
+
+      Date.now()
     )
     .run();
 }
 
+
+/* ============================================================
+   外部キュー送信
+   ============================================================ */
 
 export async function processExternalQueue(
   env
@@ -4347,7 +5130,9 @@ export async function processExternalQueue(
   );
 
   /*
-   * 相手から3情報が来るまでは1件も送らない。
+   * 相手から
+   * URL / header / secret
+   * が来るまでは絶対に送らない。
    */
   if (
     !externalSenderConfigured(
@@ -4361,10 +5146,13 @@ export async function processExternalQueue(
 
       sent:
         0,
+
+      failed:
+        0,
     };
   }
 
-  const rows =
+  const rs =
     await env.DB
       .prepare(`
         SELECT *
@@ -4386,73 +5174,150 @@ export async function processExternalQueue(
 
   for (
     const row of
-    rows.results ||
+    rs.results ||
     []
   ) {
 
-    /*
-     * 送信直前に、
-     * 現在もそのグループ所属 + ON + 同意済みか再確認。
-     */
-    const dev =
-      await env.DB
-        .prepare(`
-          SELECT *
-          FROM devices
-          WHERE member_id=?
-        `)
-        .bind(
-          row.member_id
-        )
-        .first();
-
-    const allowed =
-      !!(
-        dev &&
-        dev.group_id ===
-          row.group_id &&
-        await groupExternalEnabled(
-          env,
-          row.group_id
-        ) &&
-        await externalConsentValue(
-          env,
-          row.member_id,
-          row.group_id
-        )
-      );
-
-    if (!allowed) {
-
-      await env.DB
-        .prepare(`
-          DELETE FROM external_queue
-          WHERE
-            member_id=?
-            AND group_id=?
-            AND measurement_date=?
-        `)
-        .bind(
-          row.member_id,
-          row.group_id,
-          row.measurement_date
-        )
-        .run();
-
-      continue;
-    }
-
     try {
 
-      const h =
+      /*
+       * 送信直前に現在状態を確認。
+       */
+      const dev =
+        await env.DB
+          .prepare(`
+            SELECT *
+            FROM devices
+            WHERE member_id=?
+          `)
+          .bind(
+            row.member_id
+          )
+          .first();
+
+      const stillAllowed =
+        !!(
+          dev &&
+          dev.group_id ===
+            row.group_id &&
+
+          await groupExternalEnabled(
+            env,
+            row.group_id
+          ) &&
+
+          await externalConsentValue(
+            env,
+            row.member_id,
+            row.group_id
+          )
+        );
+
+      /*
+       * 脱退 / 同意撤回 / グループOFF
+       */
+      if (
+        !stillAllowed
+      ) {
+
+        await env.DB
+          .prepare(`
+            DELETE FROM external_queue
+            WHERE
+              member_id=?
+              AND group_id=?
+              AND measurement_date=?
+          `)
+          .bind(
+            row.member_id,
+            row.group_id,
+            row.measurement_date
+          )
+          .run();
+
+        continue;
+      }
+
+      const group =
+        await env.DB
+          .prepare(`
+            SELECT *
+            FROM groups
+            WHERE group_id=?
+          `)
+          .bind(
+            row.group_id
+          )
+          .first();
+
+      if (
+        !group
+      ) {
+
+        await env.DB
+          .prepare(`
+            DELETE FROM external_queue
+            WHERE
+              member_id=?
+              AND group_id=?
+              AND measurement_date=?
+          `)
+          .bind(
+            row.member_id,
+            row.group_id,
+            row.measurement_date
+          )
+          .run();
+
+        continue;
+      }
+
+      /*
+       * queueに保存した古いpayloadは使わない。
+       * 現在のprivacyと現在のD1値で再生成。
+       */
+      const payload =
+        await buildExternalPayload(
+          env,
+          dev,
+          group,
+          row.measurement_date
+        );
+
+      /*
+       * 記録自体が既に削除されていた場合等。
+       */
+      if (
+        !payload
+      ) {
+
+        await env.DB
+          .prepare(`
+            DELETE FROM external_queue
+            WHERE
+              member_id=?
+              AND group_id=?
+              AND measurement_date=?
+          `)
+          .bind(
+            row.member_id,
+            row.group_id,
+            row.measurement_date
+          )
+          .run();
+
+        continue;
+      }
+
+      const headers =
         new Headers();
 
-      h.set(
+      headers.set(
         'content-type',
         'application/json'
       );
 
-      h.set(
+      headers.set(
         String(
           env.EXTERNAL_PUSH_AUTH_HEADER
         ),
@@ -4461,7 +5326,7 @@ export async function processExternalQueue(
         )
       );
 
-      const res =
+      const response =
         await fetch(
           String(
             env.EXTERNAL_PUSH_URL
@@ -4470,19 +5335,22 @@ export async function processExternalQueue(
             method:
               'POST',
 
-            headers:
-              h,
+            headers,
 
             body:
-              row.payload,
+              JSON.stringify(
+                payload
+              ),
           }
         );
 
-      if (!res.ok) {
+      if (
+        !response.ok
+      ) {
 
         throw new Error(
           'external_http_' +
-          res.status
+          response.status
         );
       }
 
@@ -4503,7 +5371,7 @@ export async function processExternalQueue(
 
       sent++;
 
-    } catch (e) {
+    } catch (error) {
 
       failed++;
 
@@ -4544,9 +5412,9 @@ export async function processExternalQueue(
           Date.now() +
             delay,
           String(
-            e &&
-            e.message ||
-            e
+            error &&
+            error.message ||
+            error
           )
             .slice(
               0,
@@ -4565,10 +5433,15 @@ export async function processExternalQueue(
       true,
 
     sent,
+
     failed,
   };
 }
 
+
+/* ============================================================
+   Path helper
+   ============================================================ */
 
 export function isSafetyAdminPath(
   pathname
@@ -4577,6 +5450,7 @@ export function isSafetyAdminPath(
   return (
     pathname ===
       '/api/admin/safety' ||
+
     pathname.startsWith(
       '/api/admin/safety/'
     )

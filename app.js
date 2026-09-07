@@ -2,50 +2,90 @@
 
 /* ============================================================
    みんやせ / app.js
-   2026-09-03 審査対応版
-   ・API 宛先を window.MINYASE_API_BASE から取得（Capacitor 対応）
-   ・prompt / confirm / alert を .ov/.sheet ベースのシートUIへ置換
-   ・投稿内容フィルタ（NG語・連絡先混入）追加：Guideline 1.2
-   ・通報→ブロック導線、初回同意ゲート追加
-   ・規約/プライバシーはアプリ内オーバーレイで開く（戻れない問題の解消）
-   ・体重保存はサーバー保存成功を確認してから成功扱い
-   ・体重保存失敗時はエラーコードを表示
-   ・index.html / style.css の ID・クラスは一切増やしていない
+   2026-09-07 審査・安全対応版
    ============================================================ */
 
-/* ===== API ===== */
-/* index.html 側で
-   window.MINYASE_API_BASE =
-     location.hostname === 'tdtd.la-kofu.workers.dev' ? '' : 'https://tdtd.la-kofu.workers.dev';
-   を定義している。アプリ（capacitor://localhost）では絶対URLになる。 */
-const API = (typeof window !== 'undefined' && window.MINYASE_API_BASE) || '';
 
-const K_DEV = 'tsudatsu.device_id.v1';   /* 変更禁止 */
-const K_AGREE = 'minyase.agreed.v1';     /* 初回同意の記録 */
-const AGREE_VER = '2026-09-03';
+/* ============================================================
+   API
+   ============================================================ */
 
-const ICON_SIZE = 256;                   /* 正方形クロップ後の一辺 */
-const ICON_LIMIT = 280 * 1024;           /* Worker 側の上限(300KB)より内側 */
-const CANCELED = 'canceled';             /* 切り取りをやめたときの内部合図 */
-const API_TIMEOUT = 15000;               /* 通信のタイムアウト(ms) */
+const API =
+  (
+    typeof window !== 'undefined' &&
+    window.MINYASE_API_BASE
+  ) ||
+  '';
 
-/* randomUUID は Safari 15.4 以降。古い端末向けにフォールバックを持つ */
+const K_DEV =
+  'tsudatsu.device_id.v1';
+
+const K_AGREE =
+  'minyase.agreed.v1';
+
+/*
+ * 2026-09-07版へ更新。
+ *
+ * 以前に2026-09-03版へ同意済みでも、
+ * 今回はプライバシー・UGC・外部WEB連携について
+ * 内容が大きく変わっているため再同意を出す。
+ */
+const AGREE_VER =
+  '2026-09-07';
+
+const ICON_SIZE =
+  256;
+
+const ICON_LIMIT =
+  280 * 1024;
+
+const CANCELED =
+  'canceled';
+
+const API_TIMEOUT =
+  15000;
+
+
+/* ============================================================
+   端末ID
+   ============================================================ */
+
 function uuid() {
-  if (crypto && typeof crypto.randomUUID === 'function') {
+
+  if (
+    crypto &&
+    typeof crypto.randomUUID ===
+      'function'
+  ) {
+
     return crypto.randomUUID();
   }
 
-  const b = new Uint8Array(16);
 
-  crypto.getRandomValues(b);
+  const b =
+    new Uint8Array(16);
+
+
+  crypto.getRandomValues(
+    b
+  );
+
 
   b[6] =
-    (b[6] & 0x0f) |
+    (
+      b[6] &
+      0x0f
+    ) |
     0x40;
 
+
   b[8] =
-    (b[8] & 0x3f) |
+    (
+      b[8] &
+      0x3f
+    ) |
     0x80;
+
 
   const h =
     [...b]
@@ -53,9 +93,13 @@ function uuid() {
         n =>
           n
             .toString(16)
-            .padStart(2, '0')
+            .padStart(
+              2,
+              '0'
+            )
       )
       .join('');
+
 
   return (
     `${h.slice(0, 8)}-` +
@@ -68,73 +112,101 @@ function uuid() {
 
 
 function deviceId() {
-  let v =
+
+  let value =
     localStorage.getItem(
       K_DEV
     );
 
-  if (!v) {
-    v =
+
+  if (!value) {
+
+    value =
       'dev_' +
       uuid();
 
+
     localStorage.setItem(
       K_DEV,
-      v
+      value
     );
   }
 
-  return v;
+
+  return value;
 }
 
 
+/* ============================================================
+   fetch timeout
+   ============================================================ */
+
 function withTimeout(ms) {
+
   if (
     typeof AbortController !==
-    'function'
+      'function'
   ) {
+
     return {
-      signal: undefined,
-      done: () => {}
+      signal:
+        undefined,
+
+      done:
+        () => {}
     };
   }
 
-  const c =
+
+  const controller =
     new AbortController();
 
-  const t =
+
+  const timer =
     setTimeout(
       () =>
-        c.abort(),
+        controller.abort(),
       ms
     );
 
+
   return {
     signal:
-      c.signal,
+      controller.signal,
 
     done:
       () =>
-        clearTimeout(t)
+        clearTimeout(
+          timer
+        )
   };
 }
 
+
+/* ============================================================
+   JSON API
+   ============================================================ */
 
 async function api(
   path,
   opt = {}
 ) {
-  const t =
+
+  const timeout =
     withTimeout(
       API_TIMEOUT
     );
 
-  let res;
+
+  let response;
+
 
   try {
-    res =
+
+    response =
       await fetch(
-        API + path,
+        API +
+        path,
         {
           method:
             opt.method ||
@@ -149,7 +221,8 @@ async function api(
           },
 
           body:
-            opt.body !== undefined
+            opt.body !==
+              undefined
               ? JSON.stringify(
                   opt.body
                 )
@@ -159,11 +232,13 @@ async function api(
             'no-store',
 
           signal:
-            t.signal,
+            timeout.signal,
         }
       );
 
+
   } catch (e) {
+
     throw new Error(
       e &&
       e.name ===
@@ -172,53 +247,71 @@ async function api(
         : 'network_error'
     );
 
+
   } finally {
-    t.done();
+
+    timeout.done();
   }
 
 
-  let data = {};
+  let data =
+    {};
+
 
   try {
+
     data =
-      await res.json();
+      await response.json();
+
   } catch {}
 
 
   if (
-    !res.ok ||
-    data.ok === false
+    !response.ok ||
+    data.ok ===
+      false
   ) {
+
     throw new Error(
       data.error ||
       (
         'http_' +
-        res.status
+        response.status
       )
     );
   }
+
 
   return data;
 }
 
 
-/* 画像は JSON ではなく生バイトで送る */
+/* ============================================================
+   画像API
+   ============================================================ */
+
 async function apiBlob(
   path,
   blob,
   method = 'POST'
 ) {
-  const t =
+
+  const timeout =
     withTimeout(
-      API_TIMEOUT * 2
+      API_TIMEOUT *
+      2
     );
 
-  let res;
+
+  let response;
+
 
   try {
-    res =
+
+    response =
       await fetch(
-        API + path,
+        API +
+        path,
         {
           method,
 
@@ -237,11 +330,13 @@ async function apiBlob(
             'no-store',
 
           signal:
-            t.signal,
+            timeout.signal,
         }
       );
 
+
   } catch (e) {
+
     throw new Error(
       e &&
       e.name ===
@@ -250,40 +345,51 @@ async function apiBlob(
         : 'network_error'
     );
 
+
   } finally {
-    t.done();
+
+    timeout.done();
   }
 
 
-  let data = {};
+  let data =
+    {};
+
 
   try {
+
     data =
-      await res.json();
+      await response.json();
+
   } catch {}
 
 
   if (
-    !res.ok ||
-    data.ok === false
+    !response.ok ||
+    data.ok ===
+      false
   ) {
+
     throw new Error(
       data.error ||
       (
         'http_' +
-        res.status
+        response.status
       )
     );
   }
+
 
   return data;
 }
 
 
-/* ===== エラー文言 ===== */
+/* ============================================================
+   エラー文言
+   ============================================================ */
+
 const ERR = {
 
-  /* 通信 */
   network_error:
     '通信できませんでした。電波状況をご確認ください',
 
@@ -291,7 +397,6 @@ const ERR = {
     '通信に時間がかかりすぎました。もう一度お試しください',
 
 
-  /* 端末・アカウント */
   bad_device_id:
     '端末IDが不正です',
 
@@ -302,7 +407,6 @@ const ERR = {
     'このアカウントは利用できません',
 
 
-  /* 記録 */
   bad_kg:
     '体重の値が不正です',
 
@@ -313,7 +417,6 @@ const ERR = {
     '未来の日付は登録できません',
 
 
-  /* グループ */
   bad_code:
     'コードは8文字です',
 
@@ -372,7 +475,6 @@ const ERR = {
     '変更点がありません',
 
 
-  /* 制限 */
   rate_limited:
     '操作が多すぎます。1分ほど待ってください',
 
@@ -380,7 +482,6 @@ const ERR = {
     '操作が多すぎます。1分ほど待ってください',
 
 
-  /* 画像 */
   not_jpeg:
     '画像を変換できませんでした。別の写真でお試しください',
 
@@ -399,8 +500,10 @@ const ERR = {
   bad_image:
     '画像を読み込めませんでした',
 
+  pending_icon_not_found:
+    '承認待ち画像が見つかりません',
 
-  /* 端末側フィルタ（Guideline 1.2） */
+
   ng_word:
     'この表現は登録できません。別の言葉に変えてください',
 
@@ -408,7 +511,6 @@ const ERR = {
     'URL・メールアドレス・電話番号・SNSのIDは入れられません',
 
 
-  /* 管理・入出力（管理画面と共通のコード） */
   unauthorized:
     '認証できませんでした',
 
@@ -436,6 +538,8 @@ const ERR = {
   new_device_not_empty:
     '移行先の端末にすでにデータがあります',
 
+  blocked_relation:
+    'ブロック関係にあるため操作できません',
 
   server_error:
     'サーバーエラーが発生しました',
@@ -444,7 +548,9 @@ const ERR = {
 
 const emsg =
   e =>
-    ERR[e.message] ||
+    ERR[
+      e.message
+    ] ||
     (
       'エラー（' +
       e.message +
@@ -453,20 +559,24 @@ const emsg =
 
 
 function errorCode(e) {
+
   if (
     e &&
     typeof e.message ===
       'string' &&
     e.message.trim()
   ) {
+
     return e.message.trim();
   }
+
 
   return 'unknown_error';
 }
 
 
 function saveErrorMessage(e) {
+
   return (
     '保存できませんでした：' +
     emsg(e) +
@@ -477,10 +587,12 @@ function saveErrorMessage(e) {
 }
 
 
-/* ===== 投稿内容フィルタ（Guideline 1.2）=====
-   ニックネーム・グループ名・通報理由に適用する。
-   語を足したいときは NG_WORDS に追記するだけでよい。 */
+/* ============================================================
+   投稿内容フィルタ
+   ============================================================ */
+
 const NG_WORDS = [
+
   '死ね',
   'しね',
   '殺す',
@@ -534,7 +646,8 @@ const RE_CONTACT =
 
 
 function moderate(raw) {
-  const s =
+
+  const value =
     String(
       raw ||
       ''
@@ -545,38 +658,43 @@ function moderate(raw) {
       .toLowerCase();
 
 
-  if (!s) {
+  if (!value) {
+
     return null;
   }
 
 
   if (
-    RE_CONTACT.test(s)
+    RE_CONTACT.test(
+      value
+    )
   ) {
+
     return 'has_contact';
   }
 
 
-  /* 記号・空白・区切りを抜いて素通りを防ぐ */
   const flat =
-    s.replace(
+    value.replace(
       /[\s\u3000!-\/:-@\[-`{-~。、・゛゜「」…]/g,
       ''
     );
 
 
   for (
-    const w of
+    const word of
     NG_WORDS
   ) {
+
     if (
       flat.includes(
-        w.replace(
+        word.replace(
           /\s/g,
           ''
         )
       )
     ) {
+
       return 'ng_word';
     }
   }
@@ -586,33 +704,52 @@ function moderate(raw) {
 }
 
 
-/* ===== キャッシュ ===== */
+/* ============================================================
+   キャッシュ
+   ============================================================ */
 
 const cache = {
-  weights: {},
-  goal: null,
-  me: null,
-  group: null,
-  watching: [],
-  blocks: [],
-  ready: false,
+
+  weights:
+    {},
+
+  goal:
+    null,
+
+  me:
+    null,
+
+  group:
+    null,
+
+  watching:
+    [],
+
+  blocks:
+    [],
+
+  /*
+   * 2026-09-07追加
+   */
+  iconPending:
+    false,
+
+  iconPendingAt:
+    null,
+
+  ready:
+    false,
 };
 
 
 const store = {
 
   all() {
+
     return cache.weights;
   },
 
 
-  /*
-   * 体重保存はサーバーの成功を確認してから
-   * ローカルキャッシュへ反映する。
-   *
-   * 以前のように先にキャッシュを書き換えないため、
-   * 通信失敗時に「成功したように見える」状態にならない。
-   */
   async put(
     ymd,
     kg
@@ -641,6 +778,7 @@ const store = {
     if (
       cache.group
     ) {
+
       loadRanking();
     }
 
@@ -650,6 +788,7 @@ const store = {
 
 
   del(ymd) {
+
     const before =
       cache.weights[
         ymd
@@ -673,9 +812,11 @@ const store = {
     )
       .then(
         () => {
+
           if (
             cache.group
           ) {
+
             loadRanking();
           }
         }
@@ -685,8 +826,9 @@ const store = {
 
           if (
             before !==
-            undefined
+              undefined
           ) {
+
             cache.weights[
               ymd
             ] =
@@ -709,17 +851,19 @@ const store = {
 
 
   goal() {
+
     return cache.goal;
   },
 
 
-  setGoal(v) {
+  setGoal(value) {
+
     const before =
       cache.goal;
 
 
     cache.goal =
-      v;
+      value;
 
 
     api(
@@ -730,7 +874,7 @@ const store = {
 
         body: {
           goal_weight:
-            v
+            value
         }
       }
     )
@@ -756,7 +900,9 @@ const store = {
 };
 
 
-/* ===== JST 日付 ===== */
+/* ============================================================
+   JST日付
+   ============================================================ */
 
 const JST_FMT =
   new Intl.DateTimeFormat(
@@ -778,29 +924,32 @@ const JST_FMT =
 
 
 function todayYmdJST() {
-  const p =
+
+  const parts =
     JST_FMT.formatToParts(
       new Date()
     );
 
 
-  const g =
-    t =>
-      p.find(
-        x =>
-          x.type === t
+  const get =
+    type =>
+      parts.find(
+        item =>
+          item.type ===
+            type
       ).value;
 
 
   return (
-    `${g('year')}-` +
-    `${g('month')}-` +
-    `${g('day')}`
+    `${get('year')}-` +
+    `${get('month')}-` +
+    `${get('day')}`
   );
 }
 
 
 function ymdToDay(ymd) {
+
   return Math.round(
     Date.parse(
       ymd +
@@ -812,7 +961,8 @@ function ymdToDay(ymd) {
 
 
 function dayToYmd(day) {
-  const p =
+
+  const parts =
     JST_FMT.formatToParts(
       new Date(
         day *
@@ -821,57 +971,61 @@ function dayToYmd(day) {
     );
 
 
-  const g =
-    t =>
-      p.find(
-        x =>
-          x.type === t
+  const get =
+    type =>
+      parts.find(
+        item =>
+          item.type ===
+            type
       ).value;
 
 
   return (
-    `${g('year')}-` +
-    `${g('month')}-` +
-    `${g('day')}`
+    `${get('year')}-` +
+    `${get('month')}-` +
+    `${get('day')}`
   );
 }
 
 
 function fmtJp(ymd) {
+
   const [
     ,
-    m,
-    d
+    month,
+    day
   ] =
     ymd.split('-');
 
 
   return (
-    `${Number(m)}月` +
-    `${Number(d)}日`
+    `${Number(month)}月` +
+    `${Number(day)}日`
   );
 }
 
 
 function fmtJpFull(ymd) {
+
   const [
-    y,
-    m,
-    d
+    year,
+    month,
+    day
   ] =
     ymd.split('-');
 
 
   return (
-    `${y}年` +
-    `${Number(m)}月` +
-    `${Number(d)}日`
+    `${year}年` +
+    `${Number(month)}月` +
+    `${Number(day)}日`
   );
 }
 
 
 function normKg(raw) {
-  const v =
+
+  const value =
     parseFloat(
       raw
     );
@@ -879,39 +1033,47 @@ function normKg(raw) {
 
   if (
     !Number.isFinite(
-      v
+      value
     )
   ) {
+
     return null;
   }
 
 
-  const r =
+  const rounded =
     Math.round(
-      v * 10
+      value *
+      10
     ) /
     10;
 
 
   return (
-    r >= 20 &&
-    r <= 300
+    rounded >=
+      20 &&
+    rounded <=
+      300
   )
-    ? r
+    ? rounded
     : null;
 }
 
 
-/* Worker は code を "ABCD-1234" 形式で返す。二重にハイフンを入れない */
+/* ============================================================
+   コード
+   ============================================================ */
 
-function fmtCode(c) {
-  if (!c) {
+function fmtCode(code) {
+
+  if (!code) {
+
     return '—';
   }
 
 
-  const s =
-    String(c)
+  const value =
+    String(code)
       .toUpperCase()
       .replace(
         /[^0-9A-Z]/g,
@@ -920,23 +1082,25 @@ function fmtCode(c) {
 
 
   return (
-    s.length === 8
+    value.length ===
+      8
   )
     ? (
-        s.slice(
+        value.slice(
           0,
           4
         ) +
         '-' +
-        s.slice(4)
+        value.slice(4)
       )
-    : String(c);
+    : String(code);
 }
 
 
-function rawCode(c) {
+function rawCode(code) {
+
   return String(
-    c ||
+    code ||
     ''
   )
     .toUpperCase()
@@ -947,23 +1111,29 @@ function rawCode(c) {
 }
 
 
-/* 減量幅の表示：正 = 減った */
+function signKg(value) {
 
-function signKg(v) {
   if (
-    v === null ||
-    v === undefined
+    value ===
+      null ||
+    value ===
+      undefined
   ) {
+
     return '—';
   }
 
 
   if (
-    v > 0
+    value >
+      0
   ) {
+
     return (
       '−' +
-      Math.abs(v)
+      Math.abs(
+        value
+      )
         .toFixed(1) +
       'kg'
     );
@@ -971,11 +1141,15 @@ function signKg(v) {
 
 
   if (
-    v < 0
+    value <
+      0
   ) {
+
     return (
       '+' +
-      Math.abs(v)
+      Math.abs(
+        value
+      )
         .toFixed(1) +
       'kg'
     );
@@ -986,26 +1160,28 @@ function signKg(v) {
 }
 
 
-/* ===== 要素 ===== */
+/* ============================================================
+   DOM
+   ============================================================ */
 
 const $ =
-  s =>
+  selector =>
     document.querySelector(
-      s
+      selector
     );
 
 
 const $$ =
-  s =>
+  selector =>
     [
-      ...document
-        .querySelectorAll(
-          s
-        )
+      ...document.querySelectorAll(
+        selector
+      )
     ];
 
 
 const state = {
+
   period:
     'week',
 
@@ -1057,7 +1233,6 @@ const el = {
   summary:
     $('#summary'),
 
-
   hist:
     $('#hist'),
 
@@ -1068,13 +1243,11 @@ const el = {
   viewGroup:
     $('#view-group'),
 
-
   noGroupBox:
     $('#noGroupBox'),
 
   joinCode:
     $('#joinCode'),
-
 
   newGroupName:
     $('#newGroupName'),
@@ -1085,10 +1258,8 @@ const el = {
   newShowWeight:
     $('#newShowWeight'),
 
-
   gmsg:
     $('#gmsg'),
-
 
   myGroupBox:
     $('#myGroupBox'),
@@ -1099,13 +1270,11 @@ const el = {
   gMeta:
     $('#gMeta'),
 
-
   gCodeBox:
     $('#gCodeBox'),
 
   gCode:
     $('#gCode'),
-
 
   ownerTools:
     $('#ownerTools'),
@@ -1126,13 +1295,11 @@ const el = {
   rankHead:
     $('#rankHead'),
 
-
   rankList:
     $('#rankList'),
 
   rmsg:
     $('#rmsg'),
-
 
   watchNav:
     $('#watchNav'),
@@ -1167,7 +1334,6 @@ const el = {
   blockList:
     $('#blockList'),
 
-
   myMemberId:
     $('#myMemberId'),
 
@@ -1187,7 +1353,6 @@ const el = {
   iconPick:
     $('#iconPick'),
 
-
   iconDel:
     $('#iconDel'),
 
@@ -1204,7 +1369,6 @@ const el = {
   cropZoom:
     $('#cropZoom'),
 
-
   cropOk:
     $('#cropOk'),
 
@@ -1212,6 +1376,10 @@ const el = {
     $('#cropCancel'),
 };
 
+
+/* ============================================================
+   メッセージ
+   ============================================================ */
 
 const timers =
   new WeakMap();
@@ -1222,7 +1390,9 @@ function say(
   text,
   ok
 ) {
+
   if (!node) {
+
     return;
   }
 
@@ -1252,6 +1422,20 @@ function say(
     setTimeout(
       () => {
 
+        /*
+         * 画像承認待ちメッセージだけは
+         * 自動消去しない。
+         */
+        if (
+          node.dataset &&
+          node.dataset.pending ===
+            '1'
+        ) {
+
+          return;
+        }
+
+
         node.textContent =
           '';
 
@@ -1265,7 +1449,9 @@ function say(
 
 
 function clearMsg(node) {
+
   if (!node) {
+
     return;
   }
 
@@ -1282,14 +1468,68 @@ function clearMsg(node) {
 
   node.className =
     'msg';
+
+
+  if (
+    node.dataset
+  ) {
+
+    delete node.dataset.pending;
+  }
+}
+
+
+function renderIconModerationStatus() {
+
+  if (
+    !el.imsg
+  ) {
+
+    return;
+  }
+
+
+  if (
+    cache.iconPending
+  ) {
+
+    clearTimeout(
+      timers.get(
+        el.imsg
+      )
+    );
+
+
+    el.imsg.textContent =
+      '確認中です。承認後に公開されます。';
+
+
+    el.imsg.className =
+      'msg ok';
+
+
+    el.imsg.dataset.pending =
+      '1';
+
+
+    return;
+  }
+
+
+  if (
+    el.imsg.dataset.pending ===
+      '1'
+  ) {
+
+    clearMsg(
+      el.imsg
+    );
+  }
 }
 
 
 /* ============================================================
-   シートUI（prompt / confirm / alert の置き換え）
-   style.css の .ov / .sheet / .h2 / .note / .past-row /
-   .primary / .ghost / .danger をそのまま使う。
-   新しいクラスやIDは作らない。
+   シートUI
    ============================================================ */
 
 const INPUT_STYLE =
@@ -1303,72 +1543,81 @@ function sheetOpen(
   note
 ) {
 
-  const ov =
+  const overlay =
     document.createElement(
       'div'
     );
 
-  ov.className =
+
+  overlay.className =
     'ov';
 
 
-  const sh =
+  const sheet =
     document.createElement(
       'div'
     );
 
-  sh.className =
+
+  sheet.className =
     'sheet';
 
-  sh.style.textAlign =
+
+  sheet.style.textAlign =
     'left';
 
 
   if (title) {
 
-    const h =
+    const heading =
       document.createElement(
         'h2'
       );
 
-    h.className =
+
+    heading.className =
       'h2';
 
-    h.textContent =
+
+    heading.textContent =
       title;
 
-    sh.appendChild(
-      h
+
+    sheet.appendChild(
+      heading
     );
   }
 
 
   if (note) {
 
-    const p =
+    const paragraph =
       document.createElement(
         'p'
       );
 
-    p.className =
+
+    paragraph.className =
       'note';
 
-    p.textContent =
+
+    paragraph.textContent =
       note;
 
-    sh.appendChild(
-      p
+
+    sheet.appendChild(
+      paragraph
     );
   }
 
 
-  ov.appendChild(
-    sh
+  overlay.appendChild(
+    sheet
   );
 
 
   document.body.appendChild(
-    ov
+    overlay
   );
 
 
@@ -1379,7 +1628,7 @@ function sheetOpen(
   const close =
     () => {
 
-      ov.remove();
+      overlay.remove();
 
 
       if (
@@ -1387,6 +1636,7 @@ function sheetOpen(
           '.ov:not([hidden])'
         )
       ) {
+
         document.body.style.overflow =
           '';
       }
@@ -1394,68 +1644,74 @@ function sheetOpen(
 
 
   return {
-    ov,
-    sh,
+    ov:
+      overlay,
+
+    sh:
+      sheet,
+
     close
   };
 }
 
 
-function sheetRow(sh) {
-  const d =
+function sheetRow(sheet) {
+
+  const row =
     document.createElement(
       'div'
     );
 
 
-  d.className =
+  row.className =
     'past-row';
 
 
-  d.style.justifyContent =
+  row.style.justifyContent =
     'flex-end';
 
 
-  sh.appendChild(
-    d
+  sheet.appendChild(
+    row
   );
 
 
-  return d;
+  return row;
 }
 
 
 function sheetBtn(
   row,
   label,
-  cls
+  className
 ) {
-  const b =
+
+  const button =
     document.createElement(
       'button'
     );
 
 
-  b.type =
+  button.type =
     'button';
 
-  b.className =
-    cls;
 
-  b.textContent =
+  button.className =
+    className;
+
+
+  button.textContent =
     label;
 
 
   row.appendChild(
-    b
+    button
   );
 
 
-  return b;
+  return button;
 }
 
-
-/* はい / いいえ */
 
 function confirmSheet(
   title,
@@ -1463,6 +1719,7 @@ function confirmSheet(
   okLabel,
   danger
 ) {
+
   return new Promise(
     resolve => {
 
@@ -1503,6 +1760,7 @@ function confirmSheet(
 
       ok.onclick =
         () => {
+
           close();
 
           resolve(
@@ -1513,6 +1771,7 @@ function confirmSheet(
 
       no.onclick =
         () => {
+
           close();
 
           resolve(
@@ -1531,13 +1790,12 @@ function confirmSheet(
 }
 
 
-/* 通知だけ（alert の代わり） */
-
 function alertSheet(
   title,
   note,
   okLabel
 ) {
+
   return new Promise(
     resolve => {
 
@@ -1568,6 +1826,7 @@ function alertSheet(
 
       ok.onclick =
         () => {
+
           close();
 
           resolve();
@@ -1584,9 +1843,8 @@ function alertSheet(
 }
 
 
-/* 文字・数値・日付の入力（prompt の代わり）。取り消しは null */
+function promptSheet(options) {
 
-function promptSheet(o) {
   return new Promise(
     resolve => {
 
@@ -1595,133 +1853,140 @@ function promptSheet(o) {
         close
       } =
         sheetOpen(
-          o.title,
-          o.note
+          options.title,
+          options.note
         );
 
 
-      let inp;
+      let input;
 
 
       if (
-        o.multiline
+        options.multiline
       ) {
 
-        inp =
+        input =
           document.createElement(
             'textarea'
           );
 
 
-        inp.rows =
+        input.rows =
           4;
 
 
-        inp.style.cssText =
+        input.style.cssText =
           INPUT_STYLE +
           'min-height:104px;line-height:1.6;resize:vertical;';
 
+
       } else {
 
-        inp =
+        input =
           document.createElement(
             'input'
           );
 
 
-        inp.type =
-          o.type ||
+        input.type =
+          options.type ||
           'text';
 
 
         if (
-          o.type ===
-          'number'
+          options.type ===
+            'number'
         ) {
 
-          inp.step =
-            o.step ||
+          input.step =
+            options.step ||
             '0.1';
 
 
-          inp.inputMode =
+          input.inputMode =
             'decimal';
 
 
           if (
-            o.min !==
-            undefined
+            options.min !==
+              undefined
           ) {
-            inp.min =
+
+            input.min =
               String(
-                o.min
+                options.min
               );
           }
 
 
           if (
-            o.max !==
-            undefined
+            options.max !==
+              undefined
           ) {
-            inp.max =
+
+            input.max =
               String(
-                o.max
+                options.max
               );
           }
         }
 
 
         if (
-          o.type ===
+          options.type ===
             'date' &&
-          o.max
+          options.max
         ) {
-          inp.max =
-            o.max;
+
+          input.max =
+            options.max;
         }
 
 
-        inp.style.cssText =
+        input.style.cssText =
           INPUT_STYLE;
       }
 
 
       if (
-        o.maxlength
+        options.maxlength
       ) {
-        inp.maxLength =
-          o.maxlength;
+
+        input.maxLength =
+          options.maxlength;
       }
 
 
       if (
-        o.placeholder
+        options.placeholder
       ) {
-        inp.placeholder =
-          o.placeholder;
+
+        input.placeholder =
+          options.placeholder;
       }
 
 
       if (
-        o.upper
+        options.upper
       ) {
 
-        inp.autocapitalize =
+        input.autocapitalize =
           'characters';
 
-        inp.autocomplete =
+
+        input.autocomplete =
           'off';
       }
 
 
-      inp.value =
-        o.value ===
+      input.value =
+        options.value ===
           undefined ||
-        o.value ===
+        options.value ===
           null
           ? ''
           : String(
-              o.value
+              options.value
             );
 
 
@@ -1736,7 +2001,7 @@ function promptSheet(o) {
 
 
       wrap.appendChild(
-        inp
+        input
       );
 
 
@@ -1745,18 +2010,18 @@ function promptSheet(o) {
       );
 
 
-      const err =
+      const error =
         document.createElement(
           'p'
         );
 
 
-      err.className =
+      error.className =
         'msg';
 
 
       sh.appendChild(
-        err
+        error
       );
 
 
@@ -1769,7 +2034,7 @@ function promptSheet(o) {
       const ok =
         sheetBtn(
           row,
-          o.ok ||
+          options.ok ||
           '決定',
           'primary sm'
         );
@@ -1786,27 +2051,27 @@ function promptSheet(o) {
       const submit =
         () => {
 
-          const v =
-            inp.value;
+          const value =
+            input.value;
 
 
           if (
-            o.validate
+            options.validate
           ) {
 
-            const bad =
-              o.validate(
-                v
+            const invalid =
+              options.validate(
+                value
               );
 
 
-            if (bad) {
+            if (invalid) {
 
-              err.textContent =
-                bad;
+              error.textContent =
+                invalid;
 
 
-              err.className =
+              error.className =
                 'msg ng';
 
 
@@ -1819,7 +2084,7 @@ function promptSheet(o) {
 
 
           resolve(
-            v
+            value
           );
         };
 
@@ -1830,6 +2095,7 @@ function promptSheet(o) {
 
       no.onclick =
         () => {
+
           close();
 
           resolve(
@@ -1839,19 +2105,19 @@ function promptSheet(o) {
 
 
       if (
-        !o.multiline
+        !options.multiline
       ) {
 
-        inp.addEventListener(
+        input.addEventListener(
           'keydown',
-          e => {
+          event => {
 
             if (
-              e.key ===
-              'Enter'
+              event.key ===
+                'Enter'
             ) {
 
-              e.preventDefault();
+              event.preventDefault();
 
               submit();
             }
@@ -1862,7 +2128,8 @@ function promptSheet(o) {
 
       setTimeout(
         () => {
-          inp.focus();
+
+          input.focus();
         },
         60
       );
@@ -1871,13 +2138,12 @@ function promptSheet(o) {
 }
 
 
-/* 一覧から選ぶ（番号入力の置き換え）。取り消しは -1 */
-
 function menuSheet(
   title,
   note,
   items
 ) {
+
   return new Promise(
     resolve => {
 
@@ -1904,47 +2170,47 @@ function menuSheet(
 
       items.forEach(
         (
-          it,
-          i
+          item,
+          index
         ) => {
 
-          const b =
+          const button =
             document.createElement(
               'button'
             );
 
 
-          b.type =
+          button.type =
             'button';
 
 
-          b.className =
-            it.danger
+          button.className =
+            item.danger
               ? 'danger'
               : 'ghost';
 
 
-          b.textContent =
-            it.label;
+          button.textContent =
+            item.label;
 
 
-          b.style.cssText =
+          button.style.cssText =
             'width:100%;text-align:left;';
 
 
-          b.onclick =
+          button.onclick =
             () => {
 
               close();
 
               resolve(
-                i
+                index
               );
             };
 
 
           list.appendChild(
-            b
+            button
           );
         }
       );
@@ -1983,8 +2249,9 @@ function menuSheet(
 }
 
 
-/* 規約・プライバシーをアプリ内で開く。
-   Capacitor には戻るボタンが無いため、遷移させず iframe で重ねる。 */
+/* ============================================================
+   規約・サポートをアプリ内で表示
+   ============================================================ */
 
 function docSheet(
   url,
@@ -2001,29 +2268,29 @@ function docSheet(
     );
 
 
-  const fr =
+  const frame =
     document.createElement(
       'iframe'
     );
 
 
-  fr.src =
+  frame.src =
     url;
 
 
-  fr.setAttribute(
+  frame.setAttribute(
     'title',
     title
   );
 
 
-  fr.style.cssText =
+  frame.style.cssText =
     'width:100%;height:min(68vh,540px);margin:14px 0 4px;border:0;' +
     'border-radius:16px;background:#fff;';
 
 
   sh.appendChild(
-    fr
+    frame
   );
 
 
@@ -2033,7 +2300,7 @@ function docSheet(
     );
 
 
-  const ok =
+  const closeButton =
     sheetBtn(
       row,
       '閉じる',
@@ -2041,72 +2308,90 @@ function docSheet(
     );
 
 
-  ok.onclick =
+  closeButton.onclick =
     close;
 }
 
 
-/* index.html の <a href="./terms.html"> などを横取りする */
-
+/*
+ * 2026-09-07
+ *
+ * terms / privacy に加え、
+ * support.htmlもCapacitorアプリ内で開く。
+ */
 document.addEventListener(
   'click',
-  e => {
+  event => {
 
-    const t =
-      e.target;
+    const target =
+      event.target;
 
 
-    const a =
-      t &&
-      t.closest
-        ? t.closest(
+    const anchor =
+      target &&
+      target.closest
+        ? target.closest(
             'a[href]'
           )
         : null;
 
 
-    if (!a) {
+    if (!anchor) {
+
       return;
     }
 
 
     const href =
-      a.getAttribute(
+      anchor.getAttribute(
         'href'
       ) ||
       '';
 
 
-    const m =
-      /^(?:\.\/)?(terms|privacy)\.html$/
+    const match =
+      /^(?:\.\/)?(terms|privacy|support)\.html$/
         .exec(
           href
         );
 
 
-    if (!m) {
+    if (!match) {
+
       return;
     }
 
 
-    e.preventDefault();
+    event.preventDefault();
+
+
+    const title =
+      match[1] ===
+        'privacy'
+        ? 'プライバシーポリシー'
+        : (
+            match[1] ===
+              'support'
+              ? 'サポート'
+              : '利用規約'
+          );
 
 
     docSheet(
       href,
-      m[1] ===
-        'privacy'
-        ? 'プライバシーポリシー'
-        : '利用規約'
+      title
     );
   },
   true
 );
 
 
-/* ===== 初回同意（登録APIを走らせる前に出す） ===== */
+/* ============================================================
+   利用規約同意
+   ============================================================ */
 
 function agreed() {
+
   return (
     localStorage.getItem(
       K_AGREE
@@ -2117,6 +2402,7 @@ function agreed() {
 
 
 function agreeSheet() {
+
   return new Promise(
     resolve => {
 
@@ -2126,29 +2412,50 @@ function agreeSheet() {
       } =
         sheetOpen(
           'ご利用の前に',
-          'みんやせは、あなたが入力した体重と、グループのメンバーに見せる' +
-          'ニックネームやプロフィール画像をサーバーに保存します。'
+          'みんやせは、あなたが入力した体重やプロフィール情報をサーバーに保存します。' +
+          'グループでは公開設定に応じて体重または増減量が表示されます。'
         );
 
 
-      const p2 =
+      const privacy =
         document.createElement(
           'p'
         );
 
 
-      p2.className =
+      privacy.className =
         'note';
 
 
-      p2.textContent =
-        '13歳未満の方はご利用いただけません。' +
-        '他の人を傷つける表現、性的な内容、他人の写真や連絡先の掲載は禁止です。' +
-        '違反を見つけたときは各メンバーの「⋯」から通報とブロックができます。';
+      privacy.textContent =
+        '体重公開グループでも「非公開（増減量のみ）」を選べます。' +
+        '新しいプロフィール画像は確認・承認後に公開されます。' +
+        '外部WEB連携対象グループでも、本人が同意しない限りデータは送信されません。';
 
 
       sh.appendChild(
-        p2
+        privacy
+      );
+
+
+      const safety =
+        document.createElement(
+          'p'
+        );
+
+
+      safety.className =
+        'note';
+
+
+      safety.textContent =
+        '13歳未満の方はご利用いただけません。' +
+        '他の人を傷つける表現、性的な内容、他人の写真や連絡先の掲載は禁止です。' +
+        '問題があるユーザーは通報・ブロックできます。';
+
+
+      sh.appendChild(
+        safety
       );
 
 
@@ -2166,40 +2473,40 @@ function agreeSheet() {
         '12px';
 
 
-      const a1 =
+      const terms =
         document.createElement(
           'a'
         );
 
 
-      a1.href =
+      terms.href =
         './terms.html';
 
 
-      a1.textContent =
+      terms.textContent =
         '利用規約';
 
 
-      const a2 =
+      const policy =
         document.createElement(
           'a'
         );
 
 
-      a2.href =
+      policy.href =
         './privacy.html';
 
 
-      a2.textContent =
+      policy.textContent =
         'プライバシーポリシー';
 
 
       links.append(
-        a1,
+        terms,
         document.createTextNode(
           '　／　'
         ),
-        a2
+        policy
       );
 
 
@@ -2253,7 +2560,6 @@ function agreeSheet() {
 
           close();
 
-
           resolve(
             false
           );
@@ -2268,6 +2574,7 @@ async function ensureAgreed() {
   if (
     agreed()
   ) {
+
     return true;
   }
 
@@ -2277,6 +2584,7 @@ async function ensureAgreed() {
     if (
       await agreeSheet()
     ) {
+
       return true;
     }
 
@@ -2289,28 +2597,32 @@ async function ensureAgreed() {
 }
 
 
-/* ===== アイコン ===== */
+/* ============================================================
+   アイコン画像処理
+   ============================================================ */
 
 function canvasToBlob(
-  cv,
-  q
+  canvas,
+  quality
 ) {
+
   return new Promise(
-    r =>
-      cv.toBlob(
-        r,
+    resolve =>
+      canvas.toBlob(
+        resolve,
         'image/jpeg',
-        q
+        quality
       )
   );
 }
 
 
 function loadImageEl(file) {
+
   return new Promise(
     (
-      res,
-      rej
+      resolve,
+      reject
     ) => {
 
       const url =
@@ -2319,11 +2631,11 @@ function loadImageEl(file) {
         );
 
 
-      const im =
+      const image =
         new Image();
 
 
-      im.onload =
+      image.onload =
         () => {
 
           URL.revokeObjectURL(
@@ -2331,13 +2643,13 @@ function loadImageEl(file) {
           );
 
 
-          res(
-            im
+          resolve(
+            image
           );
         };
 
 
-      im.onerror =
+      image.onerror =
         () => {
 
           URL.revokeObjectURL(
@@ -2345,7 +2657,7 @@ function loadImageEl(file) {
           );
 
 
-          rej(
+          reject(
             new Error(
               'bad_image'
             )
@@ -2353,20 +2665,21 @@ function loadImageEl(file) {
         };
 
 
-      im.src =
+      image.src =
         url;
     }
   );
 }
 
 
-async function loadImageAny(
-  file
-) {
+async function loadImageAny(file) {
+
   if (
     window.createImageBitmap
   ) {
+
     try {
+
       return await createImageBitmap(
         file,
         {
@@ -2375,9 +2688,7 @@ async function loadImageAny(
         }
       );
 
-    } catch {
-      /* 非対応ブラウザは <img> にフォールバック */
-    }
+    } catch {}
   }
 
 
@@ -2387,9 +2698,12 @@ async function loadImageAny(
 }
 
 
-/* 切り取り画面。決定すると元画像上の切り取り範囲を返す */
+/* ============================================================
+   画像切り取り
+   ============================================================ */
 
 function cropDialog(img) {
+
   return new Promise(
     (
       resolve,
@@ -2400,7 +2714,7 @@ function cropDialog(img) {
         el.cropOv;
 
 
-      const cv =
+      const canvas =
         el.cropCv;
 
 
@@ -2416,7 +2730,7 @@ function cropDialog(img) {
         el.cropCancel;
 
 
-      const S =
+      const size =
         Math.max(
           200,
           Math.min(
@@ -2432,48 +2746,50 @@ function cropDialog(img) {
         1;
 
 
-      cv.style.width =
-        S +
+      canvas.style.width =
+        size +
         'px';
 
 
-      cv.style.height =
-        S +
+      canvas.style.height =
+        size +
         'px';
 
 
-      cv.width =
+      canvas.width =
         Math.round(
-          S *
+          size *
           dpr
         );
 
 
-      cv.height =
+      canvas.height =
         Math.round(
-          S *
+          size *
           dpr
         );
 
 
       const ctx =
-        cv.getContext(
+        canvas.getContext(
           '2d'
         );
 
 
-      const iw =
+      const imageWidth =
         img.width;
 
 
-      const ih =
+      const imageHeight =
         img.height;
 
 
       const base =
         Math.max(
-          S / iw,
-          S / ih
+          size /
+          imageWidth,
+          size /
+          imageHeight
         );
 
 
@@ -2492,14 +2808,14 @@ function cropDialog(img) {
       const clamp =
         () => {
 
-          const dw =
-            iw *
+          const drawWidth =
+            imageWidth *
             base *
             z;
 
 
-          const dh =
-            ih *
+          const drawHeight =
+            imageHeight *
             base *
             z;
 
@@ -2508,8 +2824,8 @@ function cropDialog(img) {
             Math.min(
               0,
               Math.max(
-                S -
-                dw,
+                size -
+                drawWidth,
                 tx
               )
             );
@@ -2519,8 +2835,8 @@ function cropDialog(img) {
             Math.min(
               0,
               Math.max(
-                S -
-                dh,
+                size -
+                drawHeight,
                 ty
               )
             );
@@ -2547,8 +2863,8 @@ function cropDialog(img) {
           ctx.fillRect(
             0,
             0,
-            S,
-            S
+            size,
+            size
           );
 
 
@@ -2564,62 +2880,61 @@ function cropDialog(img) {
             img,
             tx,
             ty,
-            iw *
-            base *
-            z,
-            ih *
-            base *
-            z
+            imageWidth *
+              base *
+              z,
+            imageHeight *
+              base *
+              z
           );
         };
 
 
       const setZoom =
         (
-          nz,
-          ax,
-          ay
+          newZoom,
+          anchorX,
+          anchorY
         ) => {
 
-          nz =
+          newZoom =
             Math.min(
               4,
               Math.max(
                 1,
-                nz
+                newZoom
               )
             );
 
 
-          const k =
-            nz /
+          const ratio =
+            newZoom /
             z;
 
 
           tx =
-            ax -
+            anchorX -
             (
-              ax -
+              anchorX -
               tx
             ) *
-            k;
+            ratio;
 
 
           ty =
-            ay -
+            anchorY -
             (
-              ay -
+              anchorY -
               ty
             ) *
-            k;
+            ratio;
 
 
           z =
-            nz;
+            newZoom;
 
 
           clamp();
-
 
           draw();
 
@@ -2636,8 +2951,8 @@ function cropDialog(img) {
 
       tx =
         (
-          S -
-          iw *
+          size -
+          imageWidth *
           base
         ) /
         2;
@@ -2645,15 +2960,14 @@ function cropDialog(img) {
 
       ty =
         (
-          S -
-          ih *
+          size -
+          imageHeight *
           base
         ) /
         2;
 
 
       clamp();
-
 
       draw();
 
@@ -2662,146 +2976,147 @@ function cropDialog(img) {
         '100';
 
 
-      const pts =
+      const pointers =
         new Map();
 
 
-      let lastDist =
+      let lastDistance =
         0;
 
 
       const onDown =
-        e => {
+        event => {
 
-          cv.setPointerCapture(
-            e.pointerId
+          canvas.setPointerCapture(
+            event.pointerId
           );
 
 
-          pts.set(
-            e.pointerId,
+          pointers.set(
+            event.pointerId,
             {
               x:
-                e.clientX,
+                event.clientX,
 
               y:
-                e.clientY
+                event.clientY
             }
           );
 
 
-          lastDist =
+          lastDistance =
             0;
         };
 
 
       const onMove =
-        e => {
+        event => {
 
           if (
-            !pts.has(
-              e.pointerId
+            !pointers.has(
+              event.pointerId
             )
           ) {
+
             return;
           }
 
 
-          e.preventDefault();
+          event.preventDefault();
 
 
-          const prev =
-            pts.get(
-              e.pointerId
+          const previous =
+            pointers.get(
+              event.pointerId
             );
 
 
-          pts.set(
-            e.pointerId,
+          pointers.set(
+            event.pointerId,
             {
               x:
-                e.clientX,
+                event.clientX,
 
               y:
-                e.clientY
+                event.clientY
             }
           );
 
 
-          const arr =
+          const points =
             [
-              ...pts.values()
+              ...pointers.values()
             ];
 
 
           if (
-            arr.length >=
-            2
+            points.length >=
+              2
           ) {
 
-            const d =
+            const distance =
               Math.hypot(
-                arr[0].x -
-                arr[1].x,
+                points[0].x -
+                points[1].x,
 
-                arr[0].y -
-                arr[1].y
+                points[0].y -
+                points[1].y
               );
 
 
-            const r =
-              cv.getBoundingClientRect();
+            const rect =
+              canvas.getBoundingClientRect();
 
 
-            const mx =
+            const midX =
               (
-                arr[0].x +
-                arr[1].x
+                points[0].x +
+                points[1].x
               ) /
               2 -
-              r.left;
+              rect.left;
 
 
-            const my =
+            const midY =
               (
-                arr[0].y +
-                arr[1].y
+                points[0].y +
+                points[1].y
               ) /
               2 -
-              r.top;
+              rect.top;
 
 
             if (
-              lastDist
+              lastDistance
             ) {
 
               setZoom(
                 z *
-                d /
-                lastDist,
-                mx,
-                my
+                distance /
+                lastDistance,
+                midX,
+                midY
               );
             }
 
 
-            lastDist =
-              d;
+            lastDistance =
+              distance;
+
 
           } else {
 
             tx +=
-              e.clientX -
-              prev.x;
+              event.clientX -
+              previous.x;
 
 
             ty +=
-              e.clientY -
-              prev.y;
+              event.clientY -
+              previous.y;
 
 
             clamp();
-
 
             draw();
           }
@@ -2809,41 +3124,41 @@ function cropDialog(img) {
 
 
       const onUp =
-        e => {
+        event => {
 
-          pts.delete(
-            e.pointerId
+          pointers.delete(
+            event.pointerId
           );
 
 
-          lastDist =
+          lastDistance =
             0;
         };
 
 
       const onWheel =
-        e => {
+        event => {
 
-          e.preventDefault();
+          event.preventDefault();
 
 
-          const r =
-            cv.getBoundingClientRect();
+          const rect =
+            canvas.getBoundingClientRect();
 
 
           setZoom(
             z *
             (
-              e.deltaY <
-              0
+              event.deltaY <
+                0
                 ? 1.12
                 : 1 /
                   1.12
             ),
-            e.clientX -
-            r.left,
-            e.clientY -
-            r.top
+            event.clientX -
+              rect.left,
+            event.clientY -
+              rect.top
           );
         };
 
@@ -2855,20 +3170,20 @@ function cropDialog(img) {
               zoom.value
             ) /
             100,
-            S /
+            size /
             2,
-            S /
+            size /
             2
           );
 
 
-      cv.addEventListener(
+      canvas.addEventListener(
         'pointerdown',
         onDown
       );
 
 
-      cv.addEventListener(
+      canvas.addEventListener(
         'pointermove',
         onMove,
         {
@@ -2878,19 +3193,19 @@ function cropDialog(img) {
       );
 
 
-      cv.addEventListener(
+      canvas.addEventListener(
         'pointerup',
         onUp
       );
 
 
-      cv.addEventListener(
+      canvas.addEventListener(
         'pointercancel',
         onUp
       );
 
 
-      cv.addEventListener(
+      canvas.addEventListener(
         'wheel',
         onWheel,
         {
@@ -2909,31 +3224,31 @@ function cropDialog(img) {
       const close =
         () => {
 
-          cv.removeEventListener(
+          canvas.removeEventListener(
             'pointerdown',
             onDown
           );
 
 
-          cv.removeEventListener(
+          canvas.removeEventListener(
             'pointermove',
             onMove
           );
 
 
-          cv.removeEventListener(
+          canvas.removeEventListener(
             'pointerup',
             onUp
           );
 
 
-          cv.removeEventListener(
+          canvas.removeEventListener(
             'pointercancel',
             onUp
           );
 
 
-          cv.removeEventListener(
+          canvas.removeEventListener(
             'wheel',
             onWheel
           );
@@ -2962,6 +3277,7 @@ function cropDialog(img) {
               '.ov:not([hidden])'
             )
           ) {
+
             document.body.style.overflow =
               '';
           }
@@ -2982,19 +3298,16 @@ function cropDialog(img) {
               -tx /
               scale,
 
-
             sy:
               -ty /
               scale,
 
-
             sw:
-              S /
+              size /
               scale,
 
-
             sh:
-              S /
+              size /
               scale
           };
 
@@ -3033,13 +3346,14 @@ function cropDialog(img) {
 }
 
 
-/* 切り取り範囲を256pxへ縮小してJPEG化。処理はすべて端末側で行う */
+/* ============================================================
+   画像JPEG化
+   ============================================================ */
 
-async function fileToIconBlob(
-  file
-) {
+async function fileToIconBlob(file) {
 
   if (!file) {
+
     throw new Error(
       'bad_image'
     );
@@ -3052,13 +3366,14 @@ async function fileToIconBlob(
       file.type
     )
   ) {
+
     throw new Error(
       'not_image'
     );
   }
 
 
-  const img =
+  const image =
     await loadImageAny(
       file
     );
@@ -3066,18 +3381,19 @@ async function fileToIconBlob(
 
   try {
 
-    const iw =
-      img.width;
+    const width =
+      image.width;
 
 
-    const ih =
-      img.height;
+    const height =
+      image.height;
 
 
     if (
-      !iw ||
-      !ih
+      !width ||
+      !height
     ) {
+
       throw new Error(
         'bad_image'
       );
@@ -3097,15 +3413,16 @@ async function fileToIconBlob(
 
       rect =
         await cropDialog(
-          img
+          image
         );
+
 
     } else {
 
-      const s =
+      const size =
         Math.min(
-          iw,
-          ih
+          width,
+          height
         );
 
 
@@ -3113,46 +3430,43 @@ async function fileToIconBlob(
 
         sx:
           (
-            iw -
-            s
+            width -
+            size
           ) /
           2,
-
 
         sy:
           (
-            ih -
-            s
+            height -
+            size
           ) /
           2,
 
-
         sw:
-          s,
-
+          size,
 
         sh:
-          s
+          size
       };
     }
 
 
-    const cv =
+    const canvas =
       document.createElement(
         'canvas'
       );
 
 
-    cv.width =
+    canvas.width =
       ICON_SIZE;
 
 
-    cv.height =
+    canvas.height =
       ICON_SIZE;
 
 
     const ctx =
-      cv.getContext(
+      canvas.getContext(
         '2d'
       );
 
@@ -3178,26 +3492,29 @@ async function fileToIconBlob(
 
 
     ctx.drawImage(
-      img,
+      image,
+
       rect.sx,
       rect.sy,
       rect.sw,
       rect.sh,
+
       0,
       0,
+
       ICON_SIZE,
       ICON_SIZE
     );
 
 
-    let q =
+    let quality =
       0.85;
 
 
     let blob =
       await canvasToBlob(
-        cv,
-        q
+        canvas,
+        quality
       );
 
 
@@ -3205,23 +3522,24 @@ async function fileToIconBlob(
       blob &&
       blob.size >
         ICON_LIMIT &&
-      q >
+      quality >
         0.4
     ) {
 
-      q -=
+      quality -=
         0.15;
 
 
       blob =
         await canvasToBlob(
-          cv,
-          q
+          canvas,
+          quality
         );
     }
 
 
     if (!blob) {
+
       throw new Error(
         'bad_image'
       );
@@ -3230,19 +3548,26 @@ async function fileToIconBlob(
 
     return blob;
 
+
   } finally {
 
     if (
-      img.close
+      image.close
     ) {
-      img.close();
+
+      image.close();
     }
   }
 }
 
 
+/* ============================================================
+   Avatar
+   ============================================================ */
+
 function initialOf(row) {
-  const n =
+
+  const nickname =
     String(
       (
         row &&
@@ -3253,34 +3578,33 @@ function initialOf(row) {
       .trim();
 
 
-  return n
-    ? [...n][0]
+  return nickname
+    ? [...nickname][0]
     : '?';
 }
 
-
-/* 丸アイコン。CSS 未更新でも見た目が崩れないよう最低限の指定を入れる */
 
 function avatar(
   row,
   size
 ) {
+
   const px =
     size ||
     36;
 
 
-  const d =
+  const box =
     document.createElement(
       'div'
     );
 
 
-  d.className =
+  box.className =
     'av';
 
 
-  d.style.cssText =
+  box.style.cssText =
     `width:${px}px;height:${px}px;flex:0 0 auto;border-radius:50%;overflow:hidden;` +
     `background:#ece7e2;display:flex;align-items:center;justify-content:center;` +
     `font-weight:700;color:#a8998f;font-size:${Math.round(px * 0.42)}px;line-height:1;`;
@@ -3291,63 +3615,70 @@ function avatar(
     row.icon_url
   ) {
 
-    const im =
+    const image =
       document.createElement(
         'img'
       );
 
 
-    im.src =
+    image.src =
       API +
       row.icon_url;
 
 
-    im.alt =
+    image.alt =
       '';
 
 
-    im.loading =
+    image.loading =
       'lazy';
 
 
-    im.style.cssText =
+    image.style.cssText =
       'width:100%;height:100%;object-fit:cover;display:block;';
 
 
-    im.onerror =
+    image.onerror =
       () => {
 
-        im.remove();
+        image.remove();
 
 
-        d.textContent =
+        box.textContent =
           initialOf(
             row
           );
       };
 
 
-    d.appendChild(
-      im
+    box.appendChild(
+      image
     );
+
 
   } else {
 
-    d.textContent =
+    box.textContent =
       initialOf(
         row
       );
   }
 
 
-  return d;
+  return box;
 }
 
 
+/* ============================================================
+   アイコン表示・承認待ち状態
+   ============================================================ */
+
 function renderIcon() {
+
   if (
     !el.iconBox
   ) {
+
     return;
   }
 
@@ -3365,21 +3696,107 @@ function renderIcon() {
   );
 
 
+  /*
+   * 承認待ち画像しかなく、
+   * まだ承認済み画像がない場合は
+   * 削除ボタンを出さない。
+   *
+   * 承認済みが残っている場合は削除可能。
+   */
   if (
     el.iconDel
   ) {
+
     el.iconDel.hidden =
       !(
         cache.me &&
         cache.me.icon_url
       );
   }
+
+
+  renderIconModerationStatus();
 }
 
 
-async function uploadIcon(
-  file
-) {
+/*
+ * GET /api/icon でサーバー上の状態を確認。
+ *
+ * アプリを閉じて再起動しても
+ * pending=trueなら「確認中です」を再表示。
+ */
+async function loadIconState() {
+
+  if (
+    !cache.me
+  ) {
+
+    return;
+  }
+
+
+  try {
+
+    const data =
+      await api(
+        '/api/icon'
+      );
+
+
+    cache.iconPending =
+      !!data.pending;
+
+
+    cache.iconPendingAt =
+      data.pending_at ||
+      null;
+
+
+    /*
+     * 管理者が承認したあと、
+     * 再度マイページを開けば
+     * 最新の承認済み画像へ更新。
+     */
+    cache.me.icon_ver =
+      Number(
+        data.icon_ver ||
+        0
+      );
+
+
+    cache.me.icon_url =
+      data.icon_url ||
+      null;
+
+
+    renderIcon();
+
+
+    if (
+      cache.group ||
+      state.rank ===
+        'rival'
+    ) {
+
+      loadRanking();
+    }
+
+
+  } catch {
+
+    /*
+     * アイコン状態取得だけの失敗で
+     * アプリ全体は止めない。
+     */
+  }
+}
+
+
+/* ============================================================
+   アイコンアップロード
+   ============================================================ */
+
+async function uploadIcon(file) {
 
   if (
     !cache.ready
@@ -3404,6 +3821,19 @@ async function uploadIcon(
       );
 
 
+    /*
+     * 一時メッセージなので
+     * pendingフラグをいったん解除。
+     */
+    if (
+      el.imsg &&
+      el.imsg.dataset
+    ) {
+
+      delete el.imsg.dataset.pending;
+    }
+
+
     say(
       el.imsg,
       'アップロード中…',
@@ -3411,7 +3841,7 @@ async function uploadIcon(
     );
 
 
-    const d =
+    const data =
       await apiBlob(
         '/api/icon',
         blob
@@ -3422,13 +3852,30 @@ async function uploadIcon(
       cache.me
     ) {
 
+      /*
+       * pendingアップロードでは
+       * icon_ver / icon_url は
+       * 以前の承認済み画像のまま返る。
+       */
       cache.me.icon_ver =
-        d.icon_ver;
+        Number(
+          data.icon_ver ||
+          0
+        );
 
 
       cache.me.icon_url =
-        d.icon_url;
+        data.icon_url ||
+        null;
     }
+
+
+    cache.iconPending =
+      !!data.pending;
+
+
+    cache.iconPendingAt =
+      Date.now();
 
 
     renderIcon();
@@ -3439,15 +3886,16 @@ async function uploadIcon(
       state.rank ===
         'rival'
     ) {
+
       loadRanking();
     }
 
 
-    say(
-      el.imsg,
-      'アイコンを設定しました',
-      true
-    );
+    /*
+     * 「アイコンを設定しました」は出さない。
+     */
+    renderIconModerationStatus();
+
 
   } catch (e) {
 
@@ -3461,6 +3909,7 @@ async function uploadIcon(
         el.imsg
       );
 
+
     } else {
 
       say(
@@ -3473,15 +3922,21 @@ async function uploadIcon(
 }
 
 
+/* ============================================================
+   アイコン削除
+   ============================================================ */
+
 async function removeIcon() {
+
   if (
     !await confirmSheet(
       'アイコンの削除',
-      'プロフィール画像を削除します。',
+      '公開中のプロフィール画像と承認待ち画像を削除します。',
       '削除する',
       true
     )
   ) {
+
     return;
   }
 
@@ -3510,6 +3965,19 @@ async function removeIcon() {
     }
 
 
+    cache.iconPending =
+      false;
+
+
+    cache.iconPendingAt =
+      null;
+
+
+    clearMsg(
+      el.imsg
+    );
+
+
     renderIcon();
 
 
@@ -3518,6 +3986,7 @@ async function removeIcon() {
       state.rank ===
         'rival'
     ) {
+
       loadRanking();
     }
 
@@ -3527,6 +3996,7 @@ async function removeIcon() {
       'アイコンを削除しました',
       true
     );
+
 
   } catch (e) {
 
@@ -3539,7 +4009,9 @@ async function removeIcon() {
 }
 
 
-/* ===== 保存 ===== */
+/* ============================================================
+   体重保存
+   ============================================================ */
 
 async function saveWeight(
   ymd,
@@ -3577,15 +4049,15 @@ async function saveWeight(
   }
 
 
-  const v =
+  const value =
     normKg(
       kg
     );
 
 
   if (
-    v ===
-    null
+    value ===
+      null
   ) {
 
     say(
@@ -3599,11 +4071,6 @@ async function saveWeight(
   }
 
 
-  /*
-   * ここではまだ「保存しました」と表示しない。
-   * Cloudflare側の保存成功を待つ。
-   */
-
   say(
     el.msg,
     '保存中…',
@@ -3615,32 +4082,24 @@ async function saveWeight(
 
     await store.put(
       ymd,
-      v
+      value
     );
 
-
-    /*
-     * API成功後にだけローカル画面を更新する。
-     */
 
     renderLog();
 
 
     say(
       el.msg,
-      `${fmtJp(ymd)} を ${v.toFixed(1)}kg で記録しました`,
+      `${fmtJp(ymd)} を ${value.toFixed(1)}kg で記録しました`,
       true
     );
 
 
     return true;
 
-  } catch (err) {
 
-    /*
-     * store.put は失敗時にキャッシュを変更していないため
-     * ロールバックは不要。
-     */
+  } catch (err) {
 
     renderLog();
 
@@ -3659,7 +4118,9 @@ async function saveWeight(
 }
 
 
-/* ===== 期間 ===== */
+/* ============================================================
+   表示期間
+   ============================================================ */
 
 function currentRange() {
 
@@ -3667,15 +4128,15 @@ function currentRange() {
     todayYmdJST();
 
 
-  const tDay =
+  const todayDay =
     ymdToDay(
       today
     );
 
 
   const [
-    ty,
-    tm
+    currentYear,
+    currentMonth
   ] =
     today
       .split('-')
@@ -3686,25 +4147,22 @@ function currentRange() {
 
   if (
     state.period ===
-    'week'
+      'week'
   ) {
 
     const end =
-      tDay +
+      todayDay +
       state.offset *
       7;
 
 
     return {
-
       from:
         end -
         6,
 
-
       to:
         end,
-
 
       label:
         `${fmtJp(dayToYmd(end - 6))} 〜 ${fmtJp(dayToYmd(end))}`
@@ -3714,32 +4172,32 @@ function currentRange() {
 
   if (
     state.period ===
-    'month'
+      'month'
   ) {
 
-    let y =
-      ty;
+    let year =
+      currentYear;
 
 
-    let m =
-      tm +
+    let month =
+      currentMonth +
       state.offset;
 
 
-    y +=
+    year +=
       Math.floor(
         (
-          m -
+          month -
           1
         ) /
         12
       );
 
 
-    m =
+    month =
       (
         (
-          m -
+          month -
           1
         ) %
         12 +
@@ -3749,9 +4207,9 @@ function currentRange() {
       1;
 
 
-    const mm =
+    const monthText =
       String(
-        m
+        month
       )
         .padStart(
           2,
@@ -3762,8 +4220,8 @@ function currentRange() {
     const lastDay =
       new Date(
         Date.UTC(
-          y,
-          m,
+          year,
+          month,
           0
         )
       )
@@ -3771,51 +4229,45 @@ function currentRange() {
 
 
     return {
-
       from:
         ymdToDay(
-          `${y}-${mm}-01`
+          `${year}-${monthText}-01`
         ),
-
 
       to:
         ymdToDay(
-          `${y}-${mm}-${String(lastDay).padStart(2, '0')}`
+          `${year}-${monthText}-${String(lastDay).padStart(2, '0')}`
         ),
 
-
       label:
-        `${y}年${m}月`
+        `${year}年${month}月`
     };
   }
 
 
   if (
     state.period ===
-    'year'
+      'year'
   ) {
 
-    const y =
-      ty +
+    const year =
+      currentYear +
       state.offset;
 
 
     return {
-
       from:
         ymdToDay(
-          `${y}-01-01`
+          `${year}-01-01`
         ),
-
 
       to:
         ymdToDay(
-          `${y}-12-31`
+          `${year}-12-31`
         ),
 
-
       label:
-        `${y}年`
+        `${year}年`
     };
   }
 
@@ -3832,15 +4284,12 @@ function currentRange() {
   ) {
 
     return {
-
       from:
-        tDay -
+        todayDay -
         6,
 
-
       to:
-        tDay,
-
+        todayDay,
 
       label:
         '全期間'
@@ -3849,12 +4298,10 @@ function currentRange() {
 
 
   return {
-
     from:
       ymdToDay(
         keys[0]
       ),
-
 
     to:
       Math.max(
@@ -3864,9 +4311,8 @@ function currentRange() {
             1
           ]
         ),
-        tDay
+        todayDay
       ),
-
 
     label:
       `${fmtJpFull(keys[0])} 〜`
@@ -3874,16 +4320,18 @@ function currentRange() {
 }
 
 
-/* ===== グラフ ===== */
+/* ============================================================
+   グラフ
+   ============================================================ */
 
 function drawChart() {
 
-  const c =
+  const canvas =
     el.chart;
 
 
   const ctx =
-    c.getContext(
+    canvas.getContext(
       '2d'
     );
 
@@ -3893,24 +4341,24 @@ function drawChart() {
     1;
 
 
-  const cssW =
-    c.clientWidth;
+  const cssWidth =
+    canvas.clientWidth;
 
 
-  const cssH =
+  const cssHeight =
     240;
 
 
-  c.width =
+  canvas.width =
     Math.round(
-      cssW *
+      cssWidth *
       dpr
     );
 
 
-  c.height =
+  canvas.height =
     Math.round(
-      cssH *
+      cssHeight *
       dpr
     );
 
@@ -3928,27 +4376,34 @@ function drawChart() {
   ctx.clearRect(
     0,
     0,
-    cssW,
-    cssH
+    cssWidth,
+    cssHeight
   );
 
 
   const pad = {
-    l: 42,
-    r: 12,
-    t: 14,
-    b: 24
+    l:
+      42,
+
+    r:
+      12,
+
+    t:
+      14,
+
+    b:
+      24
   };
 
 
-  const W =
-    cssW -
+  const width =
+    cssWidth -
     pad.l -
     pad.r;
 
 
-  const H =
-    cssH -
+  const height =
+    cssHeight -
     pad.t -
     pad.b;
 
@@ -3964,7 +4419,7 @@ function drawChart() {
     currentRange();
 
 
-  const pts =
+  const points =
     Object.keys(
       all
     )
@@ -3984,10 +4439,10 @@ function drawChart() {
         })
       )
       .filter(
-        p =>
-          p.day >=
+        point =>
+          point.day >=
             from &&
-          p.day <=
+          point.day <=
             to
       )
       .sort(
@@ -4006,7 +4461,6 @@ function drawChart() {
     )
       .map(
         ymd => ({
-
           day:
             ymdToDay(
               ymd
@@ -4019,9 +4473,9 @@ function drawChart() {
         })
       )
       .filter(
-        p =>
-          p.day <
-          from
+        point =>
+          point.day <
+            from
       )
       .sort(
         (
@@ -4043,7 +4497,7 @@ function drawChart() {
 
 
   if (
-    !pts.length &&
+    !points.length &&
     !before
   ) {
 
@@ -4059,9 +4513,11 @@ function drawChart() {
       cache.ready
         ? 'この期間の記録はありません'
         : '読み込み中…',
-      cssW /
+
+      cssWidth /
       2,
-      cssH /
+
+      cssHeight /
       2
     );
 
@@ -4074,10 +4530,10 @@ function drawChart() {
     store.goal();
 
 
-  const vals =
-    pts.map(
-      p =>
-        p.kg
+  const values =
+    points.map(
+      point =>
+        point.kg
     );
 
 
@@ -4085,7 +4541,7 @@ function drawChart() {
     before
   ) {
 
-    vals.push(
+    values.push(
       before.kg
     );
   }
@@ -4093,66 +4549,66 @@ function drawChart() {
 
   if (
     goal !==
-    null
+      null
   ) {
 
-    vals.push(
+    values.push(
       goal
     );
   }
 
 
-  let lo =
+  let low =
     Math.min(
-      ...vals
+      ...values
     );
 
 
-  let hi =
+  let high =
     Math.max(
-      ...vals
+      ...values
     );
 
 
   if (
-    hi -
-    lo <
-    0.5
+    high -
+    low <
+      0.5
   ) {
 
-    const mid =
+    const middle =
       (
-        hi +
-        lo
+        high +
+        low
       ) /
       2;
 
 
-    lo =
-      mid -
+    low =
+      middle -
       0.25;
 
 
-    hi =
-      mid +
+    high =
+      middle +
       0.25;
   }
 
 
-  const mg =
+  const margin =
     (
-      hi -
-      lo
+      high -
+      low
     ) *
     0.12;
 
 
-  lo -=
-    mg;
+  low -=
+    margin;
 
 
-  hi +=
-    mg;
+  high +=
+    margin;
 
 
   const x =
@@ -4160,8 +4616,8 @@ function drawChart() {
       pad.l +
       (
         to ===
-        from
-          ? W /
+          from
+          ? width /
             2
           : (
               day -
@@ -4171,7 +4627,7 @@ function drawChart() {
               to -
               from
             ) *
-            W
+            width
       );
 
 
@@ -4179,14 +4635,14 @@ function drawChart() {
     kg =>
       pad.t +
       (
-        hi -
+        high -
         kg
       ) /
       (
-        hi -
-        lo
+        high -
+        low
       ) *
-      H;
+      height;
 
 
   ctx.strokeStyle =
@@ -4212,10 +4668,10 @@ function drawChart() {
   ) {
 
     const kg =
-      lo +
+      low +
       (
-        hi -
-        lo
+        high -
+        low
       ) *
       i /
       4;
@@ -4227,7 +4683,7 @@ function drawChart() {
           kg
         )
       ) +
-      .5;
+      0.5;
 
 
     ctx.beginPath();
@@ -4240,7 +4696,7 @@ function drawChart() {
 
 
     ctx.lineTo(
-      cssW -
+      cssWidth -
       pad.r,
       yy
     );
@@ -4250,9 +4706,7 @@ function drawChart() {
 
 
     ctx.fillText(
-      kg.toFixed(
-        1
-      ),
+      kg.toFixed(1),
       pad.l -
       6,
       yy
@@ -4264,9 +4718,9 @@ function drawChart() {
     goal !==
       null &&
     goal >=
-      lo &&
+      low &&
     goal <=
-      hi
+      high
   ) {
 
     ctx.save();
@@ -4300,7 +4754,7 @@ function drawChart() {
 
 
     ctx.lineTo(
-      cssW -
+      cssWidth -
       pad.r,
       y(
         goal
@@ -4315,7 +4769,7 @@ function drawChart() {
   }
 
 
-  const seq =
+  const sequence =
     [];
 
 
@@ -4323,7 +4777,7 @@ function drawChart() {
     before
   ) {
 
-    seq.push({
+    sequence.push({
       day:
         from,
 
@@ -4336,27 +4790,27 @@ function drawChart() {
   }
 
 
-  seq.push(
-    ...pts
+  sequence.push(
+    ...points
   );
 
 
   for (
     let i = 1;
     i <
-      seq.length;
+      sequence.length;
     i++
   ) {
 
     const a =
-      seq[
+      sequence[
         i -
         1
       ];
 
 
     const b =
-      seq[
+      sequence[
         i
       ];
 
@@ -4405,6 +4859,7 @@ function drawChart() {
 
 
       ctx.stroke();
+
 
     } else {
 
@@ -4468,8 +4923,8 @@ function drawChart() {
 
 
   const last =
-    pts[
-      pts.length -
+    points[
+      points.length -
       1
     ] ||
     (
@@ -4554,8 +5009,8 @@ function drawChart() {
 
 
   for (
-    const p of
-    pts
+    const point of
+    points
   ) {
 
     ctx.beginPath();
@@ -4563,10 +5018,10 @@ function drawChart() {
 
     ctx.arc(
       x(
-        p.day
+        point.day
       ),
       y(
-        p.kg
+        point.kg
       ),
       3.2,
       0,
@@ -4594,7 +5049,7 @@ function drawChart() {
       )
     ),
     pad.l,
-    cssH -
+    cssHeight -
     pad.b /
     2
   );
@@ -4610,16 +5065,18 @@ function drawChart() {
         to
       )
     ),
-    cssW -
+    cssWidth -
     pad.r,
-    cssH -
+    cssHeight -
     pad.b /
     2
   );
 }
 
 
-/* ===== サマリ・履歴 ===== */
+/* ============================================================
+   サマリ
+   ============================================================ */
 
 function drawSummary() {
 
@@ -4641,16 +5098,13 @@ function drawSummary() {
     el.summary.textContent =
       '';
 
-
     return;
   }
 
 
   const first =
     all[
-      keys[
-        0
-      ]
+      keys[0]
     ];
 
 
@@ -4663,15 +5117,15 @@ function drawSummary() {
     ];
 
 
-  const d =
+  const change =
     last -
     first;
 
 
-  let s =
+  let text =
     `記録 ${keys.length}件 ／ ` +
     `開始 ${first.toFixed(1)}kg → 最新 ${last.toFixed(1)}kg` +
-    `（${d <= 0 ? '' : '+'}${d.toFixed(1)}kg）`;
+    `（${change <= 0 ? '' : '+'}${change.toFixed(1)}kg）`;
 
 
   const goal =
@@ -4680,141 +5134,200 @@ function drawSummary() {
 
   if (
     goal !==
-    null
+      null
   ) {
 
-    const rest =
+    const remaining =
       last -
       goal;
 
 
-    s +=
-      rest > 0
-        ? ` ／ 目標まで あと ${rest.toFixed(1)}kg`
+    text +=
+      remaining >
+        0
+        ? ` ／ 目標まで あと ${remaining.toFixed(1)}kg`
         : ' ／ 目標達成';
   }
 
 
   el.summary.textContent =
-    s;
+    text;
 }
+
+
+/* ============================================================
+   履歴
+   ============================================================ */
+
 function drawHist() {
+
   const all =
     store.all();
 
+
   const keys =
-    Object.keys(all)
+    Object.keys(
+      all
+    )
       .sort()
       .reverse();
+
 
   el.hist.innerHTML =
     '';
 
-  if (!keys.length) {
+
+  if (
+    !keys.length
+  ) {
+
     el.hist.innerHTML =
-      `<li class=\"empty\">${cache.ready ? 'まだ記録がありません' : '読み込み中…'}</li>`;
+      `<li class="empty">${
+        cache.ready
+          ? 'まだ記録がありません'
+          : '読み込み中…'
+      }</li>`;
+
 
     return;
   }
 
+
   for (
     let i = 0;
-    i < keys.length;
+    i <
+      keys.length;
     i++
   ) {
+
     const ymd =
       keys[i];
 
-    const kg =
-      all[ymd];
 
-    const prev =
-      keys[i + 1]
+    const kg =
+      all[
+        ymd
+      ];
+
+
+    const previous =
+      keys[
+        i +
+        1
+      ]
         ? all[
-            keys[i + 1]
+            keys[
+              i +
+              1
+            ]
           ]
         : null;
+
 
     const li =
       document.createElement(
         'li'
       );
 
-    const d =
+
+    const date =
       document.createElement(
         'span'
       );
 
-    d.className =
+
+    date.className =
       'd';
 
-    d.textContent =
+
+    date.textContent =
       fmtJpFull(
         ymd
-      ).slice(5);
+      )
+        .slice(5);
 
-    const k =
+
+    const weight =
       document.createElement(
         'span'
       );
 
-    k.className =
+
+    weight.className =
       'k';
 
-    k.textContent =
+
+    weight.textContent =
       kg.toFixed(1) +
       ' kg';
 
-    const df =
+
+    const diff =
       document.createElement(
         'span'
       );
 
-    df.className =
+
+    diff.className =
       'diff';
 
-    if (
-      prev !== null
-    ) {
-      const v =
-        kg -
-        prev;
 
-      df.textContent =
+    if (
+      previous !==
+        null
+    ) {
+
+      const value =
+        kg -
+        previous;
+
+
+      diff.textContent =
         (
-          v > 0
+          value >
+            0
             ? '+'
             : ''
         ) +
-        v.toFixed(1);
+        value.toFixed(1);
 
-      df.style.color =
-        v > 0
+
+      diff.style.color =
+        value >
+          0
           ? '#c0392b'
           : (
-              v < 0
+              value <
+                0
                 ? '#3a8a5f'
                 : '#8a8a8a'
             );
     }
 
-    const eb =
+
+    const edit =
       document.createElement(
         'button'
       );
 
-    eb.type =
+
+    edit.type =
       'button';
 
-    eb.textContent =
+
+    edit.textContent =
       '編集';
 
-    eb.onclick =
+
+    edit.onclick =
       async () => {
-        const v =
+
+        const value =
           await promptSheet({
             title:
-              fmtJpFull(ymd) +
+              fmtJpFull(
+                ymd
+              ) +
               ' の体重',
 
             note:
@@ -4836,35 +5349,46 @@ function drawHist() {
               '保存する',
 
             validate:
-              s =>
-                normKg(s) === null
+              input =>
+                normKg(
+                  input
+                ) ===
+                  null
                   ? '20〜300kg で入力してください'
                   : null,
           });
 
+
         if (
-          v !== null
+          value !==
+            null
         ) {
+
           await saveWeight(
             ymd,
-            v
+            value
           );
         }
       };
 
-    const db =
+
+    const del =
       document.createElement(
         'button'
       );
 
-    db.type =
+
+    del.type =
       'button';
 
-    db.textContent =
+
+    del.textContent =
       '削除';
 
-    db.onclick =
+
+    del.onclick =
       async () => {
+
         const ok =
           await confirmSheet(
             '記録の削除',
@@ -4873,15 +5397,20 @@ function drawHist() {
             true
           );
 
+
         if (!ok) {
+
           return;
         }
+
 
         store.del(
           ymd
         );
 
+
         renderLog();
+
 
         say(
           el.msg,
@@ -4890,13 +5419,15 @@ function drawHist() {
         );
       };
 
+
     li.append(
-      d,
-      k,
-      df,
-      eb,
-      db
+      date,
+      weight,
+      diff,
+      edit,
+      del
     );
+
 
     el.hist.appendChild(
       li
@@ -4904,12 +5435,15 @@ function drawHist() {
   }
 }
 
+
 function renderLog() {
+
   drawChart();
 
   drawSummary();
 
   drawHist();
+
 
   el.rangeLabel.textContent =
     currentRange().label;
@@ -4917,115 +5451,148 @@ function renderLog() {
 
 
 /* ============================================================
-   グループ描画
+   グループ
    ============================================================ */
 
 function renderGroup() {
-  const g =
+
+  const group =
     cache.group;
 
+
   el.noGroupBox.hidden =
-    !!g;
+    !!group;
+
 
   el.myGroupBox.hidden =
-    !g;
+    !group;
+
 
   el.rankBox.hidden =
     false;
 
-  /*
-   * 未所属なら参加・作成を最上段、
-   * 所属中ならランキングを最上段にする
-   */
+
   el.viewGroup.classList.toggle(
     'no-group',
-    !g
+    !group
   );
 
-  if (!g) {
+
+  if (
+    !group
+  ) {
+
     return;
   }
 
+
   el.gName.textContent =
-    g.name;
+    group.name;
+
 
   el.gMeta.textContent =
-    `メンバー ${g.members}人 ／ ` +
-    `スタート ${fmtJpFull(g.start_ymd)} ／ ` +
-    `体重${g.show_weight ? '公開' : '非公開'}`;
+    `メンバー ${group.members}人 ／ ` +
+    `スタート ${fmtJpFull(group.start_ymd)} ／ ` +
+    `体重${group.show_weight ? '公開' : '非公開'}`;
+
 
   el.gCodeBox.hidden =
-    !g.is_owner;
+    !group.is_owner;
 
-  if (g.is_owner) {
+
+  if (
+    group.is_owner
+  ) {
+
     el.gCode.textContent =
       fmtCode(
-        g.code ||
-        g.group_id
+        group.code ||
+        group.group_id
       );
   }
 
+
   el.ownerTools.hidden =
-    !g.is_owner;
+    !group.is_owner;
+
 
   el.memberTools.hidden =
-    !!g.is_owner;
+    !!group.is_owner;
 }
 
 
+/* ============================================================
+   他チームselect
+   ============================================================ */
+
 function renderWatchSel() {
+
   el.watchSel.innerHTML =
     '';
+
 
   if (
     !cache.watching.length
   ) {
-    const o =
+
+    const option =
       document.createElement(
         'option'
       );
 
-    o.value =
+
+    option.value =
       '';
 
-    o.textContent =
+
+    option.textContent =
       '登録なし';
 
+
     el.watchSel.appendChild(
-      o
+      option
     );
+
 
     state.watchId =
       null;
 
+
     return;
   }
 
+
   for (
-    const w of
+    const watching of
     cache.watching
   ) {
-    const o =
+
+    const option =
       document.createElement(
         'option'
       );
 
-    o.value =
-      w.group_id;
 
-    o.textContent =
-      w.name;
+    option.value =
+      watching.group_id;
+
+
+    option.textContent =
+      watching.name;
+
 
     el.watchSel.appendChild(
-      o
+      option
     );
   }
 
+
   const ids =
     cache.watching.map(
-      w =>
-        w.group_id
+      watching =>
+        watching.group_id
     );
+
 
   if (
     !state.watchId ||
@@ -5033,108 +5600,148 @@ function renderWatchSel() {
       state.watchId
     )
   ) {
+
     state.watchId =
       ids[0];
   }
+
 
   el.watchSel.value =
     state.watchId;
 }
 
 
+/* ============================================================
+   ランキング描画
+   ============================================================ */
+
 function drawRank(data) {
+
   el.rankList.innerHTML =
     '';
+
 
   const rows =
     data.rows ||
     [];
 
-  if (!rows.length) {
+
+  if (
+    !rows.length
+  ) {
+
     el.rankList.innerHTML =
-      '<li class=\"empty\">表示できるメンバーがいません</li>';
+      '<li class="empty">表示できるメンバーがいません</li>';
+
 
     return;
   }
 
+
   for (
-    const r of rows
+    const row of
+    rows
   ) {
+
     const li =
       document.createElement(
         'li'
       );
 
-    if (r.is_self) {
+
+    if (
+      row.is_self
+    ) {
+
       li.classList.add(
         'self'
       );
     }
 
-    if (r.inactive) {
+
+    if (
+      row.inactive
+    ) {
+
       li.classList.add(
         'rest'
       );
     }
 
-    const no =
+
+    const number =
       document.createElement(
         'span'
       );
 
-    no.className =
+
+    number.className =
       'no' +
       (
-        r.rank &&
-        r.rank <= 3
+        row.rank &&
+        row.rank <=
+          3
           ? ' top'
           : ''
       );
 
-    no.textContent =
-      r.rank
-        ? r.rank
+
+    number.textContent =
+      row.rank
+        ? row.rank
         : '—';
 
-    const av =
+
+    const avatarNode =
       avatar(
-        r,
+        row,
         38
       );
+
 
     const whoBox =
       document.createElement(
         'div'
       );
 
+
     whoBox.className =
       'who';
 
-    const nm =
+
+    const name =
       document.createElement(
         'div'
       );
 
-    nm.className =
+
+    name.className =
       'nm';
 
-    nm.textContent =
-      r.nickname ||
+
+    name.textContent =
+      row.nickname ||
       '名前未設定';
 
-    if (r.is_self) {
-      nm.appendChild(
+
+    if (
+      row.is_self
+    ) {
+
+      name.appendChild(
         badge(
           'あなた'
         )
       );
     }
 
+
     if (
-      r.is_rival &&
-      !r.is_self
+      row.is_rival &&
+      !row.is_self
     ) {
-      nm.appendChild(
+
+      name.appendChild(
         badge(
           'ライバル',
           'rival'
@@ -5142,129 +5749,168 @@ function drawRank(data) {
       );
     }
 
-    if (r.inactive) {
-      nm.appendChild(
+
+    if (
+      row.inactive
+    ) {
+
+      name.appendChild(
         badge(
           '休止中'
         )
       );
     }
 
-    const sb =
+
+    const sub =
       document.createElement(
         'div'
       );
 
-    sb.className =
+
+    sub.className =
       'sb';
 
+
     if (
-      !r.last_ymd
+      !row.last_ymd
     ) {
-      sb.textContent =
+
+      sub.textContent =
         '記録なし';
 
+
     } else {
+
       const kgPart =
         (
-          r.start_kg != null &&
-          r.latest_kg != null
+          row.start_kg !=
+            null &&
+          row.latest_kg !=
+            null
         )
-          ? `${r.start_kg.toFixed(1)} → ${r.latest_kg.toFixed(1)}kg ／ `
+          ? `${row.start_kg.toFixed(1)} → ${row.latest_kg.toFixed(1)}kg ／ `
           : '';
+
 
       const idle =
-        r.idle_days === 0
+        row.idle_days ===
+          0
           ? '今日'
-          : `${r.idle_days}日前`;
+          : `${row.idle_days}日前`;
 
-      const gname =
-        r.group_name
-          ? `${r.group_name} ／ `
+
+      const groupName =
+        row.group_name
+          ? `${row.group_name} ／ `
           : '';
 
-      sb.textContent =
-        gname +
+
+      sub.textContent =
+        groupName +
         kgPart +
-        `最終 ${fmtJp(r.last_ymd)}（${idle}）`;
+        `最終 ${fmtJp(row.last_ymd)}（${idle}）`;
     }
 
+
     whoBox.append(
-      nm,
-      sb
+      name,
+      sub
     );
 
-    const ls =
+
+    const loss =
       document.createElement(
         'span'
       );
 
+
     if (
-      r.loss === null
+      row.loss ===
+        null
     ) {
-      ls.className =
+
+      loss.className =
         'ls none';
 
-      ls.textContent =
+
+      loss.textContent =
         '—';
 
+
     } else {
-      ls.className =
+
+      loss.className =
         'ls ' +
         (
-          r.loss > 0
+          row.loss >
+            0
             ? 'minus'
             : (
-                r.loss < 0
+                row.loss <
+                  0
                   ? 'plus'
                   : ''
               )
         );
 
-      ls.textContent =
+
+      loss.textContent =
         signKg(
-          r.loss
+          row.loss
         );
     }
 
-    const kb =
+
+    const menu =
       document.createElement(
         'button'
       );
 
-    kb.className =
+
+    menu.className =
       'kebab';
 
-    kb.type =
+
+    menu.type =
       'button';
 
-    kb.textContent =
+
+    menu.textContent =
       '⋯';
 
-    kb.setAttribute(
+
+    menu.setAttribute(
       'aria-label',
       'このメンバーへの操作'
     );
 
-    kb.onclick =
+
+    menu.onclick =
       () =>
         memberMenu(
-          r,
+          row,
           data
         );
 
+
     li.append(
-      no,
-      av,
+      number,
+      avatarNode,
       whoBox,
-      ls
+      loss
     );
 
-    if (!r.is_self) {
+
+    if (
+      !row.is_self
+    ) {
+
       li.append(
-        kb
+        menu
       );
     }
+
 
     el.rankList.appendChild(
       li
@@ -5273,30 +5919,38 @@ function drawRank(data) {
 }
 
 
-function badge(text, cls) {
-  const b =
+function badge(
+  text,
+  className
+) {
+
+  const node =
     document.createElement(
       'span'
     );
 
-  b.className =
+
+  node.className =
     'badge' +
     (
-      cls
-        ? ' ' + cls
+      className
+        ? ' ' +
+          className
         : ''
     );
 
-  b.textContent =
+
+  node.textContent =
     text;
 
-  return b;
+
+  return node;
 }
 
 
 const who =
-  r =>
-    r.nickname ||
+  row =>
+    row.nickname ||
     '名前未設定';
 
 
@@ -5304,27 +5958,36 @@ const who =
    メンバー操作
    ============================================================ */
 
-async function memberMenu(r, data) {
+async function memberMenu(
+  row,
+  data
+) {
+
   const isOwner =
     !!(
       data &&
       data.group &&
       data.group.is_owner &&
-      data.group.is_mine !== false
+      data.group.is_mine !==
+        false
     );
 
-  const acts =
+
+  const actions =
     [];
 
-  acts.push(
-    r.is_rival
+
+  actions.push(
+    row.is_rival
       ? {
           label:
             'ライバルから外す',
 
           run:
             () =>
-              rivalDel(r)
+              rivalDel(
+                row
+              )
         }
       : {
           label:
@@ -5332,63 +5995,93 @@ async function memberMenu(r, data) {
 
           run:
             () =>
-              rivalAdd(r)
+              rivalAdd(
+                row
+              )
         }
   );
 
-  acts.push({
+
+  actions.push({
     label:
       'この人を通報する',
 
     run:
       () =>
-        doReport(r)
+        doReport(
+          row
+        )
   });
 
-  acts.push({
+
+  actions.push({
     label:
       'この人をブロックする',
 
     run:
       () =>
-        doBlock(r),
+        doBlock(
+          row
+        ),
 
     danger:
       true
   });
 
-  if (isOwner) {
-    acts.push({
+
+  if (
+    isOwner
+  ) {
+
+    actions.push({
       label:
         'グループから除名する',
 
       run:
         () =>
-          doKick(r),
+          doKick(
+            row
+          ),
 
       danger:
         true
     });
   }
 
-  const i =
+
+  const index =
     await menuSheet(
-      who(r),
-      '通報された内容は開発者が確認します。ブロックすると、その人はランキングに表示されなくなります。',
-      acts
+      who(
+        row
+      ),
+      '通報された内容は開発者が確認します。ブロックすると、あなたと相手は互いの通常ランキング等に表示されなくなります。',
+      actions
     );
 
+
   if (
-    i >= 0 &&
-    acts[i]
+    index >=
+      0 &&
+    actions[
+      index
+    ]
   ) {
-    acts[i].run();
+
+    actions[
+      index
+    ].run();
   }
 }
 
 
-async function rivalAdd(r) {
+/* ============================================================
+   ライバル
+   ============================================================ */
+
+async function rivalAdd(row) {
+
   try {
+
     await api(
       '/api/rivals',
       {
@@ -5397,20 +6090,24 @@ async function rivalAdd(r) {
 
         body: {
           member_id:
-            r.member_id
+            row.member_id
         }
       }
     );
 
+
     say(
       el.rmsg,
-      `${who(r)} をライバルに追加しました`,
+      `${who(row)} をライバルに追加しました`,
       true
     );
 
+
     loadRanking();
 
+
   } catch (e) {
+
     say(
       el.rmsg,
       emsg(e),
@@ -5420,12 +6117,14 @@ async function rivalAdd(r) {
 }
 
 
-async function rivalDel(r) {
+async function rivalDel(row) {
+
   try {
+
     await api(
       '/api/rivals/' +
       encodeURIComponent(
-        r.member_id
+        row.member_id
       ),
       {
         method:
@@ -5433,15 +6132,19 @@ async function rivalDel(r) {
       }
     );
 
+
     say(
       el.rmsg,
-      `${who(r)} をライバルから外しました`,
+      `${who(row)} をライバルから外しました`,
       true
     );
 
+
     loadRanking();
 
+
   } catch (e) {
+
     say(
       el.rmsg,
       emsg(e),
@@ -5456,6 +6159,7 @@ async function rivalDel(r) {
    ============================================================ */
 
 const REPORT_PRESETS = [
+
   'ニックネームが不適切',
   'アイコン画像が不適切',
   'なりすまし・他人の写真',
@@ -5465,7 +6169,8 @@ const REPORT_PRESETS = [
 ];
 
 
-async function doReport(r) {
+async function doReport(row) {
+
   const items =
     REPORT_PRESETS.map(
       label => ({
@@ -5473,28 +6178,38 @@ async function doReport(r) {
       })
     );
 
+
   items.push({
     label:
       'その他（自分で書く）'
   });
 
-  const i =
+
+  const index =
     await menuSheet(
-      `${who(r)} を通報`,
+      `${who(row)} を通報`,
       '当てはまるものを選んでください。内容は開発者が確認し、必要に応じて表示の停止や利用停止を行います。',
       items
     );
 
-  if (i < 0) {
+
+  if (
+    index <
+      0
+  ) {
+
     return;
   }
 
+
   let reason;
 
+
   if (
-    i ===
-    REPORT_PRESETS.length
+    index ===
+      REPORT_PRESETS.length
   ) {
+
     reason =
       await promptSheet({
         title:
@@ -5516,36 +6231,54 @@ async function doReport(r) {
           '通報する',
 
         validate:
-          s => {
+          value => {
+
             if (
-              !String(s).trim()
+              !String(
+                value
+              ).trim()
             ) {
+
               return '理由を入力してください';
             }
 
+
             if (
-              moderate(s) ===
-              'has_contact'
+              moderate(
+                value
+              ) ===
+                'has_contact'
             ) {
+
               return ERR.has_contact;
             }
+
 
             return null;
           },
       });
 
+
     if (
-      reason === null
+      reason ===
+        null
     ) {
+
       return;
     }
 
+
   } else {
+
     reason =
-      REPORT_PRESETS[i];
+      REPORT_PRESETS[
+        index
+      ];
   }
 
+
   try {
+
     await api(
       '/api/reports',
       {
@@ -5554,12 +6287,13 @@ async function doReport(r) {
 
         body: {
           target_id:
-            r.member_id,
+            row.member_id,
 
           reason
         },
       }
     );
+
 
     say(
       el.rmsg,
@@ -5567,36 +6301,56 @@ async function doReport(r) {
       true
     );
 
+
   } catch (e) {
+
     say(
       el.rmsg,
       emsg(e),
       false
     );
 
+
     return;
   }
 
-  if (r.is_blocked) {
+
+  if (
+    row.is_blocked
+  ) {
+
     return;
   }
+
 
   const alsoBlock =
     await confirmSheet(
       'あわせてブロックしますか？',
-      `${who(r)} をブロックすると、ランキングに表示されなくなります。あとから「マイページ」で解除できます。`,
+      `${who(row)} をブロックすると、あなたと相手は互いの通常ランキング等に表示されなくなります。あとから「マイページ」で解除できます。`,
       'ブロックする',
       true
     );
 
-  if (alsoBlock) {
-    await blockNow(r);
+
+  if (
+    alsoBlock
+  ) {
+
+    await blockNow(
+      row
+    );
   }
 }
 
 
-async function blockNow(r) {
+/* ============================================================
+   ブロック
+   ============================================================ */
+
+async function blockNow(row) {
+
   try {
+
     await api(
       '/api/blocks',
       {
@@ -5605,10 +6359,11 @@ async function blockNow(r) {
 
         body: {
           member_id:
-            r.member_id
+            row.member_id
         }
       }
     );
+
 
     say(
       el.rmsg,
@@ -5616,11 +6371,15 @@ async function blockNow(r) {
       true
     );
 
+
     await loadBlocks();
+
 
     loadRanking();
 
+
   } catch (e) {
+
     say(
       el.rmsg,
       emsg(e),
@@ -5630,37 +6389,52 @@ async function blockNow(r) {
 }
 
 
-async function doBlock(r) {
+async function doBlock(row) {
+
   const ok =
     await confirmSheet(
-      `${who(r)} をブロック`,
-      'ランキングに表示されなくなります。あとから「マイページ」の「ブロック中」で解除できます。',
+      `${who(row)} をブロック`,
+      'ブロックすると、あなたと相手は互いの通常ランキング等に表示されなくなります。あとから「マイページ」の「ブロック中」で解除できます。',
       'ブロックする',
       true
     );
 
+
   if (!ok) {
+
     return;
   }
 
-  await blockNow(r);
+
+  await blockNow(
+    row
+  );
 }
 
 
-async function doKick(r) {
+/* ============================================================
+   除名
+   ============================================================ */
+
+async function doKick(row) {
+
   const ok =
     await confirmSheet(
-      `${who(r)} を除名`,
+      `${who(row)} を除名`,
       '同じコードでは再参加できなくなります。除名した人は「除名リスト」から戻せます。',
       '除名する',
       true
     );
 
+
   if (!ok) {
+
     return;
   }
 
+
   try {
+
     await api(
       '/api/groups/kick',
       {
@@ -5669,10 +6443,11 @@ async function doKick(r) {
 
         body: {
           member_id:
-            r.member_id
+            row.member_id
         }
       }
     );
+
 
     say(
       el.rmsg,
@@ -5680,11 +6455,15 @@ async function doKick(r) {
       true
     );
 
+
     await loadMe();
+
 
     loadRanking();
 
+
   } catch (e) {
+
     say(
       el.rmsg,
       emsg(e),
@@ -5699,28 +6478,34 @@ async function doKick(r) {
    ============================================================ */
 
 async function loadMe() {
-  const m =
+
+  const data =
     await api(
       '/api/me'
     );
 
+
   cache.me =
-    m.me ||
+    data.me ||
     null;
 
+
   cache.group =
-    m.group ||
+    data.group ||
     null;
+
 
   cache.goal =
     (
-      m.me &&
-      m.me.goal_weight != null
+      data.me &&
+      data.me.goal_weight !=
+        null
     )
       ? Number(
-          m.me.goal_weight
+          data.me.goal_weight
         )
       : null;
+
 
   renderGroup();
 
@@ -5729,100 +6514,125 @@ async function loadMe() {
 
 
 async function loadWeights() {
-  const w =
+
+  const data =
     await api(
       '/api/weights'
     );
 
+
   cache.weights =
     {};
 
+
   for (
-    const r of
+    const row of
     (
-      w.weights ||
+      data.weights ||
       []
     )
   ) {
+
     cache.weights[
-      r.ymd
+      row.ymd
     ] =
-      r.kg;
+      row.kg;
   }
 }
 
 
 async function loadWatching() {
+
   try {
-    const d =
+
+    const data =
       await api(
         '/api/watching'
       );
 
+
     cache.watching =
-      d.watching ||
+      data.watching ||
       [];
 
+
     renderWatchSel();
+
 
   } catch {}
 }
 
 
 async function loadBlocks() {
+
   try {
-    const d =
+
+    const data =
       await api(
         '/api/blocks'
       );
 
+
     cache.blocks =
-      d.blocks ||
+      data.blocks ||
       [];
 
+
     drawBlocks();
+
 
   } catch {}
 }
 
 
 /* ============================================================
-   ランキング
+   ランキング読み込み
    ============================================================ */
 
 async function loadRanking() {
+
   if (
     state.view !==
-    'group'
+      'group'
   ) {
+
     return;
   }
+
 
   let path =
     '/api/ranking?scope=mine';
 
+
   if (
     state.rank ===
-    'rival'
+      'rival'
   ) {
+
     path =
       '/api/ranking?scope=rival';
 
+
   } else if (
     state.rank ===
-    'watch'
+      'watch'
   ) {
+
     if (
       !state.watchId
     ) {
+
       el.rankHead.textContent =
         '';
 
+
       el.rankList.innerHTML =
-        '<li class=\"empty\">下の「チームを追加」からコードを登録してください</li>';
+        '<li class="empty">下の「チームを追加」からコードを登録してください</li>';
+
 
       return;
     }
+
 
     path =
       '/api/ranking?scope=watch&group_id=' +
@@ -5830,79 +6640,79 @@ async function loadRanking() {
         state.watchId
       );
 
+
   } else if (
     !cache.group
   ) {
+
     el.rankHead.textContent =
       '';
 
+
     el.rankList.innerHTML =
-      '<li class=\"empty\">グループに参加すると表示されます</li>';
+      '<li class="empty">グループに参加すると表示されます</li>';
+
 
     return;
   }
 
+
   el.rankList.innerHTML =
-    '<li class=\"empty\">読み込み中…</li>';
+    '<li class="empty">読み込み中…</li>';
+
 
   try {
-    const d =
-      await api(path);
 
-    const s =
-      d.summary;
+    const data =
+      await api(
+        path
+      );
 
 
-    if (d.group) {
+    const summary =
+      data.summary;
 
-      /*
-       * 1行目：
-       * チーム② ／ スタート 2026年9月1日
-       *
-       * 2行目：
-       * 合計 +11.9kg ｜ 平均 +4.0kg/人
-       *
-       * textContentに改行を入れるだけだとCSSによって
-       * 折り畳まれる可能性があるため、
-       * block要素を2つ作って確実に2行表示する。
-       */
+
+    if (
+      data.group
+    ) {
 
       el.rankHead.innerHTML =
         '';
 
 
-      const line1 =
+      const firstLine =
         document.createElement(
           'div'
         );
 
 
-      line1.textContent =
-        `${d.group.name} ／ スタート ${fmtJpFull(d.group.start_ymd)}`;
+      firstLine.textContent =
+        `${data.group.name} ／ スタート ${fmtJpFull(data.group.start_ymd)}`;
 
 
       el.rankHead.appendChild(
-        line1
+        firstLine
       );
 
 
       if (
-        s &&
-        s.counted
+        summary &&
+        summary.counted
       ) {
 
-        const line2 =
+        const secondLine =
           document.createElement(
             'div'
           );
 
 
-        line2.textContent =
-          `合計 ${signKg(s.total_loss)} ｜ 平均 ${signKg(s.avg_loss)}/人`;
+        secondLine.textContent =
+          `合計 ${signKg(summary.total_loss)} ｜ 平均 ${signKg(summary.avg_loss)}/人`;
 
 
         el.rankHead.appendChild(
-          line2
+          secondLine
         );
       }
 
@@ -5910,19 +6720,23 @@ async function loadRanking() {
     } else {
 
       el.rankHead.textContent =
-        `自分＋ライバル ${(d.rows || []).length}人`;
+        `自分＋ライバル ${(data.rows || []).length}人`;
     }
 
 
-    drawRank(d);
+    drawRank(
+      data
+    );
+
 
   } catch (e) {
 
     el.rankHead.textContent =
       '';
 
+
     el.rankList.innerHTML =
-      `<li class=\"empty\">${emsg(e)}</li>`;
+      `<li class="empty">${emsg(e)}</li>`;
   }
 }
 
@@ -5931,7 +6745,10 @@ async function loadRanking() {
    他チーム追加
    ============================================================ */
 
-async function addWatchByCode(msgNode) {
+async function addWatchByCode(
+  messageNode
+) {
+
   const code =
     await promptSheet({
       title:
@@ -5956,20 +6773,28 @@ async function addWatchByCode(msgNode) {
         '追加する',
 
       validate:
-        s =>
-          rawCode(s).length === 8
+        value =>
+          rawCode(
+            value
+          ).length ===
+            8
             ? null
             : 'コードは8文字です',
     });
 
+
   if (
-    code === null
+    code ===
+      null
   ) {
+
     return;
   }
 
+
   try {
-    const d =
+
+    const data =
       await api(
         '/api/watching',
         {
@@ -5983,23 +6808,27 @@ async function addWatchByCode(msgNode) {
         }
       );
 
+
     cache.watching =
-      d.watching ||
+      data.watching ||
       [];
 
-    const want =
+
+    const wanted =
       rawCode(
         code
       );
 
+
     const hit =
       cache.watching.find(
-        w =>
+        watching =>
           rawCode(
-            w.group_id
+            watching.group_id
           ) ===
-          want
+          wanted
       );
+
 
     state.watchId =
       hit
@@ -6013,37 +6842,46 @@ async function addWatchByCode(msgNode) {
               : null
           );
 
+
     renderWatchSel();
+
 
     state.rank =
       'watch';
 
+
     [
       ...el.rankTabs.children
-    ].forEach(
-      t =>
-        t.classList.toggle(
-          'is-on',
-          t.dataset.r ===
-            'watch'
-        )
-    );
+    ]
+      .forEach(
+        tab =>
+          tab.classList.toggle(
+            'is-on',
+            tab.dataset.r ===
+              'watch'
+          )
+      );
+
 
     el.watchNav.hidden =
       false;
 
+
     loadRanking();
 
+
     say(
-      msgNode ||
+      messageNode ||
       el.rmsg,
       'チームを追加しました',
       true
     );
 
+
   } catch (e) {
+
     say(
-      msgNode ||
+      messageNode ||
       el.rmsg,
       emsg(e),
       false
@@ -6053,138 +6891,185 @@ async function addWatchByCode(msgNode) {
 
 
 /* ============================================================
-   マイページ描画
+   マイページ
    ============================================================ */
 
 function renderMy() {
-  const m =
+
+  const me =
     cache.me;
 
-  if (!m) {
+
+  if (!me) {
+
     return;
   }
 
-  if (
-    document.activeElement !==
-    el.nickInput
-  ) {
-    el.nickInput.value =
-      m.nickname ||
-      '';
-  }
 
   if (
     document.activeElement !==
-    el.goalInput
+      el.nickInput
   ) {
+
+    el.nickInput.value =
+      me.nickname ||
+      '';
+  }
+
+
+  if (
+    document.activeElement !==
+      el.goalInput
+  ) {
+
     el.goalInput.value =
-      cache.goal !== null
+      cache.goal !==
+        null
         ? cache.goal.toFixed(1)
         : '';
   }
 
-  if (el.notifyOn) {
+
+  if (
+    el.notifyOn
+  ) {
+
     el.notifyOn.checked =
-      !!m.notify_on;
+      !!me.notify_on;
   }
 
-  if (el.notifyDays) {
+
+  if (
+    el.notifyDays
+  ) {
+
     el.notifyDays.value =
       String(
-        m.notify_days ||
+        me.notify_days ||
         3
       );
   }
 
-  if (el.notifyHour) {
+
+  if (
+    el.notifyHour
+  ) {
+
     el.notifyHour.value =
       String(
-        m.notify_hour == null
+        me.notify_hour ==
+          null
           ? 20
-          : m.notify_hour
+          : me.notify_hour
       );
   }
 
+
   el.myMemberId.textContent =
-    m.member_id ||
+    me.member_id ||
     '—';
+
 
   el.myDeviceId.textContent =
     deviceId();
+
 
   renderIcon();
 }
 
 
+/* ============================================================
+   ブロック一覧
+   ============================================================ */
+
 function drawBlocks() {
+
   el.blockList.innerHTML =
     '';
+
 
   if (
     !cache.blocks.length
   ) {
+
     el.blockList.innerHTML =
-      '<li class=\"empty\">ブロックしている人はいません</li>';
+      '<li class="empty">ブロックしている人はいません</li>';
+
 
     return;
   }
 
+
   for (
-    const b of
+    const blocked of
     cache.blocks
   ) {
+
     const li =
       document.createElement(
         'li'
       );
 
-    const av =
+
+    const avatarNode =
       avatar(
-        b,
+        blocked,
         28
       );
 
-    const d =
+
+    const name =
       document.createElement(
         'span'
       );
 
-    d.className =
+
+    name.className =
       'd';
 
-    d.textContent =
-      b.nickname ||
-      b.member_id;
 
-    const btn =
+    name.textContent =
+      blocked.nickname ||
+      blocked.member_id;
+
+
+    const button =
       document.createElement(
         'button'
       );
 
-    btn.type =
+
+    button.type =
       'button';
 
-    btn.textContent =
+
+    button.textContent =
       '解除';
 
-    btn.onclick =
+
+    button.onclick =
       async () => {
+
         const ok =
           await confirmSheet(
             'ブロックの解除',
-            `${b.nickname || b.member_id} のブロックを解除します。ランキングに再び表示されます。`,
+            `${blocked.nickname || blocked.member_id} のブロックを解除します。通常の表示に再び表示されるようになります。`,
             '解除する'
           );
 
+
         if (!ok) {
+
           return;
         }
 
+
         try {
+
           await api(
             '/api/blocks/' +
             encodeURIComponent(
-              b.member_id
+              blocked.member_id
             ),
             {
               method:
@@ -6192,9 +7077,12 @@ function drawBlocks() {
             }
           );
 
+
           await loadBlocks();
 
+
           loadRanking();
+
 
           say(
             el.mmsg,
@@ -6202,7 +7090,9 @@ function drawBlocks() {
             true
           );
 
+
         } catch (e) {
+
           say(
             el.mmsg,
             emsg(e),
@@ -6211,11 +7101,13 @@ function drawBlocks() {
         }
       };
 
+
     li.append(
-      av,
-      d,
-      btn
+      avatarNode,
+      name,
+      button
     );
+
 
     el.blockList.appendChild(
       li
@@ -6228,114 +7120,159 @@ function drawBlocks() {
    画面切替
    ============================================================ */
 
-function switchView(v) {
+function switchView(view) {
+
   state.view =
-    v;
+    view;
 
-  $$('.view').forEach(
-    n =>
-      n.classList.toggle(
-        'is-on',
-        n.id ===
-          'view-' + v
-      )
-  );
 
-  $$('.tabbtn').forEach(
-    b =>
-      b.classList.toggle(
-        'is-on',
-        b.dataset.v ===
-          v
-      )
-  );
+  $$('.view')
+    .forEach(
+      node =>
+        node.classList.toggle(
+          'is-on',
+          node.id ===
+            'view-' +
+            view
+        )
+    );
+
+
+  $$('.tabbtn')
+    .forEach(
+      button =>
+        button.classList.toggle(
+          'is-on',
+          button.dataset.v ===
+            view
+        )
+    );
+
 
   el.hdTitle.textContent =
-    v === 'log'
+    view ===
+      'log'
       ? '体重記録'
       : (
-          v === 'group'
+          view ===
+            'group'
             ? 'グループ'
             : 'マイページ'
         );
+
 
   window.scrollTo(
     0,
     0
   );
 
+
   if (
-    v === 'log'
+    view ===
+      'log'
   ) {
+
     renderLog();
   }
 
+
   if (
-    v === 'group'
+    view ===
+      'group'
   ) {
+
     loadWatching();
 
     loadRanking();
   }
 
+
   if (
-    v === 'my'
+    view ===
+      'my'
   ) {
+
     renderMy();
 
     loadBlocks();
+
+    /*
+     * 管理者による承認が
+     * アプリ起動後に行われている可能性があるので
+     * マイページへ来るたび確認。
+     */
+    loadIconState();
   }
 }
 
 
 /* ============================================================
-   配線
+   初期配線
    ============================================================ */
 
 function init() {
+
   const today =
     todayYmdJST();
 
+
   el.todayLabel.textContent =
-    fmtJpFull(today) +
+    fmtJpFull(
+      today
+    ) +
     ' の体重';
+
 
   el.pastYmd.max =
     today;
 
+
   el.pastYmd.value =
     today;
+
 
   el.newStartYmd.value =
     today;
 
 
-  if (el.notifyHour) {
+  if (
+    el.notifyHour
+  ) {
+
     for (
-      let h = 0;
-      h < 24;
-      h++
+      let hour = 0;
+      hour < 24;
+      hour++
     ) {
-      const o =
+
+      const option =
         document.createElement(
           'option'
         );
 
-      o.value =
-        String(h);
 
-      o.textContent =
-        String(h)
+      option.value =
+        String(
+          hour
+        );
+
+
+      option.textContent =
+        String(
+          hour
+        )
           .padStart(
             2,
             '0'
           ) +
         ':00';
 
+
       el.notifyHour.appendChild(
-        o
+        option
       );
     }
+
 
     el.notifyHour.value =
       '20';
@@ -6343,57 +7280,71 @@ function init() {
 
 
   const bump =
-    n => {
+    amount => {
+
       const keys =
         Object.keys(
           store.all()
-        ).sort();
+        )
+          .sort();
+
 
       const latest =
         keys.length
           ? store.all()[
               keys[
-                keys.length - 1
+                keys.length -
+                1
               ]
             ]
           : 60;
 
-      const cur =
+
+      const current =
         normKg(
           el.kgInput.value
         );
 
+
       const base =
-        cur === null
+        current ===
+          null
           ? latest
-          : cur;
+          : current;
+
 
       el.kgInput.value =
         (
           Math.round(
             (
               base +
-              n
+              amount
             ) *
             10
           ) /
           10
-        ).toFixed(1);
+        )
+          .toFixed(1);
     };
 
 
   $('#plus').onclick =
     () =>
-      bump(0.1);
+      bump(
+        0.1
+      );
 
 
   $('#minus').onclick =
     () =>
-      bump(-0.1);
+      bump(
+        -0.1
+      );
 
 
   $('#saveToday').onclick =
     async () => {
+
       await saveWeight(
         todayYmdJST(),
         el.kgInput.value
@@ -6403,8 +7354,10 @@ function init() {
 
   $('#openPast').onclick =
     () => {
+
       el.pastBox.hidden =
         false;
+
 
       el.pastKg.focus();
     };
@@ -6412,6 +7365,7 @@ function init() {
 
   $('#closePast').onclick =
     () => {
+
       el.pastBox.hidden =
         true;
     };
@@ -6419,22 +7373,27 @@ function init() {
 
   $('#savePast').onclick =
     async () => {
+
       const ymd =
         el.pastYmd.value;
+
 
       if (
         !/^\d{4}-\d{2}-\d{2}$/.test(
           ymd
         )
       ) {
+
         say(
           el.msg,
           '日付を選んでください',
           false
         );
 
+
         return;
       }
+
 
       const ok =
         await saveWeight(
@@ -6442,10 +7401,11 @@ function init() {
           el.pastKg.value
         );
 
-      /*
-       * サーバー保存成功時だけ入力欄を空にする。
-       */
-      if (ok) {
+
+      if (
+        ok
+      ) {
+
         el.pastKg.value =
           '';
       }
@@ -6453,31 +7413,42 @@ function init() {
 
 
   el.tabs.onclick =
-    e => {
-      const b =
-        e.target.closest(
+    event => {
+
+      const button =
+        event.target.closest(
           '.tab'
         );
 
-      if (!b) {
+
+      if (
+        !button
+      ) {
+
         return;
       }
 
+
       [
         ...el.tabs.children
-      ].forEach(
-        t =>
-          t.classList.toggle(
-            'is-on',
-            t === b
-          )
-      );
+      ]
+        .forEach(
+          tab =>
+            tab.classList.toggle(
+              'is-on',
+              tab ===
+                button
+            )
+        );
+
 
       state.period =
-        b.dataset.p;
+        button.dataset.p;
+
 
       state.offset =
         0;
+
 
       renderLog();
     };
@@ -6485,6 +7456,7 @@ function init() {
 
   $('#prevRange').onclick =
     () => {
+
       state.offset--;
 
       renderLog();
@@ -6493,36 +7465,55 @@ function init() {
 
   $('#nextRange').onclick =
     () => {
+
       if (
-        state.offset < 0
+        state.offset <
+          0
       ) {
+
         state.offset++;
       }
+
 
       renderLog();
     };
 
 
-  /* ==========================================================
+  /* ----------------------------------------------------------
      グループ参加
-     ========================================================== */
+
+     leader.js が読み込まれたあと、
+     公開範囲選択付きの処理へ上書きされる。
+     ---------------------------------------------------------- */
 
   $('#doJoin').onclick =
     async () => {
+
       const code =
-        el.joinCode.value.trim();
+        el.joinCode.value
+          .trim();
+
 
       if (!code) {
+
         say(
           el.gmsg,
           'コードを入力してください',
           false
         );
 
+
         return;
       }
 
+
       try {
+
+        /*
+         * 古いUIから直接呼ばれた場合でも
+         * Worker側ではweight_hidden未指定を
+         * 非公開扱いにする。
+         */
         await api(
           '/api/groups/join',
           {
@@ -6535,12 +7526,16 @@ function init() {
           }
         );
 
+
         el.joinCode.value =
           '';
 
+
         await loadMe();
 
+
         loadRanking();
+
 
         say(
           el.gmsg2,
@@ -6548,7 +7543,9 @@ function init() {
           true
         );
 
+
       } catch (e) {
+
         say(
           el.gmsg,
           emsg(e),
@@ -6558,41 +7555,56 @@ function init() {
     };
 
 
-  /* ==========================================================
+  /* ----------------------------------------------------------
      グループ作成
-     ========================================================== */
+     ---------------------------------------------------------- */
 
   $('#doCreate').onclick =
     async () => {
+
       const name =
-        el.newGroupName.value.trim();
+        el.newGroupName.value
+          .trim();
+
 
       if (!name) {
+
         say(
           el.gmsg,
           'グループ名を入力してください',
           false
         );
 
+
         return;
       }
 
-      const ng =
+
+      const moderation =
         moderate(
           name
         );
 
-      if (ng) {
+
+      if (
+        moderation
+      ) {
+
         say(
           el.gmsg,
-          ERR[ng],
+          ERR[
+            moderation
+          ],
           false
         );
+
 
         return;
       }
 
+
       try {
+
         await api(
           '/api/groups/create',
           {
@@ -6612,9 +7624,12 @@ function init() {
           }
         );
 
+
         await loadMe();
 
+
         loadRanking();
+
 
         say(
           el.gmsg2,
@@ -6622,7 +7637,9 @@ function init() {
           true
         );
 
+
       } catch (e) {
+
         say(
           el.gmsg,
           emsg(e),
@@ -6632,31 +7649,38 @@ function init() {
     };
 
 
-  /* ==========================================================
+  /* ----------------------------------------------------------
      コードコピー
-     ========================================================== */
+     ---------------------------------------------------------- */
 
   $('#copyCode').onclick =
     async () => {
-      const g =
+
+      const group =
         cache.group;
 
-      const c =
-        g
+
+      const code =
+        group
           ? rawCode(
-              g.code ||
-              g.group_id
+              group.code ||
+              group.group_id
             )
           : '';
 
-      if (!c) {
+
+      if (!code) {
+
         return;
       }
 
+
       try {
+
         await navigator.clipboard.writeText(
-          c
+          code
         );
+
 
         say(
           el.gmsg2,
@@ -6664,7 +7688,9 @@ function init() {
           true
         );
 
+
       } catch {
+
         say(
           el.gmsg2,
           'コピーできませんでした。手で入力してください',
@@ -6674,13 +7700,14 @@ function init() {
     };
 
 
-  /* ==========================================================
+  /* ----------------------------------------------------------
      グループ名変更
-     ========================================================== */
+     ---------------------------------------------------------- */
 
   $('#renameGroup').onclick =
     async () => {
-      const v =
+
+      const value =
         await promptSheet({
           title:
             'グループ名の変更',
@@ -6700,29 +7727,44 @@ function init() {
             '変更する',
 
           validate:
-            s => {
+            input => {
+
               if (
-                !String(s).trim()
+                !String(
+                  input
+                ).trim()
               ) {
+
                 return '名前を入力してください';
               }
 
-              const ng =
-                moderate(s);
 
-              return ng
-                ? ERR[ng]
+              const moderation =
+                moderate(
+                  input
+                );
+
+
+              return moderation
+                ? ERR[
+                    moderation
+                  ]
                 : null;
             },
         });
 
+
       if (
-        v === null
+        value ===
+          null
       ) {
+
         return;
       }
 
+
       try {
+
         await api(
           '/api/groups/rename',
           {
@@ -6731,14 +7773,17 @@ function init() {
 
             body: {
               name:
-                v.trim()
+                value.trim()
             }
           }
         );
 
+
         await loadMe();
 
+
         loadRanking();
+
 
         say(
           el.gmsg2,
@@ -6746,7 +7791,9 @@ function init() {
           true
         );
 
+
       } catch (e) {
+
         say(
           el.gmsg2,
           emsg(e),
@@ -6756,19 +7803,20 @@ function init() {
     };
 
 
-  /* ==========================================================
+  /* ----------------------------------------------------------
      スタート日
-     ========================================================== */
+     ---------------------------------------------------------- */
 
   $('#editStart').onclick =
     async () => {
-      const v =
+
+      const value =
         await promptSheet({
           title:
             'スタート日',
 
           note:
-            'この日以降の最初の記録が、減量幅の基準になります。',
+            'この日以降の最初の記録が減量幅の基準になります。スタート日より前の体重はグループ共有の対象になりません。',
 
           type:
             'date',
@@ -6785,21 +7833,28 @@ function init() {
             '変更する',
 
           validate:
-            s =>
+            input =>
               /^\d{4}-\d{2}-\d{2}$/.test(
-                String(s).trim()
+                String(
+                  input
+                ).trim()
               )
                 ? null
                 : '日付を選んでください',
         });
 
+
       if (
-        v === null
+        value ===
+          null
       ) {
+
         return;
       }
 
+
       try {
+
         await api(
           '/api/groups/start',
           {
@@ -6808,14 +7863,17 @@ function init() {
 
             body: {
               start_ymd:
-                v.trim()
+                value.trim()
             }
           }
         );
 
+
         await loadMe();
 
+
         loadRanking();
+
 
         say(
           el.gmsg2,
@@ -6823,7 +7881,9 @@ function init() {
           true
         );
 
+
       } catch (e) {
+
         say(
           el.gmsg2,
           emsg(e),
@@ -6833,70 +7893,89 @@ function init() {
     };
 
 
-  /* ==========================================================
+  /* ----------------------------------------------------------
      除名リスト
-     ========================================================== */
+     ---------------------------------------------------------- */
 
   $('#showBans').onclick =
     async () => {
+
       try {
-        const d =
+
+        const data =
           await api(
             '/api/groups/bans'
           );
 
+
         const bans =
-          d.bans ||
+          data.bans ||
           [];
+
 
         if (
           !bans.length
         ) {
+
           say(
             el.gmsg2,
             '除名した人はいません',
             true
           );
 
+
           return;
         }
 
-        const i =
+
+        const index =
           await menuSheet(
             '除名リスト',
             '選ぶと再参加できるように戻します。',
             bans.map(
-              b => ({
+              item => ({
                 label:
-                  b.nickname ||
-                  b.member_id
+                  item.nickname ||
+                  item.member_id
               })
             )
           );
 
+
         if (
-          i < 0
+          index <
+            0
         ) {
+
           return;
         }
 
-        const t =
-          bans[i];
 
-        if (!t) {
+        const target =
+          bans[
+            index
+          ];
+
+
+        if (!target) {
+
           return;
         }
+
 
         const ok =
           await confirmSheet(
             '再参加を許可',
-            `${t.nickname || t.member_id} が同じコードで再参加できるようになります。`,
+            `${target.nickname || target.member_id} が同じコードで再参加できるようになります。`,
             '許可する'
           );
 
+
         if (!ok) {
+
           return;
         }
+
 
         await api(
           '/api/groups/unban',
@@ -6906,18 +7985,21 @@ function init() {
 
             body: {
               member_id:
-                t.member_id
+                target.member_id
             }
           }
         );
 
+
         say(
           el.gmsg2,
-          `${t.nickname || t.member_id} を戻しました`,
+          `${target.nickname || target.member_id} を戻しました`,
           true
         );
 
+
       } catch (e) {
+
         say(
           el.gmsg2,
           emsg(e),
@@ -6927,12 +8009,13 @@ function init() {
     };
 
 
-  /* ==========================================================
-     グループ解散
-     ========================================================== */
+  /* ----------------------------------------------------------
+     解散
+     ---------------------------------------------------------- */
 
   $('#dissolveGroup').onclick =
     async () => {
+
       const ok =
         await confirmSheet(
           'グループを解散',
@@ -6941,11 +8024,15 @@ function init() {
           true
         );
 
+
       if (!ok) {
+
         return;
       }
 
+
       try {
+
         await api(
           '/api/groups/dissolve',
           {
@@ -6954,9 +8041,12 @@ function init() {
           }
         );
 
+
         await loadMe();
 
+
         loadRanking();
+
 
         say(
           el.gmsg,
@@ -6964,7 +8054,9 @@ function init() {
           true
         );
 
+
       } catch (e) {
+
         say(
           el.gmsg2,
           emsg(e),
@@ -6974,12 +8066,13 @@ function init() {
     };
 
 
-  /* ==========================================================
+  /* ----------------------------------------------------------
      グループ退出
-     ========================================================== */
+     ---------------------------------------------------------- */
 
   $('#leaveGroup').onclick =
     async () => {
+
       const ok =
         await confirmSheet(
           'グループを抜ける',
@@ -6988,11 +8081,15 @@ function init() {
           true
         );
 
+
       if (!ok) {
+
         return;
       }
 
+
       try {
+
         await api(
           '/api/groups/leave',
           {
@@ -7001,9 +8098,12 @@ function init() {
           }
         );
 
+
         await loadMe();
 
+
         loadRanking();
+
 
         say(
           el.gmsg,
@@ -7011,7 +8111,9 @@ function init() {
           true
         );
 
+
       } catch (e) {
+
         say(
           el.gmsg2,
           emsg(e),
@@ -7021,37 +8123,46 @@ function init() {
     };
 
 
-  /* ==========================================================
+  /* ----------------------------------------------------------
      ランキングタブ
-     ========================================================== */
+     ---------------------------------------------------------- */
 
   el.rankTabs.onclick =
-    e => {
-      const b =
-        e.target.closest(
+    event => {
+
+      const button =
+        event.target.closest(
           '.tab'
         );
 
-      if (!b) {
+
+      if (!button) {
+
         return;
       }
 
+
       [
         ...el.rankTabs.children
-      ].forEach(
-        t =>
-          t.classList.toggle(
-            'is-on',
-            t === b
-          )
-      );
+      ]
+        .forEach(
+          tab =>
+            tab.classList.toggle(
+              'is-on',
+              tab ===
+                button
+            )
+        );
+
 
       state.rank =
-        b.dataset.r;
+        button.dataset.r;
+
 
       el.watchNav.hidden =
         state.rank !==
-        'watch';
+          'watch';
+
 
       loadRanking();
     };
@@ -7059,8 +8170,10 @@ function init() {
 
   el.watchSel.onchange =
     () => {
+
       state.watchId =
         el.watchSel.value;
+
 
       loadRanking();
     };
@@ -7077,7 +8190,10 @@ function init() {
     $('#addWatch2');
 
 
-  if (addWatch2) {
+  if (
+    addWatch2
+  ) {
+
     addWatch2.onclick =
       () =>
         addWatchByCode(
@@ -7086,76 +8202,108 @@ function init() {
   }
 
 
-  /* ==========================================================
-     マイページ：アイコン
-     ========================================================== */
+  /* ----------------------------------------------------------
+     アイコン
+     ---------------------------------------------------------- */
 
   if (
     el.iconPick &&
     el.iconFile
   ) {
+
     el.iconPick.onclick =
       () =>
         el.iconFile.click();
   }
 
 
-  if (el.iconFile) {
+  if (
+    el.iconFile
+  ) {
+
     el.iconFile.onchange =
       () => {
-        const f =
+
+        const file =
           el.iconFile.files &&
           el.iconFile.files[0];
+
 
         el.iconFile.value =
           '';
 
-        if (f) {
-          uploadIcon(f);
+
+        if (
+          file
+        ) {
+
+          uploadIcon(
+            file
+          );
         }
       };
   }
 
 
-  if (el.iconDel) {
+  if (
+    el.iconDel
+  ) {
+
     el.iconDel.onclick =
       removeIcon;
   }
 
 
-  /* ==========================================================
+  /* ----------------------------------------------------------
      ニックネーム
-     ========================================================== */
+     ---------------------------------------------------------- */
 
   $('#saveNick').onclick =
     async () => {
-      const v =
-        el.nickInput.value.trim();
 
-      if (!v) {
+      const value =
+        el.nickInput.value
+          .trim();
+
+
+      if (!value) {
+
         say(
           el.mmsg,
           'ニックネームを入力してください',
           false
         );
 
+
         return;
       }
 
-      const ng =
-        moderate(v);
 
-      if (ng) {
+      const moderation =
+        moderate(
+          value
+        );
+
+
+      if (
+        moderation
+      ) {
+
         say(
           el.mmsg,
-          ERR[ng],
+          ERR[
+            moderation
+          ],
           false
         );
 
+
         return;
       }
 
+
       try {
+
         await api(
           '/api/me',
           {
@@ -7164,12 +8312,14 @@ function init() {
 
             body: {
               nickname:
-                v
+                value
             }
           }
         );
 
+
         await loadMe();
+
 
         say(
           el.mmsg,
@@ -7177,7 +8327,9 @@ function init() {
           true
         );
 
+
       } catch (e) {
+
         say(
           el.mmsg,
           emsg(e),
@@ -7187,33 +8339,45 @@ function init() {
     };
 
 
-  /* ==========================================================
+  /* ----------------------------------------------------------
      目標体重
-     ========================================================== */
+     ---------------------------------------------------------- */
 
   $('#saveGoal').onclick =
     () => {
-      if (!cache.ready) {
+
+      if (
+        !cache.ready
+      ) {
+
         say(
           el.mmsg,
           'サーバーに接続中です',
           false
         );
 
+
         return;
       }
 
+
       const raw =
-        el.goalInput.value.trim();
+        el.goalInput.value
+          .trim();
+
 
       if (
-        raw === ''
+        raw ===
+          ''
       ) {
+
         store.setGoal(
           null
         );
 
+
         renderLog();
+
 
         say(
           el.mmsg,
@@ -7221,32 +8385,44 @@ function init() {
           true
         );
 
+
         return;
       }
 
-      const v =
-        normKg(raw);
+
+      const value =
+        normKg(
+          raw
+        );
+
 
       if (
-        v === null
+        value ===
+          null
       ) {
+
         say(
           el.mmsg,
           '目標体重を 20〜300kg で入力してください',
           false
         );
 
+
         return;
       }
 
+
       store.setGoal(
-        v
+        value
       );
 
+
       el.goalInput.value =
-        v.toFixed(1);
+        value.toFixed(1);
+
 
       renderLog();
+
 
       say(
         el.mmsg,
@@ -7256,17 +8432,23 @@ function init() {
     };
 
 
-  /* ==========================================================
+  /* ----------------------------------------------------------
      通知設定
-     ========================================================== */
+     ---------------------------------------------------------- */
 
   const saveNotify =
     $('#saveNotify');
 
-  if (saveNotify) {
+
+  if (
+    saveNotify
+  ) {
+
     saveNotify.onclick =
       async () => {
+
         try {
+
           await api(
             '/api/me',
             {
@@ -7290,7 +8472,9 @@ function init() {
             }
           );
 
+
           await loadMe();
+
 
           say(
             el.nmsg,
@@ -7298,7 +8482,9 @@ function init() {
             true
           );
 
+
         } catch (e) {
+
           say(
             el.nmsg,
             emsg(e),
@@ -7309,16 +8495,19 @@ function init() {
   }
 
 
-  /* ==========================================================
+  /* ----------------------------------------------------------
      端末IDコピー
-     ========================================================== */
+     ---------------------------------------------------------- */
 
   $('#copyDeviceId').onclick =
     async () => {
+
       try {
+
         await navigator.clipboard.writeText(
           deviceId()
         );
+
 
         say(
           el.dmsg,
@@ -7326,7 +8515,9 @@ function init() {
           true
         );
 
+
       } catch {
+
         say(
           el.dmsg,
           'コピーできませんでした',
@@ -7336,37 +8527,49 @@ function init() {
     };
 
 
-  /* ==========================================================
+  /* ----------------------------------------------------------
      データ削除
-     ========================================================== */
+     ---------------------------------------------------------- */
 
   $('#deleteAll').onclick =
     async () => {
-      const ok1 =
+
+      const first =
         await confirmSheet(
           '利用データの削除',
-          '体重の記録、目標体重、ニックネーム、プロフィール画像、グループの所属を削除します。取り消せません。',
+          '体重記録、目標体重、ニックネーム、プロフィール画像、グループ所属、体重公開設定、外部WEB連携への同意など通常の利用データを削除します。取り消せません。',
           '次へ進む',
           true
         );
 
-      if (!ok1) {
+
+      if (
+        !first
+      ) {
+
         return;
       }
 
-      const ok2 =
+
+      const second =
         await confirmSheet(
           '本当に削除しますか？',
-          'この端末のデータはサーバーからも消えます。元に戻すことはできません。',
+          'この端末の通常の利用データはサーバーからも削除されます。元に戻すことはできません。',
           '削除する',
           true
         );
 
-      if (!ok2) {
+
+      if (
+        !second
+      ) {
+
         return;
       }
 
+
       try {
+
         await api(
           '/api/me',
           {
@@ -7375,18 +8578,23 @@ function init() {
           }
         );
 
+
         localStorage.removeItem(
           K_DEV
         );
+
 
         await alertSheet(
           '削除しました',
           '利用データを削除しました。画面を読み込み直します。'
         );
 
+
         location.reload();
 
+
       } catch (e) {
+
         say(
           el.dmsg,
           emsg(e),
@@ -7396,28 +8604,32 @@ function init() {
     };
 
 
-  /* ==========================================================
+  /* ----------------------------------------------------------
      下部タブ
-     ========================================================== */
+     ---------------------------------------------------------- */
 
-  $$('.tabbtn').forEach(
-    b => {
-      b.onclick =
-        () =>
-          switchView(
-            b.dataset.v
-          );
-    }
-  );
+  $$('.tabbtn')
+    .forEach(
+      button => {
+
+        button.onclick =
+          () =>
+            switchView(
+              button.dataset.v
+            );
+      }
+    );
 
 
   window.addEventListener(
     'resize',
     () => {
+
       if (
         state.view ===
-        'log'
+          'log'
       ) {
+
         drawChart();
       }
     }
@@ -7433,7 +8645,9 @@ function init() {
    ============================================================ */
 
 async function boot() {
+
   try {
+
     await api(
       '/api/register',
       {
@@ -7458,6 +8672,14 @@ async function boot() {
       true;
 
 
+    /*
+     * 2026-09-07追加：
+     * 起動時にプロフィール画像の
+     * 承認待ち状態を取得。
+     */
+    await loadIconState();
+
+
     const today =
       todayYmdJST();
 
@@ -7466,12 +8688,14 @@ async function boot() {
       cache.weights[
         today
       ] !==
-      undefined
+        undefined
     ) {
+
       el.kgInput.value =
         cache.weights[
           today
-        ].toFixed(1);
+        ]
+          .toFixed(1);
     }
 
 
@@ -7501,7 +8725,10 @@ async function boot() {
       );
 
 
-    if (ok) {
+    if (
+      ok
+    ) {
+
       boot();
     }
   }
@@ -7509,9 +8736,12 @@ async function boot() {
 
 
 async function start() {
+
   init();
 
+
   await ensureAgreed();
+
 
   boot();
 }

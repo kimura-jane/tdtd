@@ -2,7 +2,11 @@
 
 /* ============================================================
    みんやせ / app.js
-   2026-09-07 審査・安全対応版
+   2026-09-08 審査・安全対応版
+
+   ・プロフィール画像承認待ち
+   ・2026-09-07版 規約再同意
+   ・BAN中でも利用データ削除可能
    ============================================================ */
 
 
@@ -728,9 +732,6 @@ const cache = {
   blocks:
     [],
 
-  /*
-   * 2026-09-07追加
-   */
   iconPending:
     false,
 
@@ -1422,10 +1423,6 @@ function say(
     setTimeout(
       () => {
 
-        /*
-         * 画像承認待ちメッセージだけは
-         * 自動消去しない。
-         */
         if (
           node.dataset &&
           node.dataset.pending ===
@@ -2313,12 +2310,6 @@ function docSheet(
 }
 
 
-/*
- * 2026-09-07
- *
- * terms / privacy に加え、
- * support.htmlもCapacitorアプリ内で開く。
- */
 document.addEventListener(
   'click',
   event => {
@@ -2560,6 +2551,7 @@ function agreeSheet() {
 
           close();
 
+
           resolve(
             false
           );
@@ -2593,6 +2585,286 @@ async function ensureAgreed() {
       '同意が必要です',
       '利用規約とプライバシーポリシーに同意いただけない場合、みんやせはご利用いただけません。'
     );
+  }
+}
+
+
+/* ============================================================
+   B-3：利用停止中ユーザー
+
+   通常機能には入れないが、
+   ・利用データ削除
+   ・サポート閲覧
+   は必ず残す。
+
+   BAN中の削除に、新しい利用規約への同意は要求しない。
+   ============================================================ */
+
+async function bannedMode() {
+
+  cache.ready =
+    false;
+
+
+  clearMsg(
+    el.msg
+  );
+
+
+  const {
+    sh,
+    close
+  } =
+    sheetOpen(
+      '利用停止中です',
+      'このユーザーは現在みんやせを利用できません。' +
+      '保存されている通常の利用データは、この画面から削除できます。'
+    );
+
+
+  const explanation =
+    document.createElement(
+      'p'
+    );
+
+
+  explanation.className =
+    'note';
+
+
+  explanation.textContent =
+    'データを削除すると、体重記録、目標体重、ニックネーム、' +
+    'プロフィール画像、グループ所属、体重公開設定、外部WEB連携への同意など、' +
+    '通常の利用データが削除されます。削除は取り消せません。';
+
+
+  sh.appendChild(
+    explanation
+  );
+
+
+  const privacyNote =
+    document.createElement(
+      'p'
+    );
+
+
+  privacyNote.className =
+    'note';
+
+
+  privacyNote.textContent =
+    '通報対応、不正利用の防止、安全確保、法令上必要な対応のために、' +
+    'プライバシーポリシーで定める範囲の記録を保持する場合があります。';
+
+
+  sh.appendChild(
+    privacyNote
+  );
+
+
+  const error =
+    document.createElement(
+      'p'
+    );
+
+
+  error.className =
+    'msg';
+
+
+  sh.appendChild(
+    error
+  );
+
+
+  const row =
+    sheetRow(
+      sh
+    );
+
+
+  const deleteButton =
+    sheetBtn(
+      row,
+      '利用データを削除する',
+      'danger sm'
+    );
+
+
+  const supportButton =
+    sheetBtn(
+      row,
+      'サポートを見る',
+      'ghost sm'
+    );
+
+
+  supportButton.onclick =
+    () => {
+
+      docSheet(
+        './support.html',
+        'サポート'
+      );
+    };
+
+
+  deleteButton.onclick =
+    async () => {
+
+      const first =
+        await confirmSheet(
+          '利用データの削除',
+          '保存されている通常の利用データを削除します。取り消せません。',
+          '次へ進む',
+          true
+        );
+
+
+      if (
+        !first
+      ) {
+
+        return;
+      }
+
+
+      const second =
+        await confirmSheet(
+          '本当に削除しますか？',
+          '体重記録、プロフィール、グループ所属、プロフィール画像などを削除します。',
+          '削除する',
+          true
+        );
+
+
+      if (
+        !second
+      ) {
+
+        return;
+      }
+
+
+      deleteButton.disabled =
+        true;
+
+
+      error.textContent =
+        '削除中…';
+
+
+      error.className =
+        'msg ok';
+
+
+      try {
+
+        await api(
+          '/api/me',
+          {
+            method:
+              'DELETE'
+          }
+        );
+
+
+        /*
+         * 削除後は新しい利用者として扱うため、
+         * 端末IDと規約同意状態をローカルから削除。
+         */
+        localStorage.removeItem(
+          K_DEV
+        );
+
+
+        localStorage.removeItem(
+          K_AGREE
+        );
+
+
+        close();
+
+
+        await alertSheet(
+          '削除しました',
+          '利用データを削除しました。'
+        );
+
+
+        location.reload();
+
+
+      } catch (e) {
+
+        deleteButton.disabled =
+          false;
+
+
+        error.textContent =
+          '削除できませんでした：' +
+          emsg(e);
+
+
+        error.className =
+          'msg ng';
+      }
+    };
+}
+
+
+/*
+ * 規約再同意が必要な状態でも、
+ * 既存ユーザーがBANされている場合は
+ * 規約同意画面より先に削除導線を出す。
+ *
+ * 新規ユーザーでは GET /api/me が not_registered になるだけなので、
+ * この確認によって新しいdevices行は作成されない。
+ */
+async function checkBannedBeforeAgreement() {
+
+  if (
+    agreed()
+  ) {
+
+    return false;
+  }
+
+
+  try {
+
+    await api(
+      '/api/me'
+    );
+
+
+    return false;
+
+
+  } catch (e) {
+
+    if (
+      e &&
+      e.message ===
+        'banned'
+    ) {
+
+      await bannedMode();
+
+
+      return true;
+    }
+
+
+    /*
+     * not_registered:
+     *   新規ユーザーなので通常どおり規約同意へ。
+     *
+     * network_error / timeout:
+     *   boot()側でもう一度正式に接続処理する。
+     */
+    return false;
   }
 }
 
@@ -3696,13 +3968,6 @@ function renderIcon() {
   );
 
 
-  /*
-   * 承認待ち画像しかなく、
-   * まだ承認済み画像がない場合は
-   * 削除ボタンを出さない。
-   *
-   * 承認済みが残っている場合は削除可能。
-   */
   if (
     el.iconDel
   ) {
@@ -3719,12 +3984,6 @@ function renderIcon() {
 }
 
 
-/*
- * GET /api/icon でサーバー上の状態を確認。
- *
- * アプリを閉じて再起動しても
- * pending=trueなら「確認中です」を再表示。
- */
 async function loadIconState() {
 
   if (
@@ -3752,11 +4011,6 @@ async function loadIconState() {
       null;
 
 
-    /*
-     * 管理者が承認したあと、
-     * 再度マイページを開けば
-     * 最新の承認済み画像へ更新。
-     */
     cache.me.icon_ver =
       Number(
         data.icon_ver ||
@@ -3782,13 +4036,7 @@ async function loadIconState() {
     }
 
 
-  } catch {
-
-    /*
-     * アイコン状態取得だけの失敗で
-     * アプリ全体は止めない。
-     */
-  }
+  } catch {}
 }
 
 
@@ -3821,10 +4069,6 @@ async function uploadIcon(file) {
       );
 
 
-    /*
-     * 一時メッセージなので
-     * pendingフラグをいったん解除。
-     */
     if (
       el.imsg &&
       el.imsg.dataset
@@ -3852,11 +4096,6 @@ async function uploadIcon(file) {
       cache.me
     ) {
 
-      /*
-       * pendingアップロードでは
-       * icon_ver / icon_url は
-       * 以前の承認済み画像のまま返る。
-       */
       cache.me.icon_ver =
         Number(
           data.icon_ver ||
@@ -3891,9 +4130,6 @@ async function uploadIcon(file) {
     }
 
 
-    /*
-     * 「アイコンを設定しました」は出さない。
-     */
     renderIconModerationStatus();
 
 
@@ -7196,11 +7432,6 @@ function switchView(view) {
 
     loadBlocks();
 
-    /*
-     * 管理者による承認が
-     * アプリ起動後に行われている可能性があるので
-     * マイページへ来るたび確認。
-     */
     loadIconState();
   }
 }
@@ -7481,9 +7712,6 @@ function init() {
 
   /* ----------------------------------------------------------
      グループ参加
-
-     leader.js が読み込まれたあと、
-     公開範囲選択付きの処理へ上書きされる。
      ---------------------------------------------------------- */
 
   $('#doJoin').onclick =
@@ -7509,11 +7737,6 @@ function init() {
 
       try {
 
-        /*
-         * 古いUIから直接呼ばれた場合でも
-         * Worker側ではweight_hidden未指定を
-         * 非公開扱いにする。
-         */
         await api(
           '/api/groups/join',
           {
@@ -8584,6 +8807,11 @@ function init() {
         );
 
 
+        localStorage.removeItem(
+          K_AGREE
+        );
+
+
         await alertSheet(
           '削除しました',
           '利用データを削除しました。画面を読み込み直します。'
@@ -8672,11 +8900,6 @@ async function boot() {
       true;
 
 
-    /*
-     * 2026-09-07追加：
-     * 起動時にプロフィール画像の
-     * 承認待ち状態を取得。
-     */
     await loadIconState();
 
 
@@ -8709,6 +8932,25 @@ async function boot() {
 
   } catch (err) {
 
+    /*
+     * 利用停止は通信エラーではない。
+     *
+     * 通常画面には入れず、
+     * データ削除とサポートだけ表示する。
+     */
+    if (
+      err &&
+      err.message ===
+        'banned'
+    ) {
+
+      await bannedMode();
+
+
+      return;
+    }
+
+
     say(
       el.msg,
       'サーバーに接続できません：' +
@@ -8738,6 +8980,24 @@ async function boot() {
 async function start() {
 
   init();
+
+
+  /*
+   * B-3:
+   *
+   * 最新規約へ未同意の既存BANユーザーが
+   * 「同意しないと削除できない」状態になるのを防ぐ。
+   *
+   * 新規ユーザーの場合は /api/me が
+   * not_registered を返すだけなので、
+   * 同意前にサーバー登録は行わない。
+   */
+  if (
+    await checkBannedBeforeAgreement()
+  ) {
+
+    return;
+  }
 
 
   await ensureAgreed();

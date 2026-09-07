@@ -8,6 +8,7 @@ import {
 
 /* ============================================================
    みんやせ / worker/weight-privacy.js
+   2026-09-07
 
    個人単位の体重公開設定
 
@@ -27,6 +28,10 @@ import {
    オーナー / リーダー非公開
      増減量のみ
      オーナー / リーダーが解除可能
+
+   グループ自体が体重非公開
+     全員強制で増減量のみ
+     本人 / オーナー / リーダーから公開不可
 
    ============================================================ */
 
@@ -50,6 +55,7 @@ export async function ensureWeightPrivacyTable(
   if (
     tableReady
   ) {
+
     return;
   }
 
@@ -201,33 +207,6 @@ async function readBody(
 }
 
 
-async function readBodyClone(
-  req
-) {
-
-  try {
-
-    const b =
-      await req
-        .clone()
-        .json();
-
-
-    return (
-      b &&
-      typeof b ===
-        'object'
-    )
-      ? b
-      : {};
-
-  } catch {
-
-    return {};
-  }
-}
-
-
 function safeEqual(
   a,
   b
@@ -251,6 +230,7 @@ function safeEqual(
     x.length !==
       y.length
   ) {
+
     return false;
   }
 
@@ -294,6 +274,7 @@ function adminOk(
 
 
   if (!want) {
+
     return false;
   }
 
@@ -330,6 +311,58 @@ function adminOk(
   return safeEqual(
     got,
     want
+  );
+}
+
+
+/* ============================================================
+   グループ設定
+   ============================================================ */
+
+async function groupForDevice(
+  env,
+  dev
+) {
+
+  if (
+    !dev ||
+    !dev.group_id
+  ) {
+
+    return null;
+  }
+
+
+  return await env.DB
+    .prepare(`
+      SELECT
+        group_id,
+        name,
+        show_weight,
+        start_ymd,
+        owner_id
+
+      FROM groups
+
+      WHERE group_id=?
+    `)
+    .bind(
+      dev.group_id
+    )
+    .first();
+}
+
+
+function groupAllowsWeightPublic(
+  group
+) {
+
+  return !!(
+    group &&
+    Number(
+      group.show_weight ||
+      0
+    ) === 1
   );
 }
 
@@ -868,10 +901,7 @@ async function setWeightLock(
 async function setSelfPrivacy(
   env,
   memberId,
-  hidden,
-  {
-    adminLockedNoop = false
-  } = {}
+  hidden
 ) {
 
   const id =
@@ -898,26 +928,12 @@ async function setSelfPrivacy(
 
   /*
    * 管理者固定は本人でも解除不可。
-   *
-   * join時だけはエラーにせず、
-   * 管理者固定をそのまま維持して参加させる。
    */
   if (
     before.weight_locked &&
     before.weight_lock_kind ===
       'admin'
   ) {
-
-    if (
-      adminLockedNoop
-    ) {
-
-      return {
-        state:
-          before,
-      };
-    }
-
 
     return {
       error:
@@ -948,9 +964,9 @@ async function setSelfPrivacy(
   } else {
 
     /*
-     * 自分で設定したlockだけ解除できる。
-     * owner/leader由来でhiddenの場合も
-     * 本人は公開へ戻せる。
+     * 本人自身が設定したlockのみ解除可能。
+     *
+     * 管理者その他のlockは解除させない。
      */
     if (
       before.weight_locked &&
@@ -993,63 +1009,6 @@ async function setSelfPrivacy(
 
 
 /* ============================================================
-   参加時の本人設定
-
-   req.clone()を読むので、
-   本来の /api/groups/join はそのままbodyを読める。
-   ============================================================ */
-
-export async function prepareJoinWeightPrivacy(
-  req,
-  env,
-  dev
-) {
-
-  /*
-   * 既にグループ所属中なら何もしない。
-   * 本来のjoinGroupにalready_in_groupを返させる。
-   */
-  if (
-    !dev ||
-    dev.group_id
-  ) {
-
-    return;
-  }
-
-
-  const body =
-    await readBodyClone(
-      req
-    );
-
-
-  /*
-   * 古いアプリはこのフィールドを送らない。
-   * その場合は既存挙動を維持する。
-   */
-  if (
-    typeof body.weight_hidden !==
-      'boolean'
-  ) {
-
-    return;
-  }
-
-
-  await setSelfPrivacy(
-    env,
-    dev.member_id,
-    body.weight_hidden,
-    {
-      adminLockedNoop:
-        true,
-    }
-  );
-}
-
-
-/* ============================================================
    本人用API
    ============================================================ */
 
@@ -1081,6 +1040,31 @@ export async function selfWeightPrivacyRoute(
   }
 
 
+  const group =
+    await groupForDevice(
+      env,
+      dev
+    );
+
+
+  if (
+    !group
+  ) {
+
+    return bad(
+      req,
+      'group_not_found',
+      404
+    );
+  }
+
+
+  const groupPublic =
+    groupAllowsWeightPublic(
+      group
+    );
+
+
   if (
     m ===
       'GET'
@@ -1093,6 +1077,10 @@ export async function selfWeightPrivacyRoute(
       );
 
 
+    /*
+     * グループ自体が非公開なら、
+     * 個人設定にかかわらずeffective hidden=true。
+     */
     return json(
       req,
       {
@@ -1100,6 +1088,7 @@ export async function selfWeightPrivacyRoute(
           true,
 
         weight_hidden:
+          !groupPublic ||
           state.weight_hidden,
 
         weight_locked:
@@ -1107,6 +1096,12 @@ export async function selfWeightPrivacyRoute(
 
         weight_lock_kind:
           state.weight_lock_kind,
+
+        group_show_weight:
+          groupPublic,
+
+        group_weight_private:
+          !groupPublic,
       }
     );
   }
@@ -1145,6 +1140,27 @@ export async function selfWeightPrivacyRoute(
   }
 
 
+  /*
+   * 最重要：
+   *
+   * グループ自体が体重非公開の場合は、
+   * UIを改造したりAPIを直接叩いたりしても
+   * 「公開」に変更させない。
+   */
+  if (
+    !groupPublic &&
+    body.hidden ===
+      false
+  ) {
+
+    return bad(
+      req,
+      'group_weight_private',
+      403
+    );
+  }
+
+
   const result =
     await setSelfPrivacy(
       env,
@@ -1175,6 +1191,7 @@ export async function selfWeightPrivacyRoute(
         true,
 
       weight_hidden:
+        !groupPublic ||
         result.state.weight_hidden,
 
       weight_locked:
@@ -1182,6 +1199,12 @@ export async function selfWeightPrivacyRoute(
 
       weight_lock_kind:
         result.state.weight_lock_kind,
+
+      group_show_weight:
+        groupPublic,
+
+      group_weight_private:
+        !groupPublic,
     }
   );
 }
@@ -1203,6 +1226,7 @@ export async function cleanupWeightPrivacyForMember(
 
 
   if (!id) {
+
     return;
   }
 
@@ -1215,6 +1239,7 @@ export async function cleanupWeightPrivacyForMember(
 
 
     await env.DB.batch([
+
       env.DB
         .prepare(`
           DELETE FROM weight_privacy
@@ -1233,6 +1258,7 @@ export async function cleanupWeightPrivacyForMember(
           id
         ),
     ]);
+
 
   } catch (e) {
 
@@ -1476,6 +1502,27 @@ export async function memberWeightPrivacyRoute(
   }
 
 
+  /*
+   * グループ自体が体重非公開なら、
+   * オーナー / リーダーがAPIを直接叩いても
+   * 「公開」にできない。
+   */
+  if (
+    !groupAllowsWeightPublic(
+      permission.group
+    ) &&
+    body.hidden ===
+      false
+  ) {
+
+    return bad(
+      req,
+      'group_weight_private',
+      403
+    );
+  }
+
+
   const target =
     await env.DB
       .prepare(`
@@ -1566,6 +1613,9 @@ export async function memberWeightPrivacyRoute(
           null,
 
         weight_hidden:
+          !groupAllowsWeightPublic(
+            permission.group
+          ) ||
           result.weight_hidden,
 
         weight_locked:
@@ -1645,10 +1695,15 @@ export async function adminWeightPrivacyRoute(
             d.group_id,
             d.banned,
             g.name AS group_name,
+            g.show_weight AS group_show_weight,
 
             CASE
+              WHEN COALESCE(g.show_weight,0)=0
+                THEN 1
+
               WHEN COALESCE(wpl.locked,0)=1
                 THEN 1
+
               ELSE COALESCE(wp.hidden,0)
             END AS weight_hidden,
 
@@ -1748,6 +1803,15 @@ export async function adminWeightPrivacyRoute(
                     r.group_name ||
                     null,
 
+                  group_show_weight:
+                    r.group_id
+                      ? Number(
+                          r.group_show_weight ||
+                          0
+                        ) ===
+                          1
+                      : null,
+
                   weight_hidden:
                     Number(
                       r.weight_hidden ||
@@ -1831,7 +1895,8 @@ export async function adminWeightPrivacyRoute(
           d.member_id,
           d.nickname,
           d.group_id,
-          g.name AS group_name
+          g.name AS group_name,
+          g.show_weight AS group_show_weight
 
         FROM devices d
 
@@ -1868,6 +1933,16 @@ export async function adminWeightPrivacyRoute(
       );
 
 
+    const groupPublic =
+      target.group_id
+        ? Number(
+            target.group_show_weight ||
+            0
+          ) ===
+            1
+        : true;
+
+
     return json(
       req,
       {
@@ -1890,7 +1965,13 @@ export async function adminWeightPrivacyRoute(
             target.group_name ||
             null,
 
+          group_show_weight:
+            target.group_id
+              ? groupPublic
+              : null,
+
           weight_hidden:
+            !groupPublic ||
             state.weight_hidden,
 
           weight_locked:
@@ -2003,6 +2084,12 @@ export async function adminWeightPrivacyRoute(
 
   /*
    * 管理者は本人設定も含めて解除可能。
+   *
+   * ただしグループ自体が非公開なら、
+   * effectiveな表示状態は引き続き非公開。
+   *
+   * これは「個人シークレット固定の解除」であり、
+   * グループ自体のshow_weightを変更する処理ではない。
    */
   await setWeightLock(
     env,
@@ -2019,6 +2106,16 @@ export async function adminWeightPrivacyRoute(
       false,
       'admin'
     );
+
+
+  const groupPublic =
+    target.group_id
+      ? Number(
+          target.group_show_weight ||
+          0
+        ) ===
+          1
+      : true;
 
 
   return json(
@@ -2044,7 +2141,8 @@ export async function adminWeightPrivacyRoute(
           null,
 
         weight_hidden:
-          false,
+          !groupPublic ||
+          result.weight_hidden,
 
         weight_locked:
           false,
@@ -2196,6 +2294,7 @@ export async function filterRankingWeightPrivacy(
     locks
   ] =
     await Promise.all([
+
       hiddenWeightSet(
         env,
         ids
@@ -2208,6 +2307,16 @@ export async function filterRankingWeightPrivacy(
     ]);
 
 
+  /*
+   * グループ自体が体重非公開なら
+   * 個人設定に関係なく全員hide。
+   */
+  const groupPublic =
+    !data.group ||
+    data.group.show_weight !==
+      false;
+
+
   for (
     const row of
     data.rows
@@ -2217,6 +2326,7 @@ export async function filterRankingWeightPrivacy(
       !row ||
       !row.member_id
     ) {
+
       continue;
     }
 
@@ -2228,6 +2338,7 @@ export async function filterRankingWeightPrivacy(
 
 
     const hide =
+      !groupPublic ||
       hidden.has(
         id
       );
@@ -2255,6 +2366,7 @@ export async function filterRankingWeightPrivacy(
     if (
       !hide
     ) {
+
       continue;
     }
 
@@ -2331,7 +2443,10 @@ async function filterDayResponse(
       .map(
         r =>
           r &&
-          r.id
+          (
+            r.id ||
+            r.member_id
+          )
       )
       .filter(
         Boolean
@@ -2343,6 +2458,7 @@ async function filterDayResponse(
     locks
   ] =
     await Promise.all([
+
       hiddenWeightSet(
         env,
         ids
@@ -2353,6 +2469,12 @@ async function filterDayResponse(
         ids
       ),
     ]);
+
+
+  const groupPublic =
+    !data.group ||
+    data.group.show_weight !==
+      false;
 
 
   let visibleTotal =
@@ -2370,22 +2492,28 @@ async function filterDayResponse(
     if (
       !row
     ) {
+
       continue;
     }
 
 
     const id =
-      row.id
+      row.id ||
+      row.member_id
         ? String(
-            row.id
+            row.id ||
+            row.member_id
           )
         : '';
 
 
     const hide =
-      !!id &&
-      hidden.has(
-        id
+      !groupPublic ||
+      (
+        !!id &&
+        hidden.has(
+          id
+        )
       );
 
 

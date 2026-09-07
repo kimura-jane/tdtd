@@ -3,10 +3,6 @@
 import app from './entry.js';
 
 import {
-  externalRoute
-} from './external.js';
-
-import {
   isSafetyAdminPath,
   adminSafetyRoute,
   publicIconRoute,
@@ -255,10 +251,19 @@ export default {
 
 
     /* ==========================================================
-       既存 pull 型外部API
+       旧 pull 型外部API
 
-       旧互換性のため残す。
-       新しい外部WEB連携は push 型を使用する。
+       現在の外部WEB連携は
+       group_external
+       +
+       member_id × group_id の本人同意
+       +
+       現在のグループ所属
+
+       を確認する push 型だけを使用する。
+
+       旧 /api/external/weights は
+       この同意条件を迂回できるため廃止する。
        ========================================================== */
 
     if (
@@ -266,10 +271,29 @@ export default {
         '/api/external/weights'
     ) {
 
-      return await externalRoute(
-        req,
-        env,
-        url
+      return new Response(
+        JSON.stringify({
+          ok:
+            false,
+
+          error:
+            'not_found',
+        }),
+        {
+          status:
+            404,
+
+          headers: {
+            'content-type':
+              'application/json; charset=utf-8',
+
+            'cache-control':
+              'no-store',
+
+            'x-content-type-options':
+              'nosniff',
+          },
+        }
       );
     }
 

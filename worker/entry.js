@@ -41,13 +41,17 @@ import {
 
 /* ============================================================
    みんやせ / worker/entry.js
-   2026-09-07
+   2026-09-08
 
    root.js の内側で既存APIを処理する。
 
    重要：
    /api/groups/join は root.js → safety.js が先に処理する。
    entry.js では参加前privacy変更を行わない。
+
+   2026-09-08
+   利用停止中でも DELETE /api/me だけは許可する。
+   その他のAPIは従来どおり banned 403。
    ============================================================ */
 
 
@@ -157,7 +161,10 @@ async function adminToken(
 
 async function getMember(
   req,
-  env
+  env,
+  {
+    allowBanned = false
+  } = {}
 ) {
 
   const deviceId =
@@ -214,11 +221,19 @@ async function getMember(
   }
 
 
+  /*
+   * 通常APIでは利用停止ユーザーを拒否。
+   *
+   * DELETE /api/me の場合だけ
+   * allowBanned=true で通す。
+   */
   if (
     Number(
-      dev.banned
+      dev.banned ||
+      0
     ) ===
-      1
+      1 &&
+    !allowBanned
   ) {
 
     return {
@@ -593,7 +608,15 @@ export default {
       /* --------------------------------------------------------
          アカウント削除
 
-         ここでは既存の即時cleanupを実行。
+         通常時：
+         従来どおり削除。
+
+         利用停止中：
+         DELETE /api/me だけは例外的に許可する。
+
+         削除成功後、
+         vote / push / weight privacy を即時cleanup。
+
          root.js / safety.js 側でも削除状態を確認し、
          失敗した処理はcleanup_jobsで再試行する。
          -------------------------------------------------------- */
@@ -608,7 +631,11 @@ export default {
         const member =
           await getMember(
             req,
-            env
+            env,
+            {
+              allowBanned:
+                true
+            }
           );
 
 
@@ -620,6 +647,11 @@ export default {
         }
 
 
+        /*
+         * index.js 側も
+         * DELETE /api/me だけは
+         * banned判定より先に処理する必要がある。
+         */
         const res =
           await worker.fetch(
             req,
@@ -815,6 +847,13 @@ export default {
     }
 
 
+    /*
+     * ここへ来る通常ユーザーAPIは
+     * worker/index.jsへ。
+     *
+     * bannedユーザーの通常APIは
+     * index.js側で従来どおり403。
+     */
     return worker.fetch(
       req,
       env,

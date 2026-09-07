@@ -2,49 +2,21 @@
 
 /* ============================================================
    みんやせ / leader.js
-   2026-09-06
+   2026-09-07
 
-   ・リーダー権限
+   ・オーナー / リーダー権限
    ・個別体重非表示
    ・管理者シークレット固定
    ・本人による「増減量のみ表示」
-   ・グループ参加時の体重公開選択
-
-   権限
-   ------------------------------------------------------------
-   通常公開
-     本人           → 非公開に変更可
-     オーナー       → 非公開に変更可
-     リーダー       → 非公開に変更可
-     管理者         → 変更可
-
-   本人が増減量のみ
-     本人           → 公開へ戻せる
-     オーナー       → 解除不可
-     リーダー       → 解除不可
-     管理者         → 解除可
-
-   オーナー / リーダーが非公開
-     本人           → 公開へ戻せる
-     オーナー       → 解除可
-     リーダー       → 解除可
-     管理者         → 解除可
-
-   管理者シークレット固定
-     本人           → 解除不可
-     オーナー       → 解除不可
-     リーダー       → 解除不可
-     管理者         → 解除可
+   ・公開グループ参加前の公開範囲選択
+   ・外部WEB連携対象グループの本人同意
+   ・ブロック相手を含む管理用メンバー一覧
    ============================================================ */
 
 (function () {
-
-  /* ============================================================
-     エラー文言
-     ============================================================ */
+  'use strict';
 
   try {
-
     ERR.not_leader =
       'オーナーとリーダーだけが操作できます';
 
@@ -69,8 +41,16 @@
     ERR.weight_privacy_locked =
       'この体重公開設定は変更できません';
 
-  } catch (e) {
+    ERR.external_not_enabled =
+      'このグループでは外部WEB連携を使用していません';
 
+    ERR.bad_consent =
+      '外部WEB連携の同意設定が不正です';
+
+    ERR.blocked_relation =
+      'ブロック関係にあるため操作できません';
+
+  } catch {
     return;
   }
 
@@ -95,9 +75,13 @@
     null;
 
 
-/* ============================================================
-   共通
-   ============================================================ */
+  let externalConsentState =
+    null;
+
+
+  /* ============================================================
+     共通
+     ============================================================ */
 
   function canManage(g) {
 
@@ -160,9 +144,26 @@
       '—';
 
 
-/* ============================================================
-   グループカード
-   ============================================================ */
+  const groupStartText =
+    g =>
+      (
+        g &&
+        g.start_ymd
+      ) ||
+      '—';
+
+
+  const groupShowsWeight =
+    g =>
+      !!(
+        g &&
+        g.show_weight
+      );
+
+
+  /* ============================================================
+     グループカード
+     ============================================================ */
 
   const baseRenderGroup =
     window.renderGroup;
@@ -187,6 +188,11 @@
           btnLeaders.hidden =
             true;
         }
+
+
+        renderManageMembersButton(
+          null
+        );
 
 
         return;
@@ -256,19 +262,254 @@
 
       el.memberTools.hidden =
         !!g.is_owner;
+
+
+      renderManageMembersButton(
+        g
+      );
     };
 
 
-/* ============================================================
-   ランキング装飾
-   ============================================================ */
+  /* ============================================================
+     管理用メンバー一覧
+
+     双方向ブロックで通常ランキングから消えていても
+     オーナー・リーダーは管理できる。
+     ============================================================ */
+
+  function renderManageMembersButton(
+    g
+  ) {
+
+    const tools =
+      document.getElementById(
+        'ownerTools'
+      );
+
+
+    if (
+      !tools
+    ) {
+
+      return;
+    }
+
+
+    let button =
+      document.getElementById(
+        'manageMembersSafety'
+      );
+
+
+    if (
+      !g ||
+      !canManage(
+        g
+      )
+    ) {
+
+      if (
+        button
+      ) {
+
+        button.hidden =
+          true;
+      }
+
+
+      return;
+    }
+
+
+    if (
+      !button
+    ) {
+
+      button =
+        document.createElement(
+          'button'
+        );
+
+
+      button.id =
+        'manageMembersSafety';
+
+
+      button.type =
+        'button';
+
+
+      button.className =
+        'ghost sm';
+
+
+      button.textContent =
+        'メンバー管理';
+
+
+      const bans =
+        document.getElementById(
+          'showBans'
+        );
+
+
+      if (
+        bans
+      ) {
+
+        bans.insertAdjacentElement(
+          'beforebegin',
+          button
+        );
+
+      } else {
+
+        tools.appendChild(
+          button
+        );
+      }
+
+
+      button.onclick =
+        openManageMembers;
+    }
+
+
+    button.hidden =
+      false;
+  }
+
+
+  async function openManageMembers() {
+
+    let data;
+
+
+    try {
+
+      data =
+        await api(
+          '/api/groups/manage-members'
+        );
+
+    } catch (e) {
+
+      say(
+        el.gmsg2,
+        emsg(
+          e
+        ),
+        false
+      );
+
+
+      return;
+    }
+
+
+    const rows =
+      data.rows ||
+      [];
+
+
+    if (
+      !rows.length
+    ) {
+
+      await alertSheet(
+        'メンバー管理',
+        '管理できるメンバーがいません。',
+        '閉じる'
+      );
+
+
+      return;
+    }
+
+
+    const items =
+      rows.map(
+        r => ({
+
+          label:
+            (
+              r.is_owner
+                ? '【オーナー】'
+                : r.is_leader
+                  ? '【リーダー】'
+                  : ''
+            ) +
+
+            nameOf(
+              r
+            ) +
+
+            (
+              r.weight_locked
+                ? (
+                    r.weight_lock_kind ===
+                      'self'
+                      ? ' ／ 本人設定：増減量のみ'
+                      : ' ／ シークレット固定'
+                  )
+                : r.weight_hidden
+                  ? ' ／ 体重非表示'
+                  : ''
+            )
+
+        })
+      );
+
+
+    const selected =
+      await menuSheet(
+        'メンバー管理',
+        'ブロック状態にかかわらず、オーナー・リーダーは所属メンバーを管理できます。',
+        items
+      );
+
+
+    if (
+      selected <
+        0 ||
+      !rows[
+        selected
+      ]
+    ) {
+
+      return;
+    }
+
+
+    await window.memberMenu(
+      rows[
+        selected
+      ],
+      {
+
+        group:
+          data.group,
+
+        management_only:
+          true
+
+      }
+    );
+  }
+
+
+  /* ============================================================
+     ランキング装飾
+     ============================================================ */
 
   const baseDrawRank =
     window.drawRank;
 
 
   window.drawRank =
-    function (data) {
+    function (
+      data
+    ) {
 
       baseDrawRank(
         data
@@ -378,9 +619,9 @@
     };
 
 
-/* ============================================================
-   メンバー「⋯」
-   ============================================================ */
+  /* ============================================================
+     メンバー「⋯」
+     ============================================================ */
 
   window.memberMenu =
     async function (
@@ -424,6 +665,16 @@
         [];
 
 
+      const targetIsSelf =
+        !!r.is_self ||
+        !!(
+          cache &&
+          cache.me &&
+          cache.me.member_id ===
+            r.member_id
+        );
+
+
       const targetIsOwner =
         !!r.is_owner;
 
@@ -440,34 +691,52 @@
         [];
 
 
-      acts.push(
-        r.is_rival
-          ? {
-              label:
-                'ライバルから外す',
+      /*
+       * 管理一覧の行にはis_rivalが無いので、
+       * 通常ランキング由来のときだけライバル操作を出す。
+       */
+      if (
+        !data ||
+        !data.management_only
+      ) {
 
-              run:
-                () =>
-                  rivalDel(
-                    r
-                  )
-            }
-          : {
-              label:
-                'ライバルに追加',
+        acts.push(
 
-              run:
-                () =>
-                  rivalAdd(
-                    r
-                  )
-            }
-      );
+          r.is_rival
+
+            ? {
+
+                label:
+                  'ライバルから外す',
+
+                run:
+                  () =>
+                    rivalDel(
+                      r
+                    )
+
+              }
+
+            : {
+
+                label:
+                  'ライバルに追加',
+
+                run:
+                  () =>
+                    rivalAdd(
+                      r
+                    )
+
+              }
+
+        );
+      }
 
 
       /*
-       * 本人設定・管理者固定されている人は
-       * オーナー / リーダーから変更不可。
+       * 本人設定・管理者固定は
+       * オーナー / リーダーから解除不可。
        */
       if (
         manage &&
@@ -475,6 +744,7 @@
       ) {
 
         acts.push({
+
           label:
             r.weight_hidden
               ? '体重を表示に戻す'
@@ -485,36 +755,46 @@
               changeWeightPrivacy(
                 r,
                 !r.weight_hidden
-              ),
+              )
+
         });
       }
 
 
-      acts.push({
-        label:
-          'この人を通報する',
+      if (
+        !targetIsSelf
+      ) {
 
-        run:
-          () =>
-            doReport(
-              r
-            )
-      });
+        acts.push({
+
+          label:
+            'この人を通報する',
+
+          run:
+            () =>
+              doReport(
+                r
+              )
+
+        });
 
 
-      acts.push({
-        label:
-          'この人をブロックする',
+        acts.push({
 
-        run:
-          () =>
-            doBlock(
-              r
-            ),
+          label:
+            'この人をブロックする',
 
-        danger:
-          true
-      });
+          run:
+            () =>
+              doBlock(
+                r
+              ),
+
+          danger:
+            true
+
+        });
+      }
 
 
       /* ========================================================
@@ -531,6 +811,7 @@
         ) {
 
           acts.push({
+
             label:
               'リーダーを解任する',
 
@@ -539,6 +820,7 @@
                 leaderRemove(
                   r
                 )
+
           });
 
         } else if (
@@ -548,6 +830,7 @@
         ) {
 
           acts.push({
+
             label:
               'リーダーに任命する',
 
@@ -556,6 +839,7 @@
                 leaderAppoint(
                   r
                 )
+
           });
         }
       }
@@ -575,6 +859,7 @@
       ) {
 
         acts.push({
+
           label:
             'グループから除名する',
 
@@ -586,6 +871,7 @@
 
           danger:
             true
+
         });
       }
 
@@ -595,7 +881,7 @@
           ? (
               r.weight_lock_kind ===
                 'self'
-                ? '本人が「増減量のみ表示」を選んでいます。実体重は表示されません。オーナー・リーダーから公開へ変更することはできません。'
+                ? '本人が「非公開（増減量のみ）」を選んでいます。実体重は表示されません。オーナー・リーダーから公開へ変更することはできません。'
                 : 'このメンバーの体重は管理者によってシークレット固定されています。実体重は表示されず、増減量だけが表示されます。固定の解除は管理者だけができます。'
             )
           : '体重非表示にすると実体重は表示されず、増減量だけが表示されます。通報された内容は開発者が確認します。';
@@ -619,16 +905,16 @@
         ]
       ) {
 
-        acts[
+        await acts[
           i
         ].run();
       }
     };
 
 
-/* ============================================================
-   オーナー / リーダーによる体重公開設定
-   ============================================================ */
+  /* ============================================================
+     オーナー / リーダーによる体重公開設定
+     ============================================================ */
 
   async function changeWeightPrivacy(
     r,
@@ -642,7 +928,7 @@
       const text =
         r.weight_lock_kind ===
           'self'
-          ? '本人が「増減量のみ表示」を選んでいるため、オーナー・リーダーからは変更できません。'
+          ? '本人が「非公開（増減量のみ）」を選んでいるため、オーナー・リーダーからは変更できません。'
           : '管理者によってシークレット固定されているため、オーナー・リーダーからは変更できません。';
 
 
@@ -657,32 +943,25 @@
     }
 
 
-    const title =
-      hidden
-        ? `${who(r)} の体重を非表示`
-        : `${who(r)} の体重を表示`;
-
-
-    const message =
-      hidden
-        ? 'この人の実体重をランキングや公開データから隠します。増減量は引き続き表示されます。'
-        : 'この人の実体重を、体重公開グループのランキングに再び表示します。';
-
-
-    const button =
-      hidden
-        ? '非表示にする'
-        : '表示に戻す';
-
-
     const ok =
       await confirmSheet(
-        title,
-        message,
-        button,
+
+        hidden
+          ? `${who(r)} の体重を非表示`
+          : `${who(r)} の体重を表示`,
+
+        hidden
+          ? 'この人の実体重をランキングや公開データから隠します。増減量は引き続き表示されます。'
+          : 'この人の実体重を、体重公開グループのランキングに再び表示します。',
+
+        hidden
+          ? '非表示にする'
+          : '表示に戻す',
+
         hidden
           ? true
           : false
+
       );
 
 
@@ -699,16 +978,20 @@
       await api(
         '/api/groups/weight-privacy',
         {
+
           method:
             'POST',
 
           body: {
+
             member_id:
               r.member_id,
 
             hidden:
-              !!hidden,
-          },
+              !!hidden
+
+          }
+
         }
       );
 
@@ -722,9 +1005,11 @@
 
       say(
         el.rmsg,
+
         hidden
           ? `${who(r)} の体重を非表示にしました`
           : `${who(r)} の体重を表示に戻しました`,
+
         true
       );
 
@@ -741,9 +1026,9 @@
   }
 
 
-/* ============================================================
-   リーダー任命
-   ============================================================ */
+  /* ============================================================
+     リーダー任命 / 解任
+     ============================================================ */
 
   async function leaderAppoint(
     r
@@ -751,9 +1036,13 @@
 
     const ok =
       await confirmSheet(
+
         `${who(r)} をリーダーに`,
+
         'リーダーは、グループ名の変更・スタート日の変更・メンバーの除名・除名リストの操作・個別の体重公開設定ができるようになります。解散はできません。',
+
         '任命する'
+
       );
 
 
@@ -770,13 +1059,17 @@
       await api(
         '/api/groups/leaders',
         {
+
           method:
             'POST',
 
           body: {
+
             member_id:
               r.member_id
-          },
+
+          }
+
         }
       );
 
@@ -806,20 +1099,21 @@
   }
 
 
-/* ============================================================
-   リーダー解任
-   ============================================================ */
-
   async function leaderRemove(
     r
   ) {
 
     const ok =
       await confirmSheet(
+
         `${who(r)} を解任`,
+
         'リーダーの権限だけを外します。グループには残ります。',
+
         '解任する',
+
         true
+
       );
 
 
@@ -834,14 +1128,19 @@
     try {
 
       await api(
+
         '/api/groups/leaders/' +
         encodeURIComponent(
           r.member_id
         ),
+
         {
+
           method:
             'DELETE'
+
         }
+
       );
 
 
@@ -869,10 +1168,6 @@
     }
   }
 
-
-/* ============================================================
-   リーダー一覧
-   ============================================================ */
 
   async function openLeaders() {
 
@@ -916,7 +1211,9 @@
     ) {
 
       await alertSheet(
+
         `リーダー（${leaders.length}/${max}）`,
+
         leaders.length
           ? leaders
               .map(
@@ -926,7 +1223,9 @@
                 '、'
               )
           : 'リーダーはまだ任命されていません。',
+
         '閉じる'
+
       );
 
 
@@ -937,6 +1236,7 @@
     const items =
       leaders.map(
         x => ({
+
           label:
             '解任：' +
             nameOf(
@@ -950,7 +1250,8 @@
             'del',
 
           t:
-            x,
+            x
+
         })
       );
 
@@ -961,20 +1262,26 @@
     ) {
 
       items.push({
+
         label:
           '＋ リーダーを任命する',
 
         kind:
           'add'
+
       });
     }
 
 
     const i =
       await menuSheet(
+
         `リーダー（${leaders.length}/${max}）`,
+
         `リーダーは解散以外の操作と個別の体重公開設定ができます。${max}人まで任命できます。`,
+
         items
+
       );
 
 
@@ -1015,10 +1322,6 @@
   }
 
 
-/* ============================================================
-   リーダー候補
-   ============================================================ */
-
   async function appointFromList(
     candidates
   ) {
@@ -1040,16 +1343,22 @@
 
     const i =
       await menuSheet(
+
         'リーダーに任命',
+
         'グループのメンバーから選んでください。',
+
         candidates.map(
           x => ({
+
             label:
               nameOf(
                 x
               )
+
           })
         )
+
       );
 
 
@@ -1082,9 +1391,209 @@
   }
 
 
-/* ============================================================
-   グループ参加時の体重公開設定
-   ============================================================ */
+  /* ============================================================
+     参加時：公開範囲の選択
+     ============================================================ */
+
+  async function chooseJoinPrivacy(
+    g
+  ) {
+
+    /*
+     * グループ自体が非公開なら本人選択なし。
+     */
+    if (
+      !groupShowsWeight(
+        g
+      )
+    ) {
+
+      const ok =
+        await confirmSheet(
+
+          `${g.name} に参加`,
+
+          (
+            `スタート日：${
+              groupStartText(
+                g
+              )
+            }\n\n` +
+
+            'このグループは「非公開（増減量のみ）」です。\n' +
+
+            '実際の体重は他のメンバーには表示されません。'
+          ),
+
+          '次へ'
+
+        );
+
+
+      return ok
+        ? true
+        : null;
+    }
+
+
+    const i =
+      await menuSheet(
+
+        `${g.name} に参加`,
+
+        (
+          `スタート日：${
+            groupStartText(
+              g
+            )
+          }\n\n` +
+
+          'このグループは体重公開グループです。\n' +
+
+          '自分の体重の表示方法を選んでください。\n\n' +
+
+          '非公開を選ぶと、実際の体重は表示せず増減量だけ表示します。'
+        ),
+
+        [
+
+          {
+
+            label:
+              '非公開（増減量のみ）'
+
+          },
+
+          {
+
+            label:
+              '公開（体重＋増減量）'
+
+          }
+
+        ]
+
+      );
+
+
+    if (
+      i <
+        0
+    ) {
+
+      return null;
+    }
+
+
+    /*
+     * 0 = 非公開
+     * 1 = 公開
+     */
+    return i ===
+      0;
+  }
+
+
+  /* ============================================================
+     参加時：外部WEBへの共有同意
+     ============================================================ */
+
+  async function chooseExternalConsent(
+    g,
+    hidden
+  ) {
+
+    if (
+      !g.external_enabled
+    ) {
+
+      return false;
+    }
+
+
+    const sharedText =
+      hidden
+
+        ? (
+            '共有される情報：\n' +
+
+            '・メンバーID\n' +
+
+            '・記録日\n' +
+
+            '・保存日時\n' +
+
+            '・増減量\n\n' +
+
+            '実際の体重は外部WEBへ送りません。'
+          )
+
+        : (
+            '共有される情報：\n' +
+
+            '・メンバーID\n' +
+
+            '・記録日\n' +
+
+            '・保存日時\n' +
+
+            '・体重\n\n' +
+
+            '外部WEB側で週次・月次・累計などを計算します。'
+          );
+
+
+    const i =
+      await menuSheet(
+
+        '外部WEBランキングへのデータ共有',
+
+        (
+          'このグループは外部WEBランキングと連携しています。\n\n' +
+
+          sharedText +
+
+          '\n\n同意しなくてもグループには参加できます。'
+        ),
+
+        [
+
+          {
+
+            label:
+              '同意して参加'
+
+          },
+
+          {
+
+            label:
+              '同意せず参加'
+
+          }
+
+        ]
+
+      );
+
+
+    if (
+      i <
+        0
+    ) {
+
+      return null;
+    }
+
+
+    return i ===
+      0;
+  }
+
+
+  /* ============================================================
+     グループ参加
+     ============================================================ */
 
   function installJoinPrivacy() {
 
@@ -1116,103 +1625,23 @@
     }
 
 
-    if (
+    /*
+     * 旧版で常時表示していた公開設定UIを削除。
+     */
+    const old =
       document.getElementById(
         'joinPrivacyField'
-      )
-    ) {
-
-      return;
-    }
-
-
-    const field =
-      document.createElement(
-        'div'
-      );
-
-
-    field.id =
-      'joinPrivacyField';
-
-
-    field.className =
-      'field';
-
-
-    field.innerHTML =
-      `
-        <div class="lbl">
-          グループでの体重表示
-        </div>
-
-        <label class="chk">
-          <input
-            type="radio"
-            name="joinWeightPrivacy"
-            value="hidden"
-            checked
-          >
-
-          <span>
-            体重は公開しない
-          </span>
-        </label>
-
-        <p class="note">
-          実際の体重は表示せず、
-          増減量だけ表示します。
-        </p>
-
-        <label class="chk">
-          <input
-            type="radio"
-            name="joinWeightPrivacy"
-            value="public"
-          >
-
-          <span>
-            体重を公開する
-          </span>
-        </label>
-
-        <p class="note">
-          体重公開グループでは、
-          実際の体重と増減量の両方を表示します。
-          グループ自体が体重非公開の場合は、
-          どちらを選んでも実体重は表示されません。
-        </p>
-      `;
-
-
-    const joinRow =
-      code.closest(
-        '.past-row'
       );
 
 
     if (
-      joinRow
+      old
     ) {
 
-      joinRow.insertAdjacentElement(
-        'beforebegin',
-        field
-      );
-
-    } else {
-
-      box.appendChild(
-        field
-      );
+      old.remove();
     }
 
 
-    /*
-     * app.jsの参加ボタン処理を上書きする。
-     *
-     * 初期値は非公開。
-     */
     button.onclick =
       async () => {
 
@@ -1236,16 +1665,85 @@
         }
 
 
-        const selected =
-          document.querySelector(
-            'input[name="joinWeightPrivacy"]:checked'
+        let preview;
+
+
+        try {
+
+          preview =
+            await api(
+
+              '/api/groups?code=' +
+              encodeURIComponent(
+                value
+              )
+
+            );
+
+        } catch (e) {
+
+          say(
+            el.gmsg,
+            emsg(
+              e
+            ),
+            false
           );
 
 
+          return;
+        }
+
+
+        const g =
+          preview &&
+          preview.group;
+
+
+        if (
+          !g
+        ) {
+
+          say(
+            el.gmsg,
+            'グループ情報を取得できませんでした',
+            false
+          );
+
+
+          return;
+        }
+
+
         const hidden =
-          !selected ||
-          selected.value ===
-            'hidden';
+          await chooseJoinPrivacy(
+            g
+          );
+
+
+        if (
+          hidden ===
+            null
+        ) {
+
+          return;
+        }
+
+
+        const externalConsent =
+          await chooseExternalConsent(
+            g,
+            hidden
+          );
+
+
+        if (
+          externalConsent ===
+            null
+        ) {
+
+          return;
+        }
 
 
         try {
@@ -1253,16 +1751,23 @@
           await api(
             '/api/groups/join',
             {
+
               method:
                 'POST',
 
               body: {
+
                 code:
                   value,
 
                 weight_hidden:
                   hidden,
-              },
+
+                external_consent:
+                  externalConsent
+
+              }
+
             }
           );
 
@@ -1271,39 +1776,27 @@
             '';
 
 
-          /*
-           * 次回表示時も初期値を
-           * 「体重非公開」に戻す。
-           */
-          const hiddenRadio =
-            document.querySelector(
-              'input[name="joinWeightPrivacy"][value="hidden"]'
-            );
-
-
-          if (
-            hiddenRadio
-          ) {
-
-            hiddenRadio.checked =
-              true;
-          }
-
-
           await loadMe();
 
 
-          loadRanking();
+          await loadRanking();
 
 
           say(
             el.gmsg2,
-            '参加しました',
+
+            hidden
+              ? '参加しました（非公開・増減量のみ）'
+              : '参加しました（体重公開）',
+
             true
           );
 
 
           await loadSelfPrivacy();
+
+
+          await loadExternalConsent();
 
         } catch (e) {
 
@@ -1319,9 +1812,9 @@
   }
 
 
-/* ============================================================
-   マイページ
-   ============================================================ */
+  /* ============================================================
+     マイページ：本人の体重公開設定
+     ============================================================ */
 
   function installSelfPrivacyCard() {
 
@@ -1387,14 +1880,13 @@
           >
 
           <span>
-            増減量のみ表示
+            非公開（増減量のみ）
           </span>
 
         </label>
 
         <p class="note">
-          実際の体重は他のメンバーに表示せず、
-          増減量だけ表示します。
+          実際の体重は他のメンバーに表示せず、増減量だけ表示します。
         </p>
 
         <label class="chk">
@@ -1407,14 +1899,13 @@
           >
 
           <span>
-            体重を公開
+            公開（体重＋増減量）
           </span>
 
         </label>
 
         <p class="note">
-          体重公開グループでは、
-          実際の体重と増減量の両方を表示します。
+          体重公開グループでは、実際の体重と増減量の両方を表示します。
         </p>
 
         <p
@@ -1424,9 +1915,6 @@
       `;
 
 
-    /*
-     * 通知設定カードの直前に入れる。
-     */
     const notify =
       document.getElementById(
         'notifyOn'
@@ -1516,10 +2004,6 @@
   }
 
 
-/* ============================================================
-   本人設定表示
-   ============================================================ */
-
   function renderSelfPrivacy(
     data
   ) {
@@ -1562,7 +2046,17 @@
       false;
 
 
+    const groupPrivate =
+      !!(
+        cache &&
+        cache.group &&
+        cache.group.show_weight ===
+          false
+      );
+
+
     const isHidden =
+      groupPrivate ||
       !!(
         data &&
         data.weight_hidden
@@ -1587,6 +2081,7 @@
 
 
       hidden.disabled =
+        groupPrivate ||
         adminLocked;
     }
 
@@ -1600,52 +2095,51 @@
 
 
       publicRadio.disabled =
+        groupPrivate ||
         adminLocked;
     }
 
 
     if (
-      msg
+      !msg
     ) {
 
-      if (
-        adminLocked
-      ) {
-
-        msg.textContent =
-          '管理者によって「増減量のみ表示」に固定されています。';
-
-
-        msg.className =
-          'msg';
-
-      } else if (
-        isHidden
-      ) {
-
-        msg.textContent =
-          '現在、実際の体重は他のメンバーに表示されません。';
-
-
-        msg.className =
-          'msg';
-
-      } else {
-
-        msg.textContent =
-          '現在、体重公開グループでは実際の体重も表示されます。';
-
-
-        msg.className =
-          'msg';
-      }
+      return;
     }
+
+
+    if (
+      groupPrivate
+    ) {
+
+      msg.textContent =
+        'このグループは「非公開（増減量のみ）」固定です。実際の体重は他のメンバーに表示されません。';
+
+    } else if (
+      adminLocked
+    ) {
+
+      msg.textContent =
+        '管理者によって「非公開（増減量のみ）」に固定されています。';
+
+    } else if (
+      isHidden
+    ) {
+
+      msg.textContent =
+        '現在、実際の体重は他のメンバーに表示されません。';
+
+    } else {
+
+      msg.textContent =
+        '現在、実際の体重と増減量が表示されます。';
+    }
+
+
+    msg.className =
+      'msg';
   }
 
-
-/* ============================================================
-   本人設定取得
-   ============================================================ */
 
   async function loadSelfPrivacy() {
 
@@ -1661,9 +2155,6 @@
     }
 
 
-    /*
-     * 未所属なら設定カードを隠す。
-     */
     if (
       !cache ||
       !cache.me ||
@@ -1729,13 +2220,40 @@
   }
 
 
-/* ============================================================
-   本人設定保存
-   ============================================================ */
-
   async function saveSelfPrivacy(
     hidden
   ) {
+
+    const groupPrivate =
+      !!(
+        cache &&
+        cache.group &&
+        cache.group.show_weight ===
+          false
+      );
+
+
+    if (
+      groupPrivate
+    ) {
+
+      await alertSheet(
+
+        '変更できません',
+
+        'このグループは「非公開（増減量のみ）」固定です。',
+
+        '閉じる'
+
+      );
+
+
+      await loadSelfPrivacy();
+
+
+      return;
+    }
+
 
     const msg =
       document.getElementById(
@@ -1792,13 +2310,17 @@
         await api(
           '/api/me/weight-privacy',
           {
+
             method:
               'POST',
 
             body: {
+
               hidden:
-                !!hidden,
-            },
+                !!hidden
+
+            }
+
           }
         );
 
@@ -1814,8 +2336,8 @@
 
         msg.textContent =
           hidden
-            ? '増減量のみ表示に変更しました'
-            : '体重を公開する設定に変更しました';
+            ? '非公開（増減量のみ）に変更しました'
+            : '公開（体重＋増減量）に変更しました';
 
 
         msg.className =
@@ -1823,10 +2345,7 @@
       }
 
 
-      /*
-       * 自分のランキング表示も更新。
-       */
-      loadRanking();
+      await loadRanking();
 
     } catch (e) {
 
@@ -1845,17 +2364,380 @@
       }
 
 
-      /*
-       * 保存に失敗したらサーバー状態を再取得。
-       */
       await loadSelfPrivacy();
     }
   }
 
 
-/* ============================================================
-   マイページを開いたとき
-   ============================================================ */
+  /* ============================================================
+     マイページ：外部WEB連携同意
+     ============================================================ */
+
+  function installExternalConsentCard() {
+
+    let card =
+      document.getElementById(
+        'externalConsentCard'
+      );
+
+
+    if (
+      card
+    ) {
+
+      return card;
+    }
+
+
+    const view =
+      document.getElementById(
+        'view-my'
+      );
+
+
+    if (
+      !view
+    ) {
+
+      return null;
+    }
+
+
+    card =
+      document.createElement(
+        'section'
+      );
+
+
+    card.id =
+      'externalConsentCard';
+
+
+    card.className =
+      'card';
+
+
+    card.hidden =
+      true;
+
+
+    card.innerHTML =
+      `
+        <h2 class="h2">
+          外部WEBランキングへのデータ共有
+        </h2>
+
+        <p class="note">
+          このグループは外部WEBランキングと連携しています。
+          同意した場合だけデータを送信します。
+        </p>
+
+        <label class="chk">
+
+          <input
+            type="checkbox"
+            id="externalConsentOn"
+          >
+
+          <span>
+            外部WEBランキングへの共有に同意する
+          </span>
+
+        </label>
+
+        <p
+          class="note"
+          id="externalConsentDetail"
+        >
+          体重公開の場合は、メンバーID・記録日・保存日時・体重を共有します。
+          体重非公開の場合は、実体重を送らず、メンバーID・記録日・保存日時・増減量のみ共有します。
+        </p>
+
+        <p
+          class="msg"
+          id="externalConsentMsg"
+        ></p>
+      `;
+
+
+    const privacyCard =
+      installSelfPrivacyCard();
+
+
+    if (
+      privacyCard
+    ) {
+
+      privacyCard.insertAdjacentElement(
+        'afterend',
+        card
+      );
+
+    } else {
+
+      view.appendChild(
+        card
+      );
+    }
+
+
+    const input =
+      document.getElementById(
+        'externalConsentOn'
+      );
+
+
+    if (
+      input
+    ) {
+
+      input.addEventListener(
+        'change',
+        () => {
+
+          saveExternalConsent(
+            !!input.checked
+          );
+        }
+      );
+    }
+
+
+    return card;
+  }
+
+
+  function renderExternalConsent(
+    data
+  ) {
+
+    externalConsentState =
+      data;
+
+
+    const card =
+      installExternalConsentCard();
+
+
+    if (
+      !card
+    ) {
+
+      return;
+    }
+
+
+    const enabled =
+      !!(
+        data &&
+        data.enabled
+      );
+
+
+    card.hidden =
+      !enabled;
+
+
+    if (
+      !enabled
+    ) {
+
+      return;
+    }
+
+
+    const input =
+      document.getElementById(
+        'externalConsentOn'
+      );
+
+
+    const msg =
+      document.getElementById(
+        'externalConsentMsg'
+      );
+
+
+    if (
+      input
+    ) {
+
+      input.checked =
+        !!data.consented;
+
+
+      input.disabled =
+        false;
+    }
+
+
+    if (
+      msg
+    ) {
+
+      msg.textContent =
+        data.consented
+          ? '現在、外部WEBランキングへの共有に同意しています。'
+          : '現在、外部WEBへのデータ送信は行いません。';
+
+
+      msg.className =
+        'msg';
+    }
+  }
+
+
+  async function loadExternalConsent() {
+
+    const card =
+      installExternalConsentCard();
+
+
+    if (
+      !card
+    ) {
+
+      return;
+    }
+
+
+    if (
+      !cache ||
+      !cache.me ||
+      !cache.me.in_group
+    ) {
+
+      card.hidden =
+        true;
+
+
+      return;
+    }
+
+
+    try {
+
+      const data =
+        await api(
+          '/api/me/external-consent'
+        );
+
+
+      renderExternalConsent(
+        data
+      );
+
+    } catch {
+
+      card.hidden =
+        true;
+    }
+  }
+
+
+  async function saveExternalConsent(
+    consented
+  ) {
+
+    const input =
+      document.getElementById(
+        'externalConsentOn'
+      );
+
+
+    const msg =
+      document.getElementById(
+        'externalConsentMsg'
+      );
+
+
+    if (
+      input
+    ) {
+
+      input.disabled =
+        true;
+    }
+
+
+    if (
+      msg
+    ) {
+
+      msg.textContent =
+        '保存中…';
+
+
+      msg.className =
+        'msg';
+    }
+
+
+    try {
+
+      const data =
+        await api(
+          '/api/me/external-consent',
+          {
+
+            method:
+              'POST',
+
+            body: {
+
+              consented:
+                !!consented
+
+            }
+
+          }
+        );
+
+
+      renderExternalConsent(
+        data
+      );
+
+
+      if (
+        msg
+      ) {
+
+        msg.textContent =
+          consented
+            ? '外部WEBランキングへの共有に同意しました'
+            : '外部WEBランキングへの共有を停止しました';
+
+
+        msg.className =
+          'msg';
+      }
+
+    } catch (e) {
+
+      if (
+        msg
+      ) {
+
+        msg.textContent =
+          emsg(
+            e
+          );
+
+
+        msg.className =
+          'msg';
+      }
+
+
+      await loadExternalConsent();
+    }
+  }
+
+
+  /* ============================================================
+     マイページを開いたとき
+     ============================================================ */
 
   const myTab =
     document.querySelector(
@@ -1876,6 +2758,9 @@
 
             loadSelfPrivacy();
 
+
+            loadExternalConsent();
+
           },
           0
         );
@@ -1884,14 +2769,17 @@
   }
 
 
-/* ============================================================
-   初期処理
-   ============================================================ */
+  /* ============================================================
+     初期処理
+     ============================================================ */
 
   installJoinPrivacy();
 
 
   installSelfPrivacyCard();
+
+
+  installExternalConsentCard();
 
 
   try {
@@ -1904,7 +2792,6 @@
       window.renderGroup();
     }
 
-  } catch (e) {}
-
+  } catch {}
 
 })();

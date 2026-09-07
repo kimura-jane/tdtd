@@ -6,6 +6,14 @@
 # Apple ID: 6808256800
 # App Store Version: 1.0.1
 # iPhone専用
+#
+# 2026-09-07
+# ・Node / npm 固定
+# ・Xcode固定
+# ・Capacitor依存をpackage.jsonで固定
+# ・package-lock.jsonがあればnpm ci
+# ・lockfile未作成時は生成後npm ci
+# ・App Store / TestFlightへの自動提出は行わない
 
 workflows:
 
@@ -25,11 +33,13 @@ workflows:
 
     environment:
 
-      node: 20
+      node: 20.20.2
 
-      xcode: latest
+      npm: 10.8.2
 
-      cocoapods: default
+      xcode: 26.6
+
+      cocoapods: 1.16.2
 
 
       ios_signing:
@@ -53,13 +63,235 @@ workflows:
     scripts:
 
 
+      - name: ビルド環境を確認する
+
+        script: |
+
+          set -e
+
+          echo "===== Build environment ====="
+
+          echo "Node:"
+          node --version
+
+          echo "npm:"
+          npm --version
+
+          echo "Xcode:"
+          xcodebuild -version
+
+          echo "CocoaPods:"
+          pod --version
+
+
+          NODE_ACTUAL="$(node --version)"
+
+          NPM_ACTUAL="$(npm --version)"
+
+
+          if [ "$NODE_ACTUAL" != "v20.20.2" ]; then
+
+            echo "ERROR: Node.js が v20.20.2 ではありません"
+
+            exit 1
+
+          fi
+
+
+          if [ "$NPM_ACTUAL" != "10.8.2" ]; then
+
+            echo "ERROR: npm が 10.8.2 ではありません"
+
+            exit 1
+
+          fi
+
+
+          XCODE_ACTUAL="$(
+
+            xcodebuild -version |
+
+            head -n 1 |
+
+            awk '{print $2}'
+
+          )"
+
+
+          case "$XCODE_ACTUAL" in
+
+            26.6*)
+
+              echo "OK: Xcode $XCODE_ACTUAL"
+
+              ;;
+
+            *)
+
+              echo "ERROR: Xcode 26.6 系ではありません: $XCODE_ACTUAL"
+
+              exit 1
+
+              ;;
+
+          esac
+
+
       - name: 依存の取得
 
         script: |
 
           set -e
 
-          npm install
+
+          echo "===== package.json ====="
+
+          cat package.json
+
+
+          if [ -f "package-lock.json" ]; then
+
+            echo "package-lock.json found"
+
+            npm ci
+
+          else
+
+            echo "package-lock.json がまだ無いため生成します"
+
+            npm install \
+              --package-lock-only \
+              --ignore-scripts
+
+
+            if [ ! -f "package-lock.json" ]; then
+
+              echo "ERROR: package-lock.json の生成に失敗しました"
+
+              exit 1
+
+            fi
+
+
+            echo "package-lock.json generated"
+
+            npm ci
+
+          fi
+
+
+          echo "===== Installed top-level packages ====="
+
+          npm ls \
+            @capacitor/core \
+            @capacitor/ios \
+            @capacitor/local-notifications \
+            @capacitor/cli \
+            @capacitor/assets \
+            web-push \
+            --depth=0
+
+
+      - name: 依存バージョンを検証する
+
+        script: |
+
+          set -e
+
+
+          node <<'NODE'
+
+          const fs =
+            require('fs');
+
+
+          const pkg =
+            JSON.parse(
+              fs.readFileSync(
+                'package.json',
+                'utf8'
+              )
+            );
+
+
+          const expected = {
+
+            dependencies: {
+
+              '@capacitor/core':
+                '7.6.9',
+
+              '@capacitor/ios':
+                '7.6.9',
+
+              '@capacitor/local-notifications':
+                '7.0.7',
+
+              'web-push':
+                '3.6.7'
+
+            },
+
+            devDependencies: {
+
+              '@capacitor/assets':
+                '3.0.5',
+
+              '@capacitor/cli':
+                '7.6.9'
+
+            }
+
+          };
+
+
+          for (
+            const [
+              section,
+              values
+            ] of Object.entries(
+              expected
+            )
+          ) {
+
+            for (
+              const [
+                name,
+                version
+              ] of Object.entries(
+                values
+              )
+            ) {
+
+              const actual =
+                pkg[
+                  section
+                ] &&
+                pkg[
+                  section
+                ][
+                  name
+                ];
+
+
+              if (
+                actual !==
+                  version
+              ) {
+
+                throw new Error(
+                  `${name}: expected ${version}, got ${actual}`
+                );
+              }
+
+
+              console.log(
+                `OK ${name} ${version}`
+              );
+            }
+          }
+
+          NODE
 
 
       - name: 配信するWebファイルを www に集める
@@ -68,11 +300,58 @@ workflows:
 
           set -e
 
+
           npm run build
+
 
           echo "===== www contents ====="
 
           ls -la www
+
+
+          REQUIRED_FILES="
+
+          index.html
+
+          style.css
+
+          app.js
+
+          leader.js
+
+          tsuda-fx.js
+
+          notify.js
+
+          vote.js
+
+          privacy.html
+
+          terms.html
+
+          support.html
+
+          manifest.webmanifest
+
+          sw.js
+
+          "
+
+
+          for f in $REQUIRED_FILES; do
+
+            if [ ! -f "www/$f" ]; then
+
+              echo "ERROR: www/$f がありません"
+
+              exit 1
+
+            fi
+
+          done
+
+
+          echo "OK: Web files verified"
 
 
       - name: iOSプロジェクトを用意する
@@ -80,6 +359,7 @@ workflows:
         script: |
 
           set -e
+
 
           if [ ! -d "ios" ]; then
 
@@ -100,6 +380,7 @@ workflows:
 
           set -e
 
+
           if [ ! -f "resources/icon.png" ]; then
 
             echo "ERROR: resources/icon.png がありません"
@@ -108,7 +389,9 @@ workflows:
 
           fi
 
+
           echo "Generating iOS assets..."
+
 
           npx @capacitor/assets generate --ios
 
@@ -119,7 +402,53 @@ workflows:
 
           set -e
 
+
           npx cap sync ios
+
+
+      - name: Capacitor同期結果を確認する
+
+        script: |
+
+          set -e
+
+
+          WWW_DIR="ios/App/App/public"
+
+
+          if [ ! -d "$WWW_DIR" ]; then
+
+            echo "ERROR: iOSのpublicディレクトリがありません"
+
+            exit 1
+
+          fi
+
+
+          for f in \
+            index.html \
+            style.css \
+            app.js \
+            leader.js \
+            notify.js \
+            privacy.html \
+            terms.html \
+            support.html
+
+          do
+
+            if [ ! -f "$WWW_DIR/$f" ]; then
+
+              echo "ERROR: $WWW_DIR/$f がありません"
+
+              exit 1
+
+            fi
+
+          done
+
+
+          echo "OK: Capacitor web assets verified"
 
 
       - name: iPhone専用に設定する
@@ -128,7 +457,9 @@ workflows:
 
           set -e
 
+
           PBXPROJ="ios/App/App.xcodeproj/project.pbxproj"
+
 
           if [ ! -f "$PBXPROJ" ]; then
 
@@ -141,7 +472,10 @@ workflows:
 
           echo "===== Current TARGETED_DEVICE_FAMILY ====="
 
-          grep -n "TARGETED_DEVICE_FAMILY" "$PBXPROJ" || true
+          grep -n \
+            "TARGETED_DEVICE_FAMILY" \
+            "$PBXPROJ" \
+            || true
 
 
           python3 <<'PY'
@@ -149,13 +483,16 @@ workflows:
           from pathlib import Path
           import re
 
+
           path = Path(
               "ios/App/App.xcodeproj/project.pbxproj"
           )
 
+
           text = path.read_text(
               encoding="utf-8"
           )
+
 
           pattern = (
               r'TARGETED_DEVICE_FAMILY'
@@ -163,9 +500,11 @@ workflows:
               r'[^;]+;'
           )
 
+
           replacement = (
               'TARGETED_DEVICE_FAMILY = 1;'
           )
+
 
           new_text, count = re.subn(
               pattern,
@@ -173,15 +512,19 @@ workflows:
               text
           )
 
+
           if count == 0:
+
               raise SystemExit(
                   "ERROR: TARGETED_DEVICE_FAMILY がありません"
               )
+
 
           path.write_text(
               new_text,
               encoding="utf-8"
           )
+
 
           values = re.findall(
               r'TARGETED_DEVICE_FAMILY'
@@ -190,19 +533,26 @@ workflows:
               new_text
           )
 
+
           values = [
               v.strip().strip('"')
               for v in values
           ]
 
+
           if (
               not values
-              or any(v != "1" for v in values)
+              or any(
+                  v != "1"
+                  for v in values
+              )
           ):
+
               raise SystemExit(
                   "ERROR: iPhone専用設定に失敗: "
                   + repr(values)
               )
+
 
           print(
               "TARGETED_DEVICE_FAMILY verified: "
@@ -251,7 +601,9 @@ workflows:
 
           set -e
 
+
           PLIST="ios/App/App/Info.plist"
+
 
           if [ ! -f "$PLIST" ]; then
 
@@ -282,7 +634,9 @@ workflows:
 
           echo "===== Info.plist validation ====="
 
-          plutil -lint "$PLIST"
+
+          plutil -lint \
+            "$PLIST"
 
 
       - name: CocoaPods
@@ -291,9 +645,28 @@ workflows:
 
           set -e
 
+
           cd ios/App
 
+
           pod install
+
+
+          if [ ! -f "Podfile.lock" ]; then
+
+            echo "ERROR: Podfile.lock が生成されませんでした"
+
+            exit 1
+
+          fi
+
+
+          echo "===== Pod versions ====="
+
+          grep \
+            -E 'Capacitor|LocalNotifications' \
+            Podfile.lock \
+            || true
 
 
       - name: 署名設定をXcodeプロジェクトへ適用する
@@ -301,6 +674,7 @@ workflows:
         script: |
 
           set -e
+
 
           xcode-project use-profiles
 
@@ -311,23 +685,30 @@ workflows:
 
           set -e
 
+
           cd "$CM_BUILD_DIR/ios/App"
+
 
           PLIST="App/Info.plist"
 
 
           echo "===== App Version ====="
 
+
           echo "Setting App Store version to $APP_VERSION"
 
 
-          agvtool new-marketing-version "$APP_VERSION"
+          agvtool \
+            new-marketing-version \
+            "$APP_VERSION"
 
 
           ACTUAL_VERSION=$(
+
             /usr/libexec/PlistBuddy \
               -c "Print :CFBundleShortVersionString" \
               "$PLIST"
+
           )
 
 
@@ -376,13 +757,18 @@ workflows:
           echo "Next build number: $NEXT"
 
 
-          agvtool new-version -all "$NEXT"
+          agvtool \
+            new-version \
+            -all \
+            "$NEXT"
 
 
           ACTUAL_BUILD=$(
+
             /usr/libexec/PlistBuddy \
               -c "Print :CFBundleVersion" \
               "$PLIST"
+
           )
 
 
@@ -407,6 +793,7 @@ workflows:
 
           set -e
 
+
           cd "$CM_BUILD_DIR/ios/App"
 
 
@@ -427,6 +814,10 @@ workflows:
       - $HOME/Library/Developer/Xcode/DerivedData/**/Build/**/*.app
 
       - $HOME/Library/Developer/Xcode/DerivedData/**/Build/**/*.dSYM
+
+      - package-lock.json
+
+      - ios/App/Podfile.lock
 
 
     publishing:

@@ -187,9 +187,18 @@ function normalizeMemberId(raw) {
 }
 
 
+/*
+ * 通常APIではBANユーザーを拒否。
+ *
+ * アカウント削除に必要なcontext取得時のみ
+ * allowBanned=true で読み取りを許可する。
+ */
 async function currentDevice(
   req,
-  env
+  env,
+  {
+    allowBanned = false
+  } = {}
 ) {
 
   const deviceId =
@@ -244,7 +253,8 @@ async function currentDevice(
     Number(
       dev.banned ||
       0
-    ) === 1
+    ) === 1 &&
+    !allowBanned
   ) {
 
     return {
@@ -1536,10 +1546,6 @@ export async function memberIconRoute(
         dev.member_id
       );
 
-    /*
-     * 公開用 icon/ には入れず、
-     * pending-icon/ に保存。
-     */
     await env.ICONS.put(
       objectKey,
       buffer,
@@ -1611,9 +1617,6 @@ export async function memberIconRoute(
       'DELETE'
   ) {
 
-    /*
-     * D1上では先に非表示。
-     */
     await env.DB.batch([
 
       env.DB
@@ -1836,10 +1839,6 @@ export async function publicIconRoute(
     object.httpEtag
   );
 
-  /*
-   * 旧1年immutableを廃止。
-   * 削除・通報対応を反映しやすくする。
-   */
   headers.set(
     'cache-control',
     'public, max-age=300, must-revalidate'
@@ -2141,9 +2140,6 @@ async function approveIcon(
   const buffer =
     await object.arrayBuffer();
 
-  /*
-   * 管理者承認後だけ公開用キーへ。
-   */
   await env.ICONS.put(
     iconKey(
       memberId
@@ -2550,9 +2546,6 @@ async function setGroupExternal(
     )
     .run();
 
-  /*
-   * OFFにしたら既存同意を将来再利用しない。
-   */
   if (
     !body.enabled
   ) {
@@ -2944,9 +2937,6 @@ async function mutualBlockedSet(
     }
   }
 
-  /*
-   * 自分をブロックしている人も取得。
-   */
   const reverse =
     await env.DB
       .prepare(`
@@ -3122,13 +3112,6 @@ function recalcDayResponse(
         true;
     }
 
-    /*
-     * exact record:
-     * ymdが指定日でfilledではない。
-     *
-     * weight非公開ユーザーでも
-     * ymdは残っているので記録済みとして数えられる。
-     */
     if (
       !row.filled &&
       row.ymd &&
@@ -3239,9 +3222,6 @@ export async function filterMutualBlocks(
     return response;
   }
 
-  /*
-   * ランキング
-   */
   if (
     Array.isArray(
       data.rows
@@ -3276,9 +3256,6 @@ export async function filterMutualBlocks(
       );
   }
 
-  /*
-   * ライバル一覧
-   */
   if (
     Array.isArray(
       data.rivals
@@ -3305,9 +3282,6 @@ export async function filterMutualBlocks(
       );
   }
 
-  /*
-   * 日付別体重
-   */
   if (
     Array.isArray(
       data.members
@@ -3785,12 +3759,6 @@ async function resolveShareGroup(
   data
 ) {
 
-  /*
-   * 日付ビューはレスポンス自身のgroup.idを最優先。
-   *
-   * 他チームを見ている場合、
-   * 自分の所属グループのstart_ymdを使ってはいけない。
-   */
   if (
     pathname ===
       '/api/group/day'
@@ -3928,12 +3896,6 @@ export async function filterStartDateShare(
         group.start_ymd
       );
 
-    /*
-     * 指定日自体がスタート日前なら全員null。
-     *
-     * 指定日は開始後でも、
-     * fill=lastで開始日前記録を拾った場合もnull。
-     */
     for (
       const row of
       data.members
@@ -4173,10 +4135,6 @@ async function optionalDelete(
 
   } catch (error) {
 
-    /*
-     * optional機能のテーブルが
-     * まだ作られていない環境では無視。
-     */
     if (
       noSuchTable(
         error
@@ -4232,6 +4190,12 @@ async function queueCleanup(
 }
 
 
+/*
+ * DELETE /api/me の前に必要な情報を確保する。
+ *
+ * BAN中でも削除自体は許可するため、
+ * このcontext取得だけ allowBanned=true。
+ */
 export async function captureDeleteContext(
   req,
   env
@@ -4240,7 +4204,11 @@ export async function captureDeleteContext(
   const member =
     await currentDevice(
       req,
-      env
+      env,
+      {
+        allowBanned:
+          true
+      }
     );
 
   if (
@@ -4284,9 +4252,6 @@ async function cleanupMemberArtifacts(
   const memberId =
     context.member_id;
 
-  /*
-   * safety.js
-   */
   await optionalDelete(
     env,
     `
@@ -4313,11 +4278,6 @@ async function cleanupMemberArtifacts(
     `,
     memberId
   );
-
-  /*
-   * entry.jsで削除失敗しても
-   * cron再試行側で再度削除。
-   */
 
   await optionalDelete(
     env,
@@ -4355,9 +4315,6 @@ async function cleanupMemberArtifacts(
     memberId
   );
 
-  /*
-   * 念のため残存leader行も削除。
-   */
   await optionalDelete(
     env,
     `
@@ -4367,9 +4324,6 @@ async function cleanupMemberArtifacts(
     memberId
   );
 
-  /*
-   * R2
-   */
   if (
     env.ICONS
   ) {
@@ -4387,12 +4341,6 @@ async function cleanupMemberArtifacts(
     );
   }
 
-  /*
-   * アカウント削除でオーナーのグループが解散済みなら、
-   * orphanした外部連携情報も掃除する。
-   *
-   * 通常メンバー削除ならgroup自体が存在するため消さない。
-   */
   if (
     context.group_id
   ) {
@@ -4695,9 +4643,6 @@ async function effectiveWeightHidden(
   group
 ) {
 
-  /*
-   * グループ自体が体重非公開なら必ずhidden。
-   */
   if (
     !group ||
     Number(
@@ -4795,9 +4740,6 @@ async function lossUntilDate(
     return null;
   }
 
-  /*
-   * 最初の1件なら0.0kg。
-   */
   return round1(
     Number(
       rows[0].kg
@@ -4834,11 +4776,6 @@ function jstIso(ms) {
 
 /* ============================================================
    外部送信payloadを「送信直前」に再生成
-
-   重要：
-   queue登録時に公開だった人が、
-   送信前に非公開へ変更しても
-   古いweight_kgを送らない。
    ============================================================ */
 
 async function buildExternalPayload(
@@ -4886,13 +4823,6 @@ async function buildExternalPayload(
       )
       .first();
 
-  /*
-   * 保存後にユーザーが記録を削除した場合、
-   * 未送信の古い値は送らない。
-   *
-   * 送信済みデータの削除仕様は
-   * 相手API仕様確定後に別途対応する。
-   */
   if (
     !weight
   ) {
@@ -4953,9 +4883,6 @@ async function buildExternalPayload(
 
 /* ============================================================
    体重保存後キュー
-
-   queue内には生体重そのものを保存しない。
-   実際のpayloadは送信直前にD1から再生成する。
    ============================================================ */
 
 export async function queueExternalAfterWeight(
@@ -5060,9 +4987,6 @@ export async function queueExternalAfterWeight(
     return;
   }
 
-  /*
-   * 開始日前はqueueにすら入れない。
-   */
   if (
     group.start_ymd &&
     measurementDate <
@@ -5103,9 +5027,6 @@ export async function queueExternalAfterWeight(
       dev.group_id,
       measurementDate,
 
-      /*
-       * 機密データはここへ入れない。
-       */
       JSON.stringify({
         kind:
           'weight'
@@ -5130,9 +5051,8 @@ export async function processExternalQueue(
   );
 
   /*
-   * 相手から
-   * URL / header / secret
-   * が来るまでは絶対に送らない。
+   * 相手からURL / header / secretが来るまでは
+   * 絶対に送信しない。
    */
   if (
     !externalSenderConfigured(
@@ -5180,9 +5100,6 @@ export async function processExternalQueue(
 
     try {
 
-      /*
-       * 送信直前に現在状態を確認。
-       */
       const dev =
         await env.DB
           .prepare(`
@@ -5213,9 +5130,6 @@ export async function processExternalQueue(
           )
         );
 
-      /*
-       * 脱退 / 同意撤回 / グループOFF
-       */
       if (
         !stillAllowed
       ) {
@@ -5272,10 +5186,6 @@ export async function processExternalQueue(
         continue;
       }
 
-      /*
-       * queueに保存した古いpayloadは使わない。
-       * 現在のprivacyと現在のD1値で再生成。
-       */
       const payload =
         await buildExternalPayload(
           env,
@@ -5284,9 +5194,6 @@ export async function processExternalQueue(
           row.measurement_date
         );
 
-      /*
-       * 記録自体が既に削除されていた場合等。
-       */
       if (
         !payload
       ) {

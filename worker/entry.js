@@ -33,7 +33,6 @@ import {
   memberWeightPrivacyRoute,
   adminWeightPrivacyRoute,
   selfWeightPrivacyRoute,
-  prepareJoinWeightPrivacy,
   cleanupWeightPrivacyForMember,
   filterRankingWeightPrivacy,
   filterMemberWeightPrivacy
@@ -42,6 +41,13 @@ import {
 
 /* ============================================================
    みんやせ / worker/entry.js
+   2026-09-07
+
+   root.js の内側で既存APIを処理する。
+
+   重要：
+   /api/groups/join は root.js → safety.js が先に処理する。
+   entry.js では参加前privacy変更を行わない。
    ============================================================ */
 
 
@@ -244,6 +250,9 @@ export default {
     ctx
   ) {
 
+    /*
+     * root.js からOPTIONSがここへ渡される。
+     */
     if (
       req.method ===
         'OPTIONS'
@@ -546,51 +555,19 @@ export default {
       }
 
 
-      /* --------------------------------------------------------
-         グループ参加
-
-         joinGroupでgroup_idが付く前に
-         本人の公開設定を保存する。
-
-         これにより公開グループへ入った瞬間に
-         既存体重が一瞬見える問題を防ぐ。
-         -------------------------------------------------------- */
-
-      if (
-        p ===
-          '/api/groups/join' &&
-        m ===
-          'POST'
-      ) {
-
-        const member =
-          await getMember(
-            req,
-            env
-          );
-
-
-        if (
-          member.error
-        ) {
-
-          return member.error;
-        }
-
-
-        await prepareJoinWeightPrivacy(
-          req,
-          env,
-          member.dev
-        );
-
-
-        return worker.fetch(
-          req,
-          env,
-          ctx
-        );
-      }
+      /*
+       * 旧：
+       *
+       * /api/groups/join
+       * → prepareJoinWeightPrivacy()
+       * → worker.fetch()
+       *
+       * は削除。
+       *
+       * root.js の joinGroupSafely() が
+       * membership / privacy / external consent を
+       * 同じ成功処理として確定する。
+       */
 
 
       /* --------------------------------------------------------
@@ -615,6 +592,10 @@ export default {
 
       /* --------------------------------------------------------
          アカウント削除
+
+         ここでは既存の即時cleanupを実行。
+         root.js / safety.js 側でも削除状態を確認し、
+         失敗した処理はcleanup_jobsで再試行する。
          -------------------------------------------------------- */
 
       if (
@@ -629,6 +610,14 @@ export default {
             req,
             env
           );
+
+
+        if (
+          member.error
+        ) {
+
+          return member.error;
+        }
 
 
         const res =
@@ -715,6 +704,9 @@ export default {
 
       /* --------------------------------------------------------
          ランキング
+
+         まず個別体重非公開を適用。
+         その外側のroot.jsで双方向ブロックも適用する。
          -------------------------------------------------------- */
 
       if (
@@ -741,6 +733,13 @@ export default {
 
       /* --------------------------------------------------------
          admin.js 一般API
+
+         /api/group/day
+         /api/export
+         /api/import
+
+         個別体重非公開を適用後、
+         root.js側で開始日制限・双方向ブロックを追加する。
          -------------------------------------------------------- */
 
       if (

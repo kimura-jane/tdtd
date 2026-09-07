@@ -1,202 +1,1165 @@
 <!DOCTYPE html>
 <html lang="ja">
+
 <head>
+
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>みんやせ サポート</title>
-<meta name="description" content="みんやせのサポートページです。不具合のご報告、違反行為のご連絡、データの削除のご依頼を受け付けています。">
+
+<meta
+  name="viewport"
+  content="width=device-width,initial-scale=1,viewport-fit=cover"
+>
+
+<title>
+みんやせ サポート
+</title>
+
+<meta
+  name="description"
+  content="みんやせのサポートページです。不具合、違反行為、プロフィール画像、体重公開設定、外部WEB連携、データ削除についてご案内します。"
+>
+
 <style>
-  :root{
-    --bg:#f2efe9; --card:#ffffff; --line:#e8e2d8;
-    --ink:#191714; --sub:#807a71; --accent:#2f6f4e;
-  }
-  *{box-sizing:border-box}
+
+:root{
+  --bg:#f2efe9;
+  --card:#ffffff;
+  --line:#e8e2d8;
+  --ink:#191714;
+  --sub:#807a71;
+  --accent:#2f6f4e;
+}
+
+*{
+  box-sizing:border-box;
+}
+
+html{
+  -webkit-text-size-adjust:100%;
+}
+
+body{
+  margin:0;
+  padding:0;
+  background:var(--bg);
+  color:var(--ink);
+  font-family:
+    -apple-system,
+    BlinkMacSystemFont,
+    "Hiragino Sans",
+    "Noto Sans JP",
+    sans-serif;
+  font-size:15px;
+  line-height:1.9;
+  -webkit-font-smoothing:antialiased;
+}
+
+.wrap{
+  max-width:680px;
+  margin:0 auto;
+  padding:32px 20px 72px;
+}
+
+.hd{
+  margin-bottom:32px;
+  text-align:center;
+}
+
+.brand-en{
+  margin:0;
+  color:var(--sub);
+  font-size:12px;
+  font-weight:700;
+  letter-spacing:.22em;
+}
+
+.brand{
+  margin:4px 0 0;
+  font-size:26px;
+  font-weight:900;
+}
+
+.doctitle{
+  margin:8px 0 0;
+  color:var(--sub);
+  font-size:15px;
+  font-weight:700;
+}
+
+section{
+  margin:0 0 16px;
+  padding:20px 22px;
+  background:var(--card);
+  border:1px solid var(--line);
+  border-radius:14px;
+}
+
+h2{
+  margin:0 0 12px;
+  padding-left:10px;
+  border-left:3px solid var(--accent);
+  font-size:16px;
+  font-weight:800;
+}
+
+h3{
+  margin:18px 0 8px;
+  font-size:14px;
+}
+
+p{
+  margin:0 0 12px;
+}
+
+p:last-child{
+  margin-bottom:0;
+}
+
+ul,
+ol{
+  margin:0 0 12px;
+  padding-left:1.4em;
+}
+
+li{
+  margin-bottom:6px;
+}
+
+a{
+  color:var(--accent);
+  text-decoration:underline;
+}
+
+dl.facts{
+  margin:0;
+}
+
+dl.facts div{
+  display:flex;
+  gap:14px;
+  padding:8px 0;
+  border-bottom:1px solid var(--line);
+}
+
+dl.facts div:last-child{
+  border-bottom:0;
+}
+
+dl.facts dt{
+  width:7em;
+  flex:0 0 auto;
+  margin:0;
+  color:var(--sub);
+  font-weight:700;
+}
+
+dl.facts dd{
+  margin:0;
+}
+
+.mail{
+  font-weight:700;
+  word-break:break-all;
+}
+
+.note{
+  padding:12px 14px;
+  background:#f8f6f2;
+  border:1px solid var(--line);
+  border-radius:10px;
+}
+
+.alert{
+  padding:12px 14px;
+  background:#fff;
+  border:1px solid var(--accent);
+  border-radius:10px;
+}
+
+.ft{
+  margin-top:28px;
+  color:var(--sub);
+  font-size:13px;
+  text-align:center;
+}
+
+@media (max-width:520px){
+
   body{
-    margin:0; padding:0;
-    background:var(--bg); color:var(--ink);
-    font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans","Noto Sans JP",sans-serif;
-    font-size:15px; line-height:1.9;
+    font-size:14px;
+    line-height:1.85;
   }
-  .wrap{max-width:680px; margin:0 auto; padding:32px 20px 72px}
-  .hd{text-align:center; margin-bottom:32px}
-  .brand-en{
-    margin:0; font-size:12px; letter-spacing:.22em;
-    color:var(--sub); font-weight:700;
-  }
-  .brand{margin:4px 0 0; font-size:26px; font-weight:900}
-  .doctitle{margin:8px 0 0; font-size:15px; color:var(--sub); font-weight:700}
-  section{
-    background:var(--card); border:1px solid var(--line);
-    border-radius:14px; padding:20px 22px; margin:0 0 16px;
-  }
-  h2{
-    margin:0 0 12px; font-size:16px; font-weight:800;
-    padding-left:10px; border-left:3px solid var(--accent);
-  }
-  p{margin:0 0 12px}
-  p:last-child{margin-bottom:0}
-  ul,ol{margin:0 0 12px; padding-left:1.4em}
-  li{margin-bottom:6px}
-  a{color:var(--accent); text-decoration:underline}
-  dl.facts{margin:0}
+
   dl.facts div{
-    display:flex; gap:14px; padding:8px 0;
-    border-bottom:1px solid var(--line);
+    display:block;
+    padding:6px 0;
   }
-  dl.facts div:last-child{border-bottom:0}
-  dl.facts dt{margin:0; width:7em; flex:0 0 auto; color:var(--sub); font-weight:700}
-  dl.facts dd{margin:0}
-  .mail{font-weight:700; word-break:break-all}
-  .ft{margin-top:28px; text-align:center; color:var(--sub); font-size:13px}
-  @media (max-width:520px){
-    body{font-size:14px; line-height:1.85}
-    dl.facts div{display:block; padding:6px 0}
-    dl.facts dt{margin-bottom:2px}
+
+  dl.facts dt{
+    margin-bottom:2px;
   }
+
+}
+
 </style>
+
 </head>
+
+
 <body>
 
 <div class="wrap">
 
+
 <header class="hd">
-  <p class="brand-en">MINYASE</p>
-  <h1 class="brand">みんやせ</h1>
-  <p class="doctitle">サポート</p>
+
+  <p class="brand-en">
+    MINYASE
+  </p>
+
+  <h1 class="brand">
+    みんやせ
+  </h1>
+
+  <p class="doctitle">
+    サポート
+  </p>
+
 </header>
 
+
 <section>
-  <h2>アプリについて</h2>
+
+  <h2>
+    アプリについて
+  </h2>
+
+
   <dl class="facts">
-    <div><dt>アプリ名</dt><dd>みんやせ</dd></div>
-    <div><dt>開発者</dt><dd>縄文</dd></div>
+
     <div>
-      <dt>お問い合わせ</dt>
-      <dd class="mail">
-        <a href="mailto:jomon@jomonkusama.com">jomon@jomonkusama.com</a>
+
+      <dt>
+        アプリ名
+      </dt>
+
+      <dd>
+        みんやせ
       </dd>
+
     </div>
-    <div><dt>対応言語</dt><dd>日本語</dd></div>
+
+
+    <div>
+
+      <dt>
+        開発者
+      </dt>
+
+      <dd>
+        縄文
+      </dd>
+
+    </div>
+
+
+    <div>
+
+      <dt>
+        お問い合わせ
+      </dt>
+
+      <dd class="mail">
+
+        <a href="mailto:jomon@jomonkusama.com">
+          jomon@jomonkusama.com
+        </a>
+
+      </dd>
+
+    </div>
+
+
+    <div>
+
+      <dt>
+        対応言語
+      </dt>
+
+      <dd>
+        日本語
+      </dd>
+
+    </div>
+
   </dl>
+
+
   <p style="margin-top:14px">
-    みんやせは、グループのメンバーと体重の記録を共有して、
-    一緒に減量に取り組むためのアプリです。
-    アカウント登録やパスワードによるログインは不要です。
+
+    みんやせは、
+    自分の体重を記録し、
+    任意でグループのメンバーと
+    体重や増減量を共有できるアプリです。
+
   </p>
+
+
+  <p>
+    アカウント登録や
+    パスワードによるログインは不要です。
+  </p>
+
 </section>
 
+
 <section>
-  <h2>お問い合わせ方法</h2>
+
+  <h2>
+    お問い合わせ方法
+  </h2>
+
+
   <p>
-    下記のメールアドレスへご連絡ください。
-    個人で運営しているため、返信までに数日いただく場合があります。
+    下記メールアドレスへご連絡ください。
   </p>
+
+
   <p class="mail">
-    <a href="mailto:jomon@jomonkusama.com">jomon@jomonkusama.com</a>
+
+    <a href="mailto:jomon@jomonkusama.com">
+      jomon@jomonkusama.com
+    </a>
+
   </p>
+
+
   <p>
-    ご連絡の際は、アプリ内「マイページ → サポート情報」に表示される
-    <strong>メンバーID</strong> または <strong>端末ID</strong> を添えていただくと、
+    一般的なお問い合わせについては、
+    個人で運営しているため、
+    返信までに数日いただく場合があります。
+  </p>
+
+
+  <div class="alert">
+
+    <p>
+
+      <strong>
+        不適切なプロフィール画像、
+        嫌がらせ、
+        その他安全上の問題に関する通報は、
+        通常のお問い合わせより優先して確認します。
+      </strong>
+
+    </p>
+
+    <p>
+      アプリ内で通報できる場合は、
+      まず通報機能をご利用ください。
+    </p>
+
+  </div>
+
+
+  <p style="margin-top:14px">
+
+    ご連絡の際は、
+    アプリ内
+    「マイページ → サポート情報」に表示される
+    <strong>
+      メンバーID
+    </strong>
+    または
+    <strong>
+      端末ID
+    </strong>
+    を添えていただくと、
     調査が早く進みます。
+
   </p>
+
 </section>
 
+
 <section>
-  <h2>不具合のご報告</h2>
-  <p>件名に「不具合報告」と記載し、次の内容をお知らせください。</p>
+
+  <h2>
+    不具合のご報告
+  </h2>
+
+
+  <p>
+    件名に
+    <strong>
+      「不具合報告」
+    </strong>
+    と記載し、
+    次の内容をお知らせください。
+  </p>
+
+
   <ol>
-    <li>ご利用の端末とOSのバージョン（例：iPhone 15 / iOS 18.5）</li>
-    <li>アプリのバージョン</li>
-    <li>どの画面で、どの操作をしたときに起きたか</li>
-    <li>表示されたメッセージ（画面の写真でもかまいません）</li>
-    <li>メンバーIDまたは端末ID</li>
+
+    <li>
+      ご利用の端末とOSのバージョン
+    </li>
+
+    <li>
+      アプリのバージョン
+    </li>
+
+    <li>
+      どの画面で、
+      どの操作をしたときに発生したか
+    </li>
+
+    <li>
+      表示されたエラーメッセージ
+      または画面の写真
+    </li>
+
+    <li>
+      メンバーIDまたは端末ID
+    </li>
+
   </ol>
+
+
   <p>
-    記録が消えたように見える場合は、ご自身で削除される前にご連絡ください。
-    復旧できる場合があります。
+    体重記録等が消えたように見える場合は、
+    新しい記録を大量に追加したり
+    ご自身でデータを削除したりする前にご連絡ください。
   </p>
+
 </section>
 
-<section>
-  <h2>違反行為のご報告</h2>
-  <p>
-    他のユーザーのニックネーム、プロフィール画像、
-    グループ名などに不適切な内容が含まれる場合は、
-    アプリ内のランキングで対象のメンバーの「⋯」を押し、
-    <strong>通報</strong> と <strong>ブロック</strong> をご利用ください。
-    通報は開発者が確認します。
-  </p>
-  <p>
-    アプリ内から操作できない場合や、緊急性が高いと思われる場合は、
-    件名に「違反報告」と記載のうえ、対象のメンバーIDまたはニックネーム、
-    グループ名、状況を上記メールアドレスまでお知らせください。
-  </p>
-  <p>
-    不適切な内容を確認した場合は、プロフィール画像や登録内容の削除、
-    グループからの除名、利用停止などの措置を行います。
-    詳細は<a href="./terms.html">利用規約</a>の第8項をご覧ください。
-  </p>
-</section>
 
 <section>
-  <h2>データの削除のご依頼</h2>
+
+  <h2>
+    違反行為・不適切な内容のご報告
+  </h2>
+
+
+  <p>
+    他のユーザーの
+    ニックネーム、
+    プロフィール画像、
+    その他の行為に問題がある場合は、
+    アプリ内の対象ユーザーのメニューから
+    <strong>
+      通報
+    </strong>
+    をご利用ください。
+  </p>
+
+
+  <p>
+    通報された内容は開発者が確認し、
+    必要に応じて対応します。
+  </p>
+
+
+  <p>
+    対応には、
+    次の措置等を含む場合があります。
+  </p>
+
+
+  <ul>
+
+    <li>
+      プロフィール画像の削除または承認拒否
+    </li>
+
+    <li>
+      ニックネーム等の変更または削除
+    </li>
+
+    <li>
+      体重表示の非公開化
+    </li>
+
+    <li>
+      グループからの除名
+    </li>
+
+    <li>
+      利用停止
+    </li>
+
+  </ul>
+
+
+  <p>
+    アプリ内から通報できない場合や、
+    緊急性が高いと思われる場合は、
+    件名に
+    <strong>
+      「違反報告」
+    </strong>
+    と記載し、
+    対象のメンバーIDまたはニックネーム、
+    グループ名、
+    状況等をメールでお知らせください。
+  </p>
+
+
+  <p>
+    詳細は
+    <a href="./terms.html">
+      利用規約
+    </a>
+    の
+    「通報」
+    「違反行為への対応」
+    をご確認ください。
+  </p>
+
+</section>
+
+
+<section>
+
+  <h2>
+    ブロックについて
+  </h2>
+
+
+  <p>
+    他のユーザーをブロックすると、
+    通常のランキングその他の一般ユーザー向け表示では、
+    <strong>
+      あなたと相手の双方から
+      互いの情報が表示されないようになります。
+    </strong>
+  </p>
+
+
+  <p>
+    ブロック関係にあるユーザーを
+    ライバルとして登録することもできません。
+  </p>
+
+
+  <p>
+    ただし、
+    グループの安全な管理に必要な場合には、
+    オーナー、
+    リーダーまたは開発者の管理用画面から
+    対象メンバーを確認できる場合があります。
+  </p>
+
+</section>
+
+
+<section>
+
+  <h2>
+    プロフィール画像について
+  </h2>
+
+
+  <p>
+    新しく登録したプロフィール画像や
+    差し替え画像は、
+    <strong>
+      開発者が確認して承認するまで一般公開されません。
+    </strong>
+  </p>
+
+
+  <p>
+    承認待ちの間は、
+    以前に承認された画像がある場合には
+    その画像を引き続き表示します。
+  </p>
+
+
+  <p>
+    初めてプロフィール画像を設定する場合は、
+    承認されるまで
+    プロフィール画像なしの状態または標準表示となります。
+  </p>
+
+
+  <p>
+    不適切な画像、
+    第三者の権利を侵害する画像、
+    個人情報を不適切に含む画像等は
+    承認しない場合があります。
+  </p>
+
+
+  <p>
+    承認済み画像についても、
+    後から問題が確認された場合には
+    削除することがあります。
+  </p>
+
+
+  <div class="note">
+
+    <p>
+      画像の確認は手動で行うため、
+      登録から反映まで時間がかかる場合があります。
+    </p>
+
+  </div>
+
+</section>
+
+
+<section>
+
+  <h2>
+    体重の公開・非公開について
+  </h2>
+
+
+  <h3>
+    体重公開グループ
+  </h3>
+
+
+  <p>
+    体重公開グループへ参加する場合でも、
+    参加前に自分の表示方法を選択できます。
+  </p>
+
+
+  <ul>
+
+    <li>
+
+      <strong>
+        非公開（増減量のみ）
+      </strong>
+
+      <br>
+
+      実際の体重は表示せず、
+      増減量のみ表示します。
+
+    </li>
+
+    <li>
+
+      <strong>
+        公開（体重＋増減量）
+      </strong>
+
+      <br>
+
+      グループの設定に従って、
+      実際の体重と増減量を表示します。
+
+    </li>
+
+  </ul>
+
+
+  <p>
+    初期選択は
+    <strong>
+      「非公開（増減量のみ）」
+    </strong>
+    です。
+  </p>
+
+
+  <h3>
+    体重非公開グループ
+  </h3>
+
+
+  <p>
+    グループ自体が体重非公開の場合は、
+    全メンバーが
+    「非公開（増減量のみ）」
+    となります。
+  </p>
+
+
+  <h3>
+    あとから変更できますか
+  </h3>
+
+
+  <p>
+    体重公開グループでは、
+    マイページから自分の公開設定を変更できます。
+  </p>
+
+
+  <p>
+    本人が
+    「非公開（増減量のみ）」
+    を選んでいる場合、
+    オーナーやリーダーが
+    本人の意思に反して公開へ戻すことはできません。
+  </p>
+
+
+  <p>
+    また、
+    管理者によってシークレット固定されている場合には、
+    本人から公開へ変更することもできません。
+  </p>
+
+</section>
+
+
+<section>
+
+  <h2>
+    グループのスタート日について
+  </h2>
+
+
+  <p>
+    グループのランキングや
+    他のユーザーへの体重共有では、
+    <strong>
+      グループに設定されたスタート日以降の記録だけ
+    </strong>
+    を対象とします。
+  </p>
+
+
+  <p>
+    スタート日より前の体重は、
+    そのグループの
+    ランキング、
+    日付別体重表示、
+    補完表示、
+    一般ユーザー向けCSV、
+    外部WEB連携には使用しません。
+  </p>
+
+
+  <p>
+    なお、
+    ご自身の個人記録としては
+    スタート日より前の体重も残ります。
+  </p>
+
+</section>
+
+
+<section>
+
+  <h2>
+    グループの参加コードについて
+  </h2>
+
+
+  <p>
+    参加コードは、
+    グループの
+    <strong>
+      オーナーおよびリーダー等の管理権限を持つユーザー
+    </strong>
+    が確認できる場合があります。
+  </p>
+
+
+  <p>
+    参加コードを知っているユーザーは、
+    そのグループへ参加したり、
+    「他チーム」として閲覧登録したりできる場合があります。
+  </p>
+
+
+  <p>
+    意図しない第三者へ参加コードが伝わらないよう、
+    共有範囲にはご注意ください。
+  </p>
+
+</section>
+
+
+<section>
+
+  <h2>
+    外部WEBランキングについて
+  </h2>
+
+
+  <p>
+    一部のグループでは、
+    みんやせとは別の
+    外部WEBランキングと連携する場合があります。
+  </p>
+
+
+  <div class="alert">
+
+    <p>
+
+      <strong>
+        外部WEBへのデータ送信は、
+        ユーザー本人が明示的に同意した場合だけ行います。
+      </strong>
+
+    </p>
+
+  </div>
+
+
+  <p style="margin-top:14px">
+    外部WEB連携対象グループへ参加するときは、
+    共有内容を表示したうえで
+    同意するかどうかを選択できます。
+  </p>
+
+
+  <p>
+    <strong>
+      同意しなくてもグループには参加できます。
+    </strong>
+  </p>
+
+
+  <h3>
+    体重公開の場合
+  </h3>
+
+
+  <p>
+    同意した場合、
+    メンバーID、
+    記録日、
+    保存・更新日時、
+    体重等を送信する場合があります。
+  </p>
+
+
+  <h3>
+    体重非公開の場合
+  </h3>
+
+
+  <p>
+    「非公開（増減量のみ）」の場合は、
+    <strong>
+      実際の体重そのものは外部WEBへ送りません。
+    </strong>
+  </p>
+
+
+  <p>
+    メンバーID、
+    記録日、
+    保存・更新日時、
+    スタート日以降の増減量等を送信する場合があります。
+  </p>
+
+
+  <h3>
+    同意をやめたい場合
+  </h3>
+
+
+  <p>
+    マイページから外部WEB連携への同意を撤回できます。
+  </p>
+
+
+  <p>
+    撤回後は、
+    本アプリ側からの新たな送信を停止します。
+  </p>
+
+
+  <p>
+    すでに外部WEBへ送られたデータについて
+    削除や訂正をご希望の場合は、
+    メールでご連絡ください。
+  </p>
+
+</section>
+
+
+<section>
+
+  <h2>
+    データの削除
+  </h2>
+
+
   <p>
     アプリをご利用中の場合は、
-    「マイページ → データの削除」からご自身で削除できます。
+    「マイページ → データの削除」から
+    ご自身で通常の利用データを削除できます。
+  </p>
+
+
+  <p>
     削除は取り消せません。
   </p>
+
+
   <p>
-    すでにアプリを削除された場合など、
-    アプリ内から操作できない場合は、
-    件名に <strong>「データ削除希望」</strong> と記載し、
-    本文にメンバーIDまたは端末IDをご記入のうえ上記メールアドレスへご連絡ください。
-    ご本人のデータであることを確認したうえで対応します。
+    プロフィール画像等、
+    複数の保存先に関連データがある場合、
+    一時的な通信障害等によって
+    すべての削除が同時に完了しない場合があります。
   </p>
+
+
+  <p>
+    その場合は、
+    本アプリ側で削除処理を再試行します。
+  </p>
+
+
+  <p>
+    すでにアプリを削除した場合等、
+    アプリ内から操作できない場合は、
+    件名に
+    <strong>
+      「データ削除希望」
+    </strong>
+    と記載し、
+    メンバーIDまたは端末IDを添えて
+    メールでご連絡ください。
+  </p>
+
+
   <p>
     メンバーIDと端末IDのどちらも分からない場合は、
-    ニックネームや所属していたグループ名など、
+    ニックネームや所属していたグループ名等、
     データを特定するための情報をお知らせください。
   </p>
+
 </section>
+
 
 <section>
-  <h2>よくあるご質問</h2>
 
-  <p><strong>機種変更するとデータはどうなりますか。</strong><br>
-  端末IDは端末ごとに作られるため、新しい端末では記録が引き継がれません。
-  引き継ぎをご希望の場合は、<strong>機種変更の前に</strong>
-  旧端末の「マイページ → サポート情報」で端末IDを確認し、
-  件名に「データ引き継ぎ希望」と記載してご連絡ください。</p>
+  <h2>
+    よくあるご質問
+  </h2>
 
-  <p><strong>体重は他のメンバーに見えますか。</strong><br>
-  グループ作成時に「体重をメンバーに公開する」をオフにした場合、
-  体重の数値は表示されず、増減量のみが表示されます。
-  詳細は<a href="./privacy.html">プライバシーポリシー</a>の第3項をご覧ください。</p>
 
-  <p><strong>グループの参加コードを忘れました。</strong><br>
-  参加コードはグループの作成者だけが確認できます。
-  作成者の方に「グループ」画面の「参加コード」をご確認いただいてください。</p>
+  <p>
 
-  <p><strong>通知は使えますか。</strong><br>
-  はい。iPhoneアプリでは、マイページから体重記録のリマインド通知を設定できます。
-  通知間隔は3日ごとまたは7日ごと、通知時刻は1時間単位で設定できます。
-  最終記録から13日目にはおやすみ中になる前日の通知、
-  14日目にはおやすみ中になったことを通知し、それ以降の通知は停止します。
-  再び体重を記録すると、その記録日を起点に通知が再設定されます。
-  通知の利用にはiPhone側で通知を許可する必要があります。</p>
+    <strong>
+      機種変更するとデータはどうなりますか。
+    </strong>
+
+    <br>
+
+    端末IDは端末ごとに生成されるため、
+    新しい端末へ自動的に記録が引き継がれない場合があります。
+
+    引き継ぎをご希望の場合は、
+    可能であれば機種変更前に
+    「マイページ → サポート情報」で
+    旧端末の端末IDを確認し、
+    件名に
+    「データ引き継ぎ希望」
+    と記載してご連絡ください。
+
+  </p>
+
+
+  <p>
+
+    <strong>
+      体重公開グループなら体重は必ず見えますか。
+    </strong>
+
+    <br>
+
+    いいえ。
+
+    体重公開グループでも、
+    ユーザー本人が
+    「非公開（増減量のみ）」
+    を選択できます。
+
+    この場合、
+    実際の体重は表示せず、
+    増減量のみ表示します。
+
+  </p>
+
+
+  <p>
+
+    <strong>
+      非公開にしたら増減量も隠れますか。
+    </strong>
+
+    <br>
+
+    いいえ。
+
+    「非公開（増減量のみ）」では、
+    実際の体重は隠れますが、
+    何kg減った、
+    または増えたかという情報は表示されます。
+
+  </p>
+
+
+  <p>
+
+    <strong>
+      グループ参加後に公開設定を変えられますか。
+    </strong>
+
+    <br>
+
+    体重公開グループで、
+    管理者による固定等がない場合は、
+    マイページから変更できます。
+
+  </p>
+
+
+  <p>
+
+    <strong>
+      グループの参加コードを忘れました。
+    </strong>
+
+    <br>
+
+    参加コードは、
+    グループのオーナーまたはリーダー等、
+    管理権限を持つユーザーが確認できる場合があります。
+
+    「グループ」画面をご確認ください。
+
+  </p>
+
+
+  <p>
+
+    <strong>
+      プロフィール画像を変更したのに変わりません。
+    </strong>
+
+    <br>
+
+    新しい画像は、
+    開発者の確認・承認後に公開されます。
+
+    承認待ち中は、
+    以前の承認済み画像がある場合には
+    その画像を表示します。
+
+  </p>
+
+
+  <p>
+
+    <strong>
+      ブロックすると相手にも自分が見えなくなりますか。
+    </strong>
+
+    <br>
+
+    はい。
+
+    通常の一般ユーザー向け表示では、
+    ブロックした側とされた側の双方について、
+    互いの情報を表示しないようにします。
+
+    ただし、
+    グループ管理上必要な場合には
+    オーナー、
+    リーダーまたは開発者の管理機能から
+    確認できる場合があります。
+
+  </p>
+
+
+  <p>
+
+    <strong>
+      外部WEBランキングへの共有は必須ですか。
+    </strong>
+
+    <br>
+
+    いいえ。
+
+    外部WEB連携対象グループでも、
+    同意せずにグループへ参加できます。
+
+    同意しない場合、
+    みんやせから外部WEBへのデータ送信は行いません。
+
+  </p>
+
+
+  <p>
+
+    <strong>
+      通知は使えますか。
+    </strong>
+
+    <br>
+
+    はい。
+
+    対応しているアプリでは、
+    マイページから
+    体重記録のリマインド通知を設定できます。
+
+    通知を利用するには、
+    端末側で通知を許可する必要があります。
+
+  </p>
+
 </section>
+
 
 <section>
-  <h2>規約とプライバシー</h2>
-  <p><a href="./terms.html">利用規約</a></p>
-  <p><a href="./privacy.html">プライバシーポリシー</a></p>
+
+  <h2>
+    規約とプライバシー
+  </h2>
+
+
+  <p>
+
+    <a href="./terms.html">
+      利用規約
+    </a>
+
+  </p>
+
+
+  <p>
+
+    <a href="./privacy.html">
+      プライバシーポリシー
+    </a>
+
+  </p>
+
 </section>
+
 
 <p class="ft">
-  最終更新： 2026/09/04<br>
+
+  最終更新：2026/09/07
+
+  <br>
+
   みんやせ ／ 縄文
+
 </p>
 
+
 </div>
+
 </body>
+
 </html>

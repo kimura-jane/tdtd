@@ -7,6 +7,7 @@
    ・プロフィール画像承認待ち
    ・2026-09-07版 規約再同意
    ・BAN中でも利用データ削除可能
+   ・削除後は本人が再開するまで新規登録しない
    ============================================================ */
 
 
@@ -26,6 +27,9 @@ const K_DEV =
 
 const K_AGREE =
   'minyase.agreed.v1';
+
+const K_DELETED =
+  'minyase.deleted.v1';
 
 /*
  * 2026-09-07版へ更新。
@@ -48,6 +52,54 @@ const CANCELED =
 
 const API_TIMEOUT =
   15000;
+
+
+/* ============================================================
+   削除済み状態
+   ============================================================ */
+
+function isDeletedState() {
+
+  return (
+    localStorage.getItem(
+      K_DELETED
+    ) ===
+    '1'
+  );
+}
+
+
+function markDeletedState() {
+
+  localStorage.removeItem(
+    K_DEV
+  );
+
+  localStorage.removeItem(
+    K_AGREE
+  );
+
+  localStorage.setItem(
+    K_DELETED,
+    '1'
+  );
+}
+
+
+function clearDeletedState() {
+
+  localStorage.removeItem(
+    K_DELETED
+  );
+
+  localStorage.removeItem(
+    K_DEV
+  );
+
+  localStorage.removeItem(
+    K_AGREE
+  );
+}
 
 
 /* ============================================================
@@ -116,6 +168,18 @@ function uuid() {
 
 
 function deviceId() {
+
+  /*
+   * データ削除後は、本人が「新しく始める」を
+   * 押すまで新しい端末IDを生成しない。
+   */
+  if (
+    isDeletedState()
+  ) {
+
+    return '';
+  }
+
 
   let value =
     localStorage.getItem(
@@ -196,6 +260,18 @@ async function api(
   opt = {}
 ) {
 
+  const id =
+    deviceId();
+
+
+  if (!id) {
+
+    throw new Error(
+      'account_deleted'
+    );
+  }
+
+
   const timeout =
     withTimeout(
       API_TIMEOUT
@@ -221,7 +297,7 @@ async function api(
               'application/json',
 
             'x-device-id':
-              deviceId()
+              id
           },
 
           body:
@@ -300,6 +376,18 @@ async function apiBlob(
   method = 'POST'
 ) {
 
+  const id =
+    deviceId();
+
+
+  if (!id) {
+
+    throw new Error(
+      'account_deleted'
+    );
+  }
+
+
   const timeout =
     withTimeout(
       API_TIMEOUT *
@@ -324,7 +412,7 @@ async function apiBlob(
               'image/jpeg',
 
             'x-device-id':
-              deviceId()
+              id
           },
 
           body:
@@ -409,6 +497,9 @@ const ERR = {
 
   banned:
     'このアカウントは利用できません',
+
+  account_deleted:
+    '利用データは削除されています',
 
 
   bad_kg:
@@ -2001,6 +2092,7 @@ function promptSheet(options) {
         input
       );
 
+
       sh.appendChild(
         wrap
       );
@@ -2589,6 +2681,108 @@ async function ensureAgreed() {
 
 
 /* ============================================================
+   データ削除済み画面
+   ============================================================ */
+
+function deletedMode() {
+
+  cache.ready =
+    false;
+
+
+  const {
+    sh,
+    close
+  } =
+    sheetOpen(
+      '利用データを削除しました',
+      '現在、この端末にはみんやせの利用アカウントはありません。'
+    );
+
+
+  const note =
+    document.createElement(
+      'p'
+    );
+
+
+  note.className =
+    'note';
+
+
+  note.textContent =
+    '新しく利用を始める場合は「新しく始める」を押してください。' +
+    '新しいメンバーIDと端末IDで最初から利用を開始します。';
+
+
+  sh.appendChild(
+    note
+  );
+
+
+  const row =
+    sheetRow(
+      sh
+    );
+
+
+  const startButton =
+    sheetBtn(
+      row,
+      '新しく始める',
+      'primary sm'
+    );
+
+
+  const supportButton =
+    sheetBtn(
+      row,
+      'サポートを見る',
+      'ghost sm'
+    );
+
+
+  supportButton.onclick =
+    () => {
+
+      docSheet(
+        './support.html',
+        'サポート'
+      );
+    };
+
+
+  startButton.onclick =
+    async () => {
+
+      const ok =
+        await confirmSheet(
+          '新しく始めますか？',
+          '以前の利用データは復元されません。新しい利用者として開始します。',
+          '新しく始める'
+        );
+
+
+      if (
+        !ok
+      ) {
+
+        return;
+      }
+
+
+      clearDeletedState();
+
+
+      close();
+
+
+      location.reload();
+    };
+}
+
+
+/* ============================================================
    B-3：利用停止中ユーザー
 
    通常機能には入れないが、
@@ -2769,30 +2963,13 @@ async function bannedMode() {
         );
 
 
-        /*
-         * 削除後は新しい利用者として扱うため、
-         * 端末IDと規約同意状態をローカルから削除。
-         */
-        localStorage.removeItem(
-          K_DEV
-        );
-
-
-        localStorage.removeItem(
-          K_AGREE
-        );
+        markDeletedState();
 
 
         close();
 
 
-        await alertSheet(
-          '削除しました',
-          '利用データを削除しました。'
-        );
-
-
-        location.reload();
+        deletedMode();
 
 
       } catch (e) {
@@ -2817,14 +2994,33 @@ async function bannedMode() {
  * 規約再同意が必要な状態でも、
  * 既存ユーザーがBANされている場合は
  * 規約同意画面より先に削除導線を出す。
- *
- * 新規ユーザーでは GET /api/me が not_registered になるだけなので、
- * この確認によって新しいdevices行は作成されない。
  */
 async function checkBannedBeforeAgreement() {
 
   if (
     agreed()
+  ) {
+
+    return false;
+  }
+
+
+  if (
+    isDeletedState()
+  ) {
+
+    return false;
+  }
+
+
+  /*
+   * 完全新規ユーザーなら、BAN確認だけのために
+   * device_id を新規発行しない。
+   */
+  if (
+    !localStorage.getItem(
+      K_DEV
+    )
   ) {
 
     return false;
@@ -2856,13 +3052,6 @@ async function checkBannedBeforeAgreement() {
     }
 
 
-    /*
-     * not_registered:
-     *   新規ユーザーなので通常どおり規約同意へ。
-     *
-     * network_error / timeout:
-     *   boot()側でもう一度正式に接続処理する。
-     */
     return false;
   }
 }
@@ -4556,8 +4745,6 @@ function currentRange() {
       `${fmtJpFull(keys[0])} 〜`
   };
 }
-
-
 /* ============================================================
    グラフ
    ============================================================ */
@@ -5201,41 +5388,43 @@ function drawChart() {
         3
       ]
     );
-           ctx.strokeStyle =
-        '#c9948a';
 
 
-      ctx.lineWidth =
-        1.5;
+    ctx.strokeStyle =
+      '#c9948a';
 
 
-      ctx.beginPath();
+    ctx.lineWidth =
+      1.5;
 
 
-      ctx.moveTo(
-        x(
-          last.day
-        ),
-        y(
-          last.kg
-        )
-      );
+    ctx.beginPath();
 
 
-      ctx.lineTo(
-        x(
-          rightEnd
-        ),
-        y(
-          last.kg
-        )
-      );
+    ctx.moveTo(
+      x(
+        last.day
+      ),
+      y(
+        last.kg
+      )
+    );
 
 
-      ctx.stroke();
+    ctx.lineTo(
+      x(
+        rightEnd
+      ),
+      y(
+        last.kg
+      )
+    );
 
 
-      ctx.restore();
+    ctx.stroke();
+
+
+    ctx.restore();
   }
 
 
@@ -6308,6 +6497,8 @@ async function memberMenu(
     ].run();
   }
 }
+
+
 /* ============================================================
    ライバル
    ============================================================ */
@@ -6973,6 +7164,8 @@ async function loadRanking() {
       `<li class="empty">${emsg(e)}</li>`;
   }
 }
+
+
 /* ============================================================
    他チーム追加
    ============================================================ */
@@ -8021,7 +8214,9 @@ function init() {
         );
       }
     };
-     /* ----------------------------------------------------------
+
+
+  /* ----------------------------------------------------------
      スタート日
      ---------------------------------------------------------- */
 
@@ -8797,23 +8992,19 @@ function init() {
         );
 
 
-        localStorage.removeItem(
-          K_DEV
-        );
+        /*
+         * 削除後に単純reloadすると
+         * 新しいdevice_idが生成され、
+         * /api/register で即再登録されてしまう。
+         *
+         * 削除済み状態を保持して、
+         * 本人が「新しく始める」を押すまで
+         * API登録を停止する。
+         */
+        markDeletedState();
 
 
-        localStorage.removeItem(
-          K_AGREE
-        );
-
-
-        await alertSheet(
-          '削除しました',
-          '利用データを削除しました。画面を読み込み直します。'
-        );
-
-
-        location.reload();
+        deletedMode();
 
 
       } catch (e) {
@@ -8868,6 +9059,19 @@ function init() {
    ============================================================ */
 
 async function boot() {
+
+  /*
+   * 削除済みなら登録処理へ入らない。
+   */
+  if (
+    isDeletedState()
+  ) {
+
+    deletedMode();
+
+    return;
+  }
+
 
   try {
 
@@ -8928,6 +9132,21 @@ async function boot() {
   } catch (err) {
 
     /*
+     * 削除済みは通信エラーとして扱わない。
+     */
+    if (
+      err &&
+      err.message ===
+        'account_deleted'
+    ) {
+
+      deletedMode();
+
+      return;
+    }
+
+
+    /*
      * 利用停止は通信エラーではない。
      *
      * 通常画面には入れず、
@@ -8978,6 +9197,22 @@ async function start() {
 
 
   /*
+   * データ削除後はここで完全に停止。
+   *
+   * 本人が「新しく始める」を押すまで、
+   * device_id生成・規約同意・registerを行わない。
+   */
+  if (
+    isDeletedState()
+  ) {
+
+    deletedMode();
+
+    return;
+  }
+
+
+  /*
    * B-3:
    *
    * 最新規約へ未同意の既存BANユーザーが
@@ -9003,5 +9238,3 @@ async function start() {
 
 
 start();
-   
-     

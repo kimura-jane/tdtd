@@ -40,6 +40,20 @@ const LEADER_MAX =
   5;
 
 
+/*
+ * Worker isolate 内で一度正規化できたら、
+ * 毎APIリクエストでD1のUPDATE/DELETEを繰り返さない。
+ *
+ * OPERATOR_MEMBER_ID が変わった場合は
+ * 新しいIDで自動的に再実行する。
+ */
+let normalizedOperatorId =
+  null;
+
+let normalizeOperatorPromise =
+  null;
+
+
 async function readBody(req) {
 
   try {
@@ -501,6 +515,155 @@ async function activateOperator(
 
 
 /* ============================================================
+   設定済み運営者を集計より先に正規化
+
+   運営者本人のアクセスに依存させない。
+
+   root.js が通常APIを処理する前に呼ぶことで、
+   他ユーザーが先にランキング・人数・投票集計を取得しても
+   旧運営者データが混ざらないようにする。
+
+   Worker isolate内では成功後のPromiseを保持し、
+   同じOPERATOR_MEMBER_IDに対するD1更新を繰り返さない。
+   ============================================================ */
+
+export async function normalizeConfiguredOperator(
+  env
+) {
+
+  const configured =
+    operatorMemberId(
+      env
+    );
+
+
+  if (
+    !configured
+  ) {
+
+    normalizedOperatorId =
+      null;
+
+    normalizeOperatorPromise =
+      null;
+
+    return false;
+  }
+
+
+  if (
+    normalizedOperatorId ===
+      configured &&
+    normalizeOperatorPromise
+  ) {
+
+    return await normalizeOperatorPromise;
+  }
+
+
+  normalizedOperatorId =
+    configured;
+
+
+  normalizeOperatorPromise =
+    (
+      async () => {
+
+        const rs =
+          await env.DB
+            .prepare(`
+              SELECT *
+              FROM devices
+              WHERE member_id=?
+            `)
+            .bind(
+              configured
+            )
+            .all();
+
+
+        const devices =
+          rs.results ||
+          [];
+
+
+        /*
+         * OPERATOR_MEMBER_IDを設定した時点で
+         * 対象アカウントがまだ存在しない場合は
+         * 成功扱いで固定しない。
+         *
+         * 次のAPIアクセス時に再確認する。
+         */
+        if (
+          !devices.length
+        ) {
+
+          return false;
+        }
+
+
+        /*
+         * 通常は1件だが、
+         * 万一同じmember_idの旧データが複数存在しても
+         * 全端末を通常参加状態から外す。
+         */
+        for (
+          const dev of
+          devices
+        ) {
+
+          await activateOperator(
+            env,
+            dev
+          );
+        }
+
+
+        return true;
+      }
+    )();
+
+
+  try {
+
+    const normalized =
+      await normalizeOperatorPromise;
+
+
+    if (
+      !normalized
+    ) {
+
+      normalizedOperatorId =
+        null;
+
+      normalizeOperatorPromise =
+        null;
+    }
+
+
+    return normalized;
+
+
+  } catch (error) {
+
+    /*
+     * 一時的なD1エラー等なら、
+     * 次回APIアクセスで再試行できるようにする。
+     */
+    normalizedOperatorId =
+      null;
+
+    normalizeOperatorPromise =
+      null;
+
+
+    throw error;
+  }
+}
+
+
+/* ============================================================
    運営アカウント削除前の保護
    ============================================================ */
 
@@ -744,6 +907,8 @@ async function groupJson(
       null,
   };
 }
+
+
 /* ============================================================
    status
    ============================================================ */
@@ -1392,6 +1557,8 @@ function normalizeMemberId(
     ? value
     : null;
 }
+
+
 async function memberRowsForGroup(
   env,
   group
@@ -2093,6 +2260,8 @@ async function kickMember(
     }
   );
 }
+
+
 /* ============================================================
    除名リスト
    ============================================================ */
@@ -2752,6 +2921,8 @@ async function removeLeader(
     owned.group.group_id
   );
 }
+
+
 /* ============================================================
    グループ解散
    ============================================================ */
@@ -3098,6 +3269,8 @@ export async function operatorParticipationGuard(
 
   return null;
 }
+
+
 /* ============================================================
    運営API ルーティング
    ============================================================ */

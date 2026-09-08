@@ -78,8 +78,32 @@ export function todayYmdJST() {
 }
 
 export function isYmd(s) {
-  if (typeof s !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(s)) return false;
-  return !Number.isNaN(Date.parse(s + 'T00:00:00+09:00'));
+  if (
+    typeof s !== 'string' ||
+    !/^\d{4}-\d{2}-\d{2}$/.test(s)
+  ) {
+    return false;
+  }
+
+  const [year, month, day] =
+    s
+      .split('-')
+      .map(Number);
+
+  const d =
+    new Date(
+      Date.UTC(
+        year,
+        month - 1,
+        day
+      )
+    );
+
+  return (
+    d.getUTCFullYear() === year &&
+    d.getUTCMonth() === month - 1 &&
+    d.getUTCDate() === day
+  );
 }
 
 export function ymdToDay(ymd) {

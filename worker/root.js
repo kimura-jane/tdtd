@@ -3,6 +3,10 @@
 import app from './entry.js';
 
 import {
+  bad
+} from './lib.js';
+
+import {
   isSafetyAdminPath,
   adminSafetyRoute,
   publicIconRoute,
@@ -21,6 +25,13 @@ import {
   processExternalQueue
 } from './safety.js';
 
+import {
+  operatorRoute,
+  operatorParticipationGuard,
+  isOperatorRequest,
+  isOperatorMember
+} from './operator.js';
+
 
 const ASSET_LINKS_PATH =
   '/.well-known/assetlinks.json';
@@ -28,6 +39,10 @@ const ASSET_LINKS_PATH =
 const ASSET_LINKS_SOURCE_PATH =
   '/assetlinks.json';
 
+
+/* ============================================================
+   Android Digital Asset Links
+   ============================================================ */
 
 async function serveAssetLinks(
   req,
@@ -106,6 +121,214 @@ async function serveAssetLinks(
 }
 
 
+/* ============================================================
+   運営者判定をレスポンスへ追加
+
+   /api/me
+   /api/register
+
+   の me.member_id を使って判定する。
+
+   OPERATOR_MEMBER_ID 自体は
+   クライアントへ渡さない。
+   ============================================================ */
+
+async function augmentOperatorFlag(
+  response,
+  env
+) {
+
+  if (
+    !response ||
+    !response.ok
+  ) {
+
+    return response;
+  }
+
+
+  try {
+
+    const data =
+      await response
+        .clone()
+        .json();
+
+
+    const memberId =
+      data &&
+      data.me &&
+      data.me.member_id;
+
+
+    if (!memberId) {
+
+      return response;
+    }
+
+
+    data.operator =
+      isOperatorMember(
+        env,
+        memberId
+      );
+
+
+    const headers =
+      new Headers(
+        response.headers
+      );
+
+
+    headers.delete(
+      'content-length'
+    );
+
+
+    headers.set(
+      'content-type',
+      'application/json; charset=utf-8'
+    );
+
+
+    headers.set(
+      'cache-control',
+      'no-store'
+    );
+
+
+    return new Response(
+      JSON.stringify(
+        data
+      ),
+      {
+        status:
+          response.status,
+
+        statusText:
+          response.statusText,
+
+        headers,
+      }
+    );
+
+
+  } catch {
+
+    return response;
+  }
+}
+
+
+/* ============================================================
+   /api/me を返す前に運営状態を確定する
+
+   運営者の場合：
+   ・group_id=NULL
+   ・joined_at=NULL
+   ・投票削除
+   ・外部連携参加情報削除
+   ・Push削除
+   ・watching削除
+   ・rivals削除
+
+   operator.js の statusRoute を利用する。
+   ============================================================ */
+
+async function normalizeOperatorBeforeMe(
+  req,
+  env
+) {
+
+  const statusUrl =
+    new URL(
+      req.url
+    );
+
+
+  statusUrl.pathname =
+    '/api/operator/status';
+
+
+  statusUrl.search =
+    '';
+
+
+  try {
+
+    const response =
+      await operatorRoute(
+        req,
+        env,
+        statusUrl
+      );
+
+
+    if (!response.ok) {
+
+      return false;
+    }
+
+
+    const data =
+      await response
+        .clone()
+        .json();
+
+
+    return !!(
+      data &&
+      data.operator
+    );
+
+
+  } catch {
+
+    return false;
+  }
+}
+
+
+/* ============================================================
+   運営者をライバルとして登録させない
+
+   運営者本人がライバル機能を使わないだけではなく、
+   他ユーザー側から運営者をライバル登録することも禁止する。
+
+   これにより運営者がライバルランキングへ混ざることを防ぐ。
+   ============================================================ */
+
+async function targetsOperator(
+  req,
+  env
+) {
+
+  try {
+
+    const body =
+      await req
+        .clone()
+        .json();
+
+
+    return isOperatorMember(
+      env,
+      body &&
+      body.member_id
+    );
+
+
+  } catch {
+
+    return false;
+  }
+}
+
+
+/* ============================================================
+   Worker
+   ============================================================ */
+
 export default {
 
   async fetch(
@@ -136,10 +359,6 @@ export default {
 
        root.js が /api/icon 等を entry.js より先に処理するため、
        OPTIONS は最初に entry.js の preflight へ渡す。
-
-       これが無いと Capacitor iOS から
-       x-device-id + image/jpeg 等で送信した際の
-       preflight が memberIconRoute に入ってしまう。
        ========================================================== */
 
     if (
@@ -179,8 +398,6 @@ export default {
 
     /* ==========================================================
        承認済みプロフィール画像
-
-       worker/index.js の旧 /i/ より先に処理する。
        ========================================================== */
 
     if (
@@ -215,9 +432,6 @@ export default {
 
     /* ==========================================================
        プロフィール画像アップロード
-
-       新しい画像は公開キーへ直接保存せず、
-       pending として管理者承認待ちにする。
        ========================================================== */
 
     if (
@@ -251,19 +465,7 @@ export default {
 
 
     /* ==========================================================
-       旧 pull 型外部API
-
-       現在の外部WEB連携は
-       group_external
-       +
-       member_id × group_id の本人同意
-       +
-       現在のグループ所属
-
-       を確認する push 型だけを使用する。
-
-       旧 /api/external/weights は
-       この同意条件を迂回できるため廃止する。
+       旧 pull 型外部API停止
        ========================================================== */
 
     if (
@@ -299,14 +501,144 @@ export default {
 
 
     /* ==========================================================
+       運営専用API
+
+       /api/operator/*
+       は通常APIへ流さない。
+       ========================================================== */
+
+    if (
+      p ===
+        '/api/operator' ||
+      p.startsWith(
+        '/api/operator/'
+      )
+    ) {
+
+      return await operatorRoute(
+        req,
+        env,
+        url
+      );
+    }
+
+
+    /* ==========================================================
+       運営アカウントの通常参加機能を禁止
+
+       GET /api/weights は起動時の互換性のため現時点では読むだけ許可。
+       書き込み・削除はoperatorParticipationGuardで拒否する。
+
+       /api/me GET も運営判定のため許可。
+       ========================================================== */
+
+    const operatorBootstrapRead =
+      (
+        p ===
+          '/api/weights' &&
+        m ===
+          'GET'
+      ) ||
+      (
+        p ===
+          '/api/me' &&
+        m ===
+          'GET'
+      ) ||
+      (
+        p ===
+          '/api/register' &&
+        m ===
+          'POST'
+      );
+
+
+    if (
+      !operatorBootstrapRead
+    ) {
+
+      const operatorBlocked =
+        await operatorParticipationGuard(
+          req,
+          env,
+          p,
+          m
+        );
+
+
+      if (
+        operatorBlocked
+      ) {
+
+        return operatorBlocked;
+      }
+    }
+
+
+    /* ==========================================================
+       運営者では不要な参加者設定も禁止
+
+       ・Push
+       ・外部WEB本人同意
+       ・体重公開設定
+
+       運営者は参加者ではないため保持しない。
+       ========================================================== */
+
+    if (
+      (
+        p.startsWith(
+          '/api/push/'
+        ) ||
+        p ===
+          '/api/me/external-consent' ||
+        p ===
+          '/api/me/weight-privacy' ||
+        p ===
+          '/api/groups/weight-privacy'
+      ) &&
+      await isOperatorRequest(
+        req,
+        env
+      )
+    ) {
+
+      return bad(
+        req,
+        'operator_not_allowed',
+        403
+      );
+    }
+
+
+    /* ==========================================================
+       運営者を他ユーザーのライバルにしない
+       ========================================================== */
+
+    if (
+      p ===
+        '/api/rivals' &&
+      m ===
+        'POST' &&
+      await targetsOperator(
+        req,
+        env
+      )
+    ) {
+
+      return bad(
+        req,
+        'operator_not_available',
+        403
+      );
+    }
+
+
+    /* ==========================================================
        グループ参加
 
-       entry.js の旧 prepareJoinWeightPrivacy を通さず、
        membership / privacy / consent を
        safety.js 側でまとめて確定する。
-
-       グループ参加失敗時に
-       privacy だけ先に変更される問題を防止。
        ========================================================== */
 
     if (
@@ -341,9 +673,6 @@ export default {
 
     /* ==========================================================
        オーナー・リーダー管理用メンバー一覧
-
-       双方向ブロックとは別。
-       管理権限がある人は管理目的で全員を確認できる。
        ========================================================== */
 
     if (
@@ -387,13 +716,11 @@ export default {
 
     /* ==========================================================
        アカウント削除前の識別情報保存
-
-       base worker で devices 行が消える前に
-       member_id 等を保存する。
        ========================================================== */
 
     let deleteContext =
       null;
+
 
     if (
       p ===
@@ -404,6 +731,32 @@ export default {
 
       deleteContext =
         await captureDeleteContext(
+          req,
+          env
+        );
+    }
+
+
+    /* ==========================================================
+       運営者の /api/me
+
+       通常workerへ渡す前に
+       通常グループ参加状態から切り離す。
+       ========================================================== */
+
+    let operatorForResponse =
+      false;
+
+
+    if (
+      p ===
+        '/api/me' &&
+      m ===
+        'GET'
+    ) {
+
+      operatorForResponse =
+        await normalizeOperatorBeforeMe(
           req,
           env
         );
@@ -423,10 +776,47 @@ export default {
 
 
     /* ==========================================================
-       参加前グループ情報
+       /api/me / register に operator 判定追加
 
-       既存 GET /api/groups?code=... に
-       external_enabled を追加する。
+       クライアントは
+       OPERATOR_MEMBER_IDそのものを知らずに
+       true / false だけ取得できる。
+       ========================================================== */
+
+    if (
+      (
+        p ===
+          '/api/me' &&
+        m ===
+          'GET'
+      ) ||
+      (
+        p ===
+          '/api/register' &&
+        m ===
+          'POST'
+      )
+    ) {
+
+      response =
+        await augmentOperatorFlag(
+          response,
+          env
+        );
+    }
+
+
+    /*
+     * normalizeOperatorBeforeMe() の結果は
+     * augmentOperatorFlag() と同じ判定になるが、
+     * operatorForResponse を保持しておくことで
+     * 運営者の /api/me 呼び出し時に状態確定済みであることを明示する。
+     */
+    void operatorForResponse;
+
+
+    /* ==========================================================
+       参加前グループ情報
        ========================================================== */
 
     if (
@@ -450,9 +840,6 @@ export default {
 
     /* ==========================================================
        スタート日前の共有を遮断
-
-       safety.js 側で
-       実際に閲覧している対象グループの start_ymd を使う。
        ========================================================== */
 
     if (
@@ -482,16 +869,6 @@ export default {
 
     /* ==========================================================
        双方向ブロック
-
-       AがBをブロックした場合、
-       AとBは互いの通常ユーザー向け表示から消す。
-
-       対象：
-       ・ランキング
-       ・ライバル
-       ・日付別メンバー体重
-
-       管理用 /api/groups/manage-members は除外。
        ========================================================== */
 
     if (
@@ -526,12 +903,6 @@ export default {
 
     /* ==========================================================
        体重保存後の外部WEBキュー
-
-       ユーザーの体重保存成功自体は
-       外部WEB障害の影響を受けない。
-
-       外部API情報が未設定なら
-       processExternalQueue() は送信しない。
        ========================================================== */
 
     if (
@@ -635,6 +1006,7 @@ export default {
             ctx
           );
 
+
         if (
           promise &&
           typeof promise.then ===
@@ -645,6 +1017,7 @@ export default {
             promise
           );
         }
+
 
       } catch (e) {
 

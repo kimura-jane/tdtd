@@ -16,70 +16,40 @@ import {
   isBanned,
 } from './lib.js';
 
-
 /* ============================================================
    みんやせ / worker/operator.js
-
    運営専用グループ管理
 
-   方針
    ・OPERATOR_MEMBER_ID は Cloudflare 環境変数で管理
    ・運営者は通常グループの参加者にはしない
-   ・運営者が管理できるグループ数に上限は設けない
-   ・運営グループは owner_id をシステム所有値にして、
-     運営アカウントの削除・再作成とグループ本体を分離する
-   ・通常ユーザーの owner / leader API とは分離する
+   ・管理グループ数に上限は設けない
+   ・運営グループの owner_id は内部固定値で保持する
+   ・通常ユーザー用 owner / leader API とは分離する
    ============================================================ */
 
-const DEVICE_ID_RE =
-  /^[A-Za-z0-9_-]{8,64}$/;
-
-const MEMBER_ID_RE =
-  /^[0-9A-Z]{6,32}$/;
-
-const OPERATOR_OWNER_ID =
-  '__MINYASE_OPERATOR__';
-
-const LEADER_MAX =
-  5;
-
-
-/* ============================================================
-   共通
-   ============================================================ */
+const DEVICE_ID_RE = /^[A-Za-z0-9_-]{8,64}$/;
+const MEMBER_ID_RE = /^[0-9A-Z]{6,32}$/;
+const OPERATOR_OWNER_ID = '__MINYASE_OPERATOR__';
+const LEADER_MAX = 5;
 
 async function readBody(req) {
   try {
-    const body =
-      await req.json();
-
-    return (
-      body &&
-      typeof body === 'object'
-    )
-      ? body
-      : {};
+    const body = await req.json();
+    return body && typeof body === 'object' ? body : {};
   } catch {
     return {};
   }
 }
 
-
 function operatorMemberId(env) {
-  const id =
-    String(
-      env &&
-      env.OPERATOR_MEMBER_ID ||
-      ''
-    )
-      .trim()
-      .toUpperCase();
+  const id = String((env && env.OPERATOR_MEMBER_ID) || '')
+    .trim()
+    .toUpperCase();
 
   return MEMBER_ID_RE.test(id)
     ? id
     : null;
 }
-
 
 export function isOperatorMember(
   env,
@@ -89,10 +59,7 @@ export function isOperatorMember(
     operatorMemberId(env);
 
   const actual =
-    String(
-      memberId ||
-      ''
-    )
+    String(memberId || '')
       .trim()
       .toUpperCase();
 
@@ -102,7 +69,6 @@ export function isOperatorMember(
     configured === actual
   );
 }
-
 
 async function deviceFromRequest(
   req,
@@ -115,10 +81,8 @@ async function deviceFromRequest(
     String(
       req.headers.get(
         'x-device-id'
-      ) ||
-      ''
-    )
-      .trim();
+      ) || ''
+    ).trim();
 
   if (
     !DEVICE_ID_RE.test(
@@ -136,11 +100,9 @@ async function deviceFromRequest(
 
   const dev =
     await env.DB
-      .prepare(`
-        SELECT *
-        FROM devices
-        WHERE device_id=?
-      `)
+      .prepare(
+        'SELECT * FROM devices WHERE device_id=?'
+      )
       .bind(
         deviceId
       )
@@ -159,8 +121,7 @@ async function deviceFromRequest(
 
   if (
     Number(
-      dev.banned ||
-      0
+      dev.banned || 0
     ) === 1 &&
     !allowBanned
   ) {
@@ -179,7 +140,6 @@ async function deviceFromRequest(
   };
 }
 
-
 export async function isOperatorRequest(
   req,
   env
@@ -189,8 +149,7 @@ export async function isOperatorRequest(
       req,
       env,
       {
-        allowBanned:
-          true
+        allowBanned: true
       }
     );
 
@@ -203,7 +162,6 @@ export async function isOperatorRequest(
   );
 }
 
-
 async function requireOperator(
   req,
   env
@@ -214,7 +172,9 @@ async function requireOperator(
       env
     );
 
-  if (member.error) {
+  if (
+    member.error
+  ) {
     return member;
   }
 
@@ -237,12 +197,15 @@ async function requireOperator(
   return member;
 }
 
-
-function noSuchTable(error) {
+function noSuchTable(
+  error
+) {
   const text =
     String(
-      error &&
-      error.message ||
+      (
+        error &&
+        error.message
+      ) ||
       error ||
       ''
     )
@@ -257,7 +220,6 @@ function noSuchTable(error) {
     )
   );
 }
-
 
 async function optionalRun(
   env,
@@ -285,7 +247,6 @@ async function optionalRun(
     throw error;
   }
 }
-
 
 async function optionalFirst(
   env,
@@ -316,13 +277,11 @@ async function optionalFirst(
 
 
 /* ============================================================
-   運営アカウントを通常参加者から分離
+   運営アカウントを通常参加者から完全分離
 
-   既存グループを運営者本人が作成済みの場合は、
-   owner_id をシステム所有値へ移す。
-
-   体重記録そのものは勝手に削除しない。
+   既存の体重履歴そのものは削除しない。
    group_id=NULL にすることで人数・ランキング・集計から外す。
+   投票、外部連携、Push、通常参加用の閲覧・ライバル状態は削除する。
    ============================================================ */
 
 async function activateOperator(
@@ -368,6 +327,69 @@ async function activateOperator(
     dev.member_id
   );
 
+  await optionalRun(
+    env,
+    `
+      DELETE FROM vote_predictions
+      WHERE member_id=?
+    `,
+    dev.member_id
+  );
+
+  await optionalRun(
+    env,
+    `
+      DELETE FROM external_consent
+      WHERE member_id=?
+    `,
+    dev.member_id
+  );
+
+  await optionalRun(
+    env,
+    `
+      DELETE FROM external_queue
+      WHERE member_id=?
+    `,
+    dev.member_id
+  );
+
+  await optionalRun(
+    env,
+    `
+      DELETE FROM push_subscriptions
+      WHERE member_id=?
+    `,
+    dev.member_id
+  );
+
+  await optionalRun(
+    env,
+    `
+      DELETE FROM watching
+      WHERE device_id=?
+    `,
+    dev.device_id
+  );
+
+  await optionalRun(
+    env,
+    `
+      DELETE FROM rivals
+      WHERE device_id=?
+    `,
+    dev.device_id
+  );
+
+  await optionalRun(
+    env,
+    `
+      DELETE FROM rivals
+      WHERE rival_member_id=?
+    `,
+    dev.member_id
+  );
+
   dev.group_id =
     null;
 
@@ -392,7 +414,9 @@ async function ownedGroup(
       rawGroupId
     );
 
-  if (!groupId) {
+  if (
+    !groupId
+  ) {
     return {
       error:
         'bad_code'
@@ -414,7 +438,9 @@ async function ownedGroup(
       )
       .first();
 
-  if (!group) {
+  if (
+    !group
+  ) {
     return {
       error:
         'group_not_found'
@@ -425,7 +451,6 @@ async function ownedGroup(
     group
   };
 }
-
 
 async function groupExternalEnabled(
   env,
@@ -444,13 +469,14 @@ async function groupExternalEnabled(
 
   return (
     Number(
-      row &&
-      row.enabled ||
+      (
+        row &&
+        row.enabled
+      ) ||
       0
     ) === 1
   );
 }
-
 
 async function groupLeaderCount(
   env,
@@ -468,12 +494,13 @@ async function groupLeaderCount(
     );
 
   return Number(
-    row &&
-    row.n ||
+    (
+      row &&
+      row.n
+    ) ||
     0
   );
 }
-
 
 async function groupMemberCount(
   env,
@@ -494,12 +521,13 @@ async function groupMemberCount(
       .first();
 
   return Number(
-    row &&
-    row.n ||
+    (
+      row &&
+      row.n
+    ) ||
     0
   );
 }
-
 
 async function groupJson(
   env,
@@ -573,17 +601,18 @@ async function statusRoute(
       env
     );
 
-  if (member.error) {
+  if (
+    member.error
+  ) {
     return member.error;
   }
 
-  const operator =
-    isOperatorMember(
+  if (
+    !isOperatorMember(
       env,
       member.dev.member_id
-    );
-
-  if (!operator) {
+    )
+  ) {
     return json(
       req,
       {
@@ -627,8 +656,10 @@ async function statusRoute(
 
       group_count:
         Number(
-          count &&
-          count.n ||
+          (
+            count &&
+            count.n
+          ) ||
           0
         ),
 
@@ -653,7 +684,9 @@ async function listGroups(
         SELECT *
         FROM groups
         WHERE owner_id=?
-        ORDER BY created_at ASC, group_id ASC
+        ORDER BY
+          created_at ASC,
+          group_id ASC
       `)
       .bind(
         OPERATOR_OWNER_ID
@@ -693,9 +726,6 @@ async function listGroups(
 
 /* ============================================================
    グループ作成
-
-   運営者自身の devices.group_id は変更しない。
-   グループ数の上限も設けない。
    ============================================================ */
 
 async function createGroup(
@@ -718,14 +748,18 @@ async function createGroup(
   }
 
   const body =
-    await readBody(req);
+    await readBody(
+      req
+    );
 
   const name =
     normGroupName(
       body.name
     );
 
-  if (!name) {
+  if (
+    !name
+  ) {
     return bad(
       req,
       isBanned(
@@ -804,7 +838,9 @@ async function createGroup(
         )
         .first();
 
-    if (!exists) {
+    if (
+      !exists
+    ) {
       groupId =
         candidate;
 
@@ -812,16 +848,15 @@ async function createGroup(
     }
   }
 
-  if (!groupId) {
+  if (
+    !groupId
+  ) {
     return bad(
       req,
       'code_alloc_failed',
       500
     );
   }
-
-  const now =
-    Date.now();
 
   await env.DB
     .prepare(`
@@ -834,7 +869,15 @@ async function createGroup(
         max_members,
         created_at
       )
-      VALUES (?,?,?,?,?,100,?)
+      VALUES (
+        ?,
+        ?,
+        ?,
+        ?,
+        ?,
+        100,
+        ?
+      )
     `)
     .bind(
       groupId,
@@ -842,7 +885,7 @@ async function createGroup(
       OPERATOR_OWNER_ID,
       showWeight,
       start,
-      now
+      Date.now()
     )
     .run();
 
@@ -890,7 +933,9 @@ async function getGroup(
       rawGroupId
     );
 
-  if (owned.error) {
+  if (
+    owned.error
+  ) {
     return bad(
       req,
       owned.error,
@@ -919,8 +964,6 @@ async function getGroup(
 
 /* ============================================================
    グループ変更
-
-   show_weight は作成後変更不可。
    ============================================================ */
 
 async function patchGroup(
@@ -934,7 +977,9 @@ async function patchGroup(
       rawGroupId
     );
 
-  if (owned.error) {
+  if (
+    owned.error
+  ) {
     return bad(
       req,
       owned.error,
@@ -946,7 +991,9 @@ async function patchGroup(
   }
 
   const body =
-    await readBody(req);
+    await readBody(
+      req
+    );
 
   if (
     'show_weight' in body
@@ -971,7 +1018,9 @@ async function patchGroup(
         body.name
       );
 
-    if (!name) {
+    if (
+      !name
+    ) {
       return bad(
         req,
         isBanned(
@@ -1030,7 +1079,9 @@ async function patchGroup(
     );
   }
 
-  if (!sets.length) {
+  if (
+    !sets.length
+  ) {
     return bad(
       req,
       'nothing_to_update'
@@ -1061,20 +1112,10 @@ async function patchGroup(
     owned.group.group_id
   );
 }
+
+
 /* ============================================================
    メンバー一覧・ランキング
-
-   運営アカウント自身は group_id=NULL なので
-   この集計には絶対に入らない。
-
-   ここでは管理用として
-   ・順位
-   ・増減kg
-   ・最終記録日
-   ・休止中
-   を返す。
-
-   実体重そのものは返さない。
    ============================================================ */
 
 function memberIconUrl(
@@ -1102,8 +1143,9 @@ function memberIconUrl(
   );
 }
 
-
-function normalizeMemberId(raw) {
+function normalizeMemberId(
+  raw
+) {
   const value =
     String(
       raw ||
@@ -1118,7 +1160,6 @@ function normalizeMemberId(raw) {
     ? value
     : null;
 }
-
 
 async function memberRowsForGroup(
   env,
@@ -1233,8 +1274,8 @@ async function memberRowsForGroup(
         );
       }
     }
-  } catch {}
 
+  } catch {}
 
   const rows =
     (
@@ -1243,6 +1284,7 @@ async function memberRowsForGroup(
     )
       .map(
         row => {
+
           const firstKg =
             row.first_kg ===
               null ||
@@ -1264,7 +1306,7 @@ async function memberRowsForGroup(
                 );
 
           const hasPair =
-            (
+            !!(
               row.first_ymd &&
               row.last_ymd &&
               row.first_ymd !==
@@ -1352,7 +1394,6 @@ async function memberRowsForGroup(
         }
       );
 
-
   const ranked =
     rows
       .filter(
@@ -1365,6 +1406,7 @@ async function memberRowsForGroup(
           a,
           b
         ) => {
+
           if (
             b.loss !==
             a.loss
@@ -1386,13 +1428,11 @@ async function memberRowsForGroup(
         }
       );
 
-
   let previousLoss =
     null;
 
   let previousRank =
     0;
-
 
   for (
     let i = 0;
@@ -1421,12 +1461,12 @@ async function memberRowsForGroup(
       previousRank;
   }
 
-
   rows.sort(
     (
       a,
       b
     ) => {
+
       if (
         a.rank !==
           null &&
@@ -1467,7 +1507,6 @@ async function memberRowsForGroup(
     }
   );
 
-
   const losses =
     rows
       .filter(
@@ -1479,7 +1518,6 @@ async function memberRowsForGroup(
         row =>
           row.loss
       );
-
 
   const totalLoss =
     losses.length
@@ -1496,7 +1534,6 @@ async function memberRowsForGroup(
         )
       : 0;
 
-
   const avgLoss =
     losses.length
       ? round1(
@@ -1504,7 +1541,6 @@ async function memberRowsForGroup(
           losses.length
         )
       : null;
-
 
   return {
     rows,
@@ -1524,7 +1560,6 @@ async function memberRowsForGroup(
     },
   };
 }
-
 
 async function listMembers(
   req,
@@ -1580,13 +1615,6 @@ async function listMembers(
 
 /* ============================================================
    メンバー除名
-
-   ・グループから外す
-   ・同じコードで再参加できないよう group_bans へ
-   ・リーダーだった場合は解除
-   ・外部WEB同意と未送信キューはそのグループ分だけ削除
-
-   体重記録そのものは削除しない。
    ============================================================ */
 
 async function kickMember(
@@ -1677,7 +1705,6 @@ async function kickMember(
   const now =
     Date.now();
 
-
   await env.DB.batch([
 
     env.DB
@@ -1703,7 +1730,12 @@ async function kickMember(
           by_admin,
           created_at
         )
-        VALUES (?,?,1,?)
+        VALUES (
+          ?,
+          ?,
+          1,
+          ?
+        )
       `)
       .bind(
         owned.group.group_id,
@@ -1711,7 +1743,6 @@ async function kickMember(
         now
       ),
   ]);
-
 
   await optionalRun(
     env,
@@ -1725,7 +1756,6 @@ async function kickMember(
     memberId
   );
 
-
   await optionalRun(
     env,
     `
@@ -1738,7 +1768,6 @@ async function kickMember(
     memberId
   );
 
-
   await optionalRun(
     env,
     `
@@ -1750,7 +1779,6 @@ async function kickMember(
     owned.group.group_id,
     memberId
   );
-
 
   return json(
     req,
@@ -1857,7 +1885,6 @@ async function listBans(
         })
       );
 
-
   return json(
     req,
     {
@@ -1933,7 +1960,6 @@ async function unbanMember(
     )
     .run();
 
-
   return json(
     req,
     {
@@ -1948,6 +1974,8 @@ async function unbanMember(
     }
   );
 }
+
+
 /* ============================================================
    リーダー管理
    ============================================================ */
@@ -2021,7 +2049,6 @@ async function listLeaders(
     }
   }
 
-
   const members =
     await env.DB
       .prepare(`
@@ -2042,7 +2069,6 @@ async function listLeaders(
       )
       .all();
 
-
   const leaderIds =
     new Set(
       rows.map(
@@ -2050,7 +2076,6 @@ async function listLeaders(
           row.member_id
       )
     );
-
 
   const leaders =
     rows.map(
@@ -2083,7 +2108,6 @@ async function listLeaders(
           owned.group.group_id,
       })
     );
-
 
   const candidates =
     (
@@ -2119,7 +2143,6 @@ async function listLeaders(
         })
       );
 
-
   return json(
     req,
     {
@@ -2141,11 +2164,6 @@ async function listLeaders(
     }
   );
 }
-
-
-/* ============================================================
-   リーダー任命
-   ============================================================ */
 
 async function addLeader(
   req,
@@ -2171,18 +2189,15 @@ async function addLeader(
     );
   }
 
-
   const body =
     await readBody(
       req
     );
 
-
   const memberId =
     normalizeMemberId(
       body.member_id
     );
-
 
   if (
     !memberId
@@ -2192,7 +2207,6 @@ async function addLeader(
       'bad_member_id'
     );
   }
-
 
   const target =
     await env.DB
@@ -2209,7 +2223,6 @@ async function addLeader(
       )
       .first();
 
-
   if (
     !target ||
     target.group_id !==
@@ -2221,7 +2234,6 @@ async function addLeader(
       404
     );
   }
-
 
   if (
     Number(
@@ -2236,12 +2248,6 @@ async function addLeader(
     );
   }
 
-
-  /*
-   * group_leaders は既存仕様。
-   * 万一まだ作られていない環境でも
-   * ここで安全に作成する。
-   */
   await env.DB
     .prepare(`
       CREATE TABLE IF NOT EXISTS group_leaders (
@@ -2255,7 +2261,6 @@ async function addLeader(
       )
     `)
     .run();
-
 
   const existing =
     await env.DB
@@ -2272,7 +2277,6 @@ async function addLeader(
       )
       .first();
 
-
   if (
     existing
   ) {
@@ -2281,7 +2285,6 @@ async function addLeader(
       'already_leader'
     );
   }
-
 
   const count =
     await env.DB
@@ -2295,11 +2298,12 @@ async function addLeader(
       )
       .first();
 
-
   if (
     Number(
-      count &&
-      count.n ||
+      (
+        count &&
+        count.n
+      ) ||
       0
     ) >=
     LEADER_MAX
@@ -2310,7 +2314,6 @@ async function addLeader(
     );
   }
 
-
   await env.DB
     .prepare(`
       INSERT INTO group_leaders (
@@ -2318,7 +2321,11 @@ async function addLeader(
         member_id,
         created_at
       )
-      VALUES (?,?,?)
+      VALUES (
+        ?,
+        ?,
+        ?
+      )
     `)
     .bind(
       owned.group.group_id,
@@ -2327,18 +2334,12 @@ async function addLeader(
     )
     .run();
 
-
   return await listLeaders(
     req,
     env,
     owned.group.group_id
   );
 }
-
-
-/* ============================================================
-   リーダー解除
-   ============================================================ */
 
 async function removeLeader(
   req,
@@ -2352,7 +2353,6 @@ async function removeLeader(
       rawGroupId
     );
 
-
   if (
     owned.error
   ) {
@@ -2366,12 +2366,10 @@ async function removeLeader(
     );
   }
 
-
   const memberId =
     normalizeMemberId(
       rawMemberId
     );
-
 
   if (
     !memberId
@@ -2381,7 +2379,6 @@ async function removeLeader(
       'bad_member_id'
     );
   }
-
 
   await optionalRun(
     env,
@@ -2395,7 +2392,6 @@ async function removeLeader(
     memberId
   );
 
-
   return await listLeaders(
     req,
     env,
@@ -2406,11 +2402,6 @@ async function removeLeader(
 
 /* ============================================================
    グループ解散
-
-   ・参加者をグループから外す
-   ・体重そのものは削除しない
-   ・リーダー、除名、閲覧登録を削除
-   ・外部WEB関連の同意・未送信データも削除
    ============================================================ */
 
 async function dissolveGroup(
@@ -2423,7 +2414,6 @@ async function dissolveGroup(
       env,
       rawGroupId
     );
-
 
   if (
     owned.error
@@ -2438,14 +2428,9 @@ async function dissolveGroup(
     );
   }
 
-
   const groupId =
     owned.group.group_id;
 
-
-  /*
-   * optional table は先に処理。
-   */
   await optionalRun(
     env,
     `
@@ -2454,7 +2439,6 @@ async function dissolveGroup(
     `,
     groupId
   );
-
 
   await optionalRun(
     env,
@@ -2465,7 +2449,6 @@ async function dissolveGroup(
     groupId
   );
 
-
   await optionalRun(
     env,
     `
@@ -2474,7 +2457,6 @@ async function dissolveGroup(
     `,
     groupId
   );
-
 
   await optionalRun(
     env,
@@ -2485,10 +2467,6 @@ async function dissolveGroup(
     groupId
   );
 
-
-  /*
-   * 既存の通常グループ解散と同じ中核処理。
-   */
   await env.DB.batch([
 
     env.DB
@@ -2534,7 +2512,6 @@ async function dissolveGroup(
       ),
   ]);
 
-
   return json(
     req,
     {
@@ -2553,10 +2530,6 @@ async function dissolveGroup(
 
 /* ============================================================
    運営者の通常参加機能を禁止
-
-   root.js / entry.js から使用する。
-
-   削除 / プロフィール / アイコン等は止めない。
    ============================================================ */
 
 export async function operatorParticipationGuard(
@@ -2571,13 +2544,11 @@ export async function operatorParticipationGuard(
       env
     );
 
-
   if (
     !operator
   ) {
     return null;
   }
-
 
   const p =
     String(
@@ -2589,7 +2560,6 @@ export async function operatorParticipationGuard(
         ''
       );
 
-
   const m =
     String(
       method ||
@@ -2598,13 +2568,6 @@ export async function operatorParticipationGuard(
     )
       .toUpperCase();
 
-
-  /*
-   * 体重
-   *
-   * 運営者は測定参加しないため、
-   * 取得・保存・削除すべて止める。
-   */
   if (
     p ===
       '/api/weights' ||
@@ -2619,10 +2582,6 @@ export async function operatorParticipationGuard(
     );
   }
 
-
-  /*
-   * 投票
-   */
   if (
     p ===
       '/api/vote' ||
@@ -2637,11 +2596,23 @@ export async function operatorParticipationGuard(
     );
   }
 
-
-  /*
-   * 通常ユーザーとしてのグループ参加・作成
-   */
-  if (
+  const normalGroupMutation =
+    (
+      p ===
+        '/api/groups' &&
+      [
+        'POST',
+        'PATCH',
+        'DELETE'
+      ]
+        .includes(m)
+    ) ||
+    (
+      p ===
+        '/api/groups/create' &&
+      m ===
+        'POST'
+    ) ||
     (
       p ===
         '/api/groups/join' &&
@@ -2650,10 +2621,59 @@ export async function operatorParticipationGuard(
     ) ||
     (
       p ===
-        '/api/groups/create' &&
+        '/api/groups/leave' &&
       m ===
         'POST'
-    )
+    ) ||
+    (
+      p ===
+        '/api/groups/rename' &&
+      m ===
+        'POST'
+    ) ||
+    (
+      p ===
+        '/api/groups/start' &&
+      m ===
+        'POST'
+    ) ||
+    (
+      p ===
+        '/api/groups/kick' &&
+      m ===
+        'POST'
+    ) ||
+    (
+      p ===
+        '/api/groups/unban' &&
+      m ===
+        'POST'
+    ) ||
+    (
+      p ===
+        '/api/groups/dissolve' &&
+      m ===
+        'POST'
+    ) ||
+    (
+      p ===
+        '/api/groups/leaders' &&
+      [
+        'POST',
+        'DELETE'
+      ]
+        .includes(m)
+    ) ||
+    (
+      p.startsWith(
+        '/api/groups/leaders/'
+      ) &&
+      m ===
+        'DELETE'
+    );
+
+  if (
+    normalGroupMutation
   ) {
     return bad(
       req,
@@ -2662,11 +2682,6 @@ export async function operatorParticipationGuard(
     );
   }
 
-
-  /*
-   * 運営者は通常メンバーとして
-   * ライバル登録もしない。
-   */
   if (
     p ===
       '/api/rivals' ||
@@ -2681,6 +2696,19 @@ export async function operatorParticipationGuard(
     );
   }
 
+  if (
+    p ===
+      '/api/watching' ||
+    p.startsWith(
+      '/api/watching/'
+    )
+  ) {
+    return bad(
+      req,
+      'operator_not_allowed',
+      403
+    );
+  }
 
   return null;
 }
@@ -2702,18 +2730,9 @@ export async function operatorRoute(
         ''
       );
 
-
   const m =
     req.method;
 
-
-  /*
-   * statusだけは
-   * 通常ユーザーにも operator:false を返す。
-   *
-   * フロントが起動時に
-   * 運営者かどうか安全に確認するため。
-   */
   if (
     p ===
       '/api/operator/status' &&
@@ -2726,16 +2745,11 @@ export async function operatorRoute(
     );
   }
 
-
-  /*
-   * status以外は運営者のみ。
-   */
   const member =
     await requireOperator(
       req,
       env
     );
-
 
   if (
     member.error
@@ -2743,23 +2757,10 @@ export async function operatorRoute(
     return member.error;
   }
 
-
-  /*
-   * 運営APIへ入るたびに、
-   * 念のため通常参加状態から切り離す。
-   *
-   * すでに group_id=NULL なら実質何も変わらない。
-   */
   await activateOperator(
     env,
     member.dev
   );
-
-
-  /* ----------------------------------------------------------
-     GET /api/operator/groups
-     POST /api/operator/groups
-     ---------------------------------------------------------- */
 
   if (
     p ===
@@ -2776,7 +2777,6 @@ export async function operatorRoute(
       );
     }
 
-
     if (
       m ===
         'POST'
@@ -2788,7 +2788,6 @@ export async function operatorRoute(
       );
     }
 
-
     return bad(
       req,
       'method_not_allowed',
@@ -2796,24 +2795,17 @@ export async function operatorRoute(
     );
   }
 
-
-  /* ----------------------------------------------------------
-     /api/operator/groups/:group_id
-     ---------------------------------------------------------- */
-
   const groupMatch =
     /^\/api\/operator\/groups\/([0-9A-Z]{8})$/
       .exec(
         p
       );
 
-
   if (
     groupMatch
   ) {
     const groupId =
       groupMatch[1];
-
 
     if (
       m ===
@@ -2826,7 +2818,6 @@ export async function operatorRoute(
       );
     }
 
-
     if (
       m ===
         'PATCH'
@@ -2837,7 +2828,6 @@ export async function operatorRoute(
         groupId
       );
     }
-
 
     if (
       m ===
@@ -2850,7 +2840,6 @@ export async function operatorRoute(
       );
     }
 
-
     return bad(
       req,
       'method_not_allowed',
@@ -2858,17 +2847,11 @@ export async function operatorRoute(
     );
   }
 
-
-  /* ----------------------------------------------------------
-     GET /api/operator/groups/:group_id/members
-     ---------------------------------------------------------- */
-
   const membersMatch =
     /^\/api\/operator\/groups\/([0-9A-Z]{8})\/members$/
       .exec(
         p
       );
-
 
   if (
     membersMatch
@@ -2885,7 +2868,6 @@ export async function operatorRoute(
       );
     }
 
-
     return await listMembers(
       req,
       env,
@@ -2893,17 +2875,11 @@ export async function operatorRoute(
     );
   }
 
-
-  /* ----------------------------------------------------------
-     POST /api/operator/groups/:group_id/kick
-     ---------------------------------------------------------- */
-
   const kickMatch =
     /^\/api\/operator\/groups\/([0-9A-Z]{8})\/kick$/
       .exec(
         p
       );
-
 
   if (
     kickMatch
@@ -2920,7 +2896,6 @@ export async function operatorRoute(
       );
     }
 
-
     return await kickMember(
       req,
       env,
@@ -2928,17 +2903,11 @@ export async function operatorRoute(
     );
   }
 
-
-  /* ----------------------------------------------------------
-     GET /api/operator/groups/:group_id/bans
-     ---------------------------------------------------------- */
-
   const bansMatch =
     /^\/api\/operator\/groups\/([0-9A-Z]{8})\/bans$/
       .exec(
         p
       );
-
 
   if (
     bansMatch
@@ -2955,7 +2924,6 @@ export async function operatorRoute(
       );
     }
 
-
     return await listBans(
       req,
       env,
@@ -2963,17 +2931,11 @@ export async function operatorRoute(
     );
   }
 
-
-  /* ----------------------------------------------------------
-     POST /api/operator/groups/:group_id/unban
-     ---------------------------------------------------------- */
-
   const unbanMatch =
     /^\/api\/operator\/groups\/([0-9A-Z]{8})\/unban$/
       .exec(
         p
       );
-
 
   if (
     unbanMatch
@@ -2990,7 +2952,6 @@ export async function operatorRoute(
       );
     }
 
-
     return await unbanMember(
       req,
       env,
@@ -2998,18 +2959,11 @@ export async function operatorRoute(
     );
   }
 
-
-  /* ----------------------------------------------------------
-     GET  /api/operator/groups/:group_id/leaders
-     POST /api/operator/groups/:group_id/leaders
-     ---------------------------------------------------------- */
-
   const leadersMatch =
     /^\/api\/operator\/groups\/([0-9A-Z]{8})\/leaders$/
       .exec(
         p
       );
-
 
   if (
     leadersMatch
@@ -3026,7 +2980,6 @@ export async function operatorRoute(
       );
     }
 
-
     if (
       m ===
         'POST'
@@ -3038,7 +2991,6 @@ export async function operatorRoute(
       );
     }
 
-
     return bad(
       req,
       'method_not_allowed',
@@ -3046,18 +2998,11 @@ export async function operatorRoute(
     );
   }
 
-
-  /* ----------------------------------------------------------
-     DELETE
-     /api/operator/groups/:group_id/leaders/:member_id
-     ---------------------------------------------------------- */
-
   const leaderDeleteMatch =
     /^\/api\/operator\/groups\/([0-9A-Z]{8})\/leaders\/([0-9A-Z]{6,32})$/
       .exec(
         p
       );
-
 
   if (
     leaderDeleteMatch
@@ -3074,7 +3019,6 @@ export async function operatorRoute(
       );
     }
 
-
     return await removeLeader(
       req,
       env,
@@ -3082,7 +3026,6 @@ export async function operatorRoute(
       leaderDeleteMatch[2]
     );
   }
-
 
   return bad(
     req,

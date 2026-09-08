@@ -29,7 +29,8 @@ import {
   operatorRoute,
   operatorParticipationGuard,
   isOperatorRequest,
-  isOperatorMember
+  isOperatorMember,
+  prepareOperatorForDelete
 } from './operator.js';
 
 
@@ -123,14 +124,6 @@ async function serveAssetLinks(
 
 /* ============================================================
    運営者判定をレスポンスへ追加
-
-   /api/me
-   /api/register
-
-   の me.member_id を使って判定する。
-
-   OPERATOR_MEMBER_ID 自体は
-   クライアントへ渡さない。
    ============================================================ */
 
 async function augmentOperatorFlag(
@@ -153,7 +146,6 @@ async function augmentOperatorFlag(
       await response
         .clone()
         .json();
-
 
     const memberId =
       data &&
@@ -221,18 +213,7 @@ async function augmentOperatorFlag(
 
 
 /* ============================================================
-   /api/me を返す前に運営状態を確定する
-
-   運営者の場合：
-   ・group_id=NULL
-   ・joined_at=NULL
-   ・投票削除
-   ・外部連携参加情報削除
-   ・Push削除
-   ・watching削除
-   ・rivals削除
-
-   operator.js の statusRoute を利用する。
+   /api/me を返す前に運営状態を確定
    ============================================================ */
 
 async function normalizeOperatorBeforeMe(
@@ -248,7 +229,6 @@ async function normalizeOperatorBeforeMe(
 
   statusUrl.pathname =
     '/api/operator/status';
-
 
   statusUrl.search =
     '';
@@ -290,12 +270,7 @@ async function normalizeOperatorBeforeMe(
 
 
 /* ============================================================
-   運営者をライバルとして登録させない
-
-   運営者本人がライバル機能を使わないだけではなく、
-   他ユーザー側から運営者をライバル登録することも禁止する。
-
-   これにより運営者がライバルランキングへ混ざることを防ぐ。
+   運営者をライバル登録させない
    ============================================================ */
 
 async function targetsOperator(
@@ -342,6 +317,7 @@ export default {
         req.url
       );
 
+
     const p =
       url.pathname
         .replace(
@@ -350,15 +326,13 @@ export default {
         ) ||
       '/';
 
+
     const m =
       req.method;
 
 
     /* ==========================================================
        CORS / Preflight
-
-       root.js が /api/icon 等を entry.js より先に処理するため、
-       OPTIONS は最初に entry.js の preflight へ渡す。
        ========================================================== */
 
     if (
@@ -421,6 +395,7 @@ export default {
           }
         );
       }
+
 
       return await publicIconRoute(
         req,
@@ -502,9 +477,6 @@ export default {
 
     /* ==========================================================
        運営専用API
-
-       /api/operator/*
-       は通常APIへ流さない。
        ========================================================== */
 
     if (
@@ -525,11 +497,6 @@ export default {
 
     /* ==========================================================
        運営アカウントの通常参加機能を禁止
-
-       GET /api/weights は起動時の互換性のため現時点では読むだけ許可。
-       書き込み・削除はoperatorParticipationGuardで拒否する。
-
-       /api/me GET も運営判定のため許可。
        ========================================================== */
 
     const operatorBootstrapRead =
@@ -576,13 +543,7 @@ export default {
 
 
     /* ==========================================================
-       運営者では不要な参加者設定も禁止
-
-       ・Push
-       ・外部WEB本人同意
-       ・体重公開設定
-
-       運営者は参加者ではないため保持しない。
+       運営者では不要な参加者設定を禁止
        ========================================================== */
 
     if (
@@ -636,9 +597,6 @@ export default {
 
     /* ==========================================================
        グループ参加
-
-       membership / privacy / consent を
-       safety.js 側でまとめて確定する。
        ========================================================== */
 
     if (
@@ -690,8 +648,7 @@ export default {
 
 
     /* ==========================================================
-       ブロック関係の相手を
-       新しくライバル登録させない
+       ブロック関係の相手をライバル登録させない
        ========================================================== */
 
     if (
@@ -707,7 +664,10 @@ export default {
           env
         );
 
-      if (blocked) {
+
+      if (
+        blocked
+      ) {
 
         return blocked;
       }
@@ -734,14 +694,30 @@ export default {
           req,
           env
         );
+
+
+      /*
+       * 運営者の場合は、
+       * app.fetch() が通常のアカウント削除を行う前に
+       * グループ所有者を __MINYASE_OPERATOR__ へ移行する。
+       *
+       * ここで失敗した場合は削除処理へ進ませない。
+       * 運営グループを誤って解散する事故を防ぐため。
+       */
+      if (
+        deleteContext
+      ) {
+
+        await prepareOperatorForDelete(
+          env,
+          deleteContext
+        );
+      }
     }
 
 
     /* ==========================================================
        運営者の /api/me
-
-       通常workerへ渡す前に
-       通常グループ参加状態から切り離す。
        ========================================================== */
 
     let operatorForResponse =
@@ -777,10 +753,6 @@ export default {
 
     /* ==========================================================
        /api/me / register に operator 判定追加
-
-       クライアントは
-       OPERATOR_MEMBER_IDそのものを知らずに
-       true / false だけ取得できる。
        ========================================================== */
 
     if (
@@ -806,12 +778,6 @@ export default {
     }
 
 
-    /*
-     * normalizeOperatorBeforeMe() の結果は
-     * augmentOperatorFlag() と同じ判定になるが、
-     * operatorForResponse を保持しておくことで
-     * 運営者の /api/me 呼び出し時に状態確定済みであることを明示する。
-     */
     void operatorForResponse;
 
 
@@ -1058,12 +1024,6 @@ export default {
 
     /* ----------------------------------------------------------
        外部WEB push
-
-       相手から以下3つが届くまでは送信しない。
-
-       EXTERNAL_PUSH_URL
-       EXTERNAL_PUSH_AUTH_HEADER
-       EXTERNAL_PUSH_AUTH_VALUE
        ---------------------------------------------------------- */
 
     ctx.waitUntil(

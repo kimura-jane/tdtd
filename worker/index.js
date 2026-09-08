@@ -2798,7 +2798,7 @@ async function requireOwnedGroup(
 
 async function patchGroup(
   req,
-  env,
+    env,
   dev
 ) {
   const r =
@@ -3803,6 +3803,9 @@ async function findGroup(
 
 /* ============================================================
    減量幅の集計
+
+   D1は1クエリ100パラメータ上限。
+   startYmdで1個使うため、device_idは99件ずつ処理する。
    ============================================================ */
 
 async function lossStats(
@@ -3821,116 +3824,138 @@ async function lossStats(
   }
 
 
-  const ph =
-    deviceIds
-      .map(
-        () => '?'
-      )
-      .join(',');
+  const start =
+    startYmd ||
+    '1900-01-01';
 
 
-  const sql = `
-    SELECT
-      device_id,
-      ymd,
-      kg
-
-    FROM (
-      SELECT
-        device_id,
-        ymd,
-        kg,
-
-        ROW_NUMBER() OVER (
-          PARTITION BY device_id
-          ORDER BY ymd ASC
-        ) AS ra,
-
-        ROW_NUMBER() OVER (
-          PARTITION BY device_id
-          ORDER BY ymd DESC
-        ) AS rd
-
-      FROM weights
-
-      WHERE
-        device_id IN (${ph})
-        AND ymd >= ?
-    )
-
-    WHERE
-      ra=1
-      OR rd=1
-  `;
-
-
-  const rs =
-    await env.DB
-      .prepare(sql)
-      .bind(
-        ...deviceIds,
-        startYmd ||
-          '1900-01-01'
-      )
-      .all();
+  const CHUNK_SIZE =
+    99;
 
 
   for (
-    const r of
-    (
-      rs.results || []
-    )
+    let offset = 0;
+    offset < deviceIds.length;
+    offset += CHUNK_SIZE
   ) {
-    const kg =
-      Number(
-        r.kg
+
+    const chunk =
+      deviceIds.slice(
+        offset,
+        offset + CHUNK_SIZE
       );
 
 
-    let e =
-      map.get(
-        r.device_id
-      );
+    const ph =
+      chunk
+        .map(
+          () => '?'
+        )
+        .join(',');
 
 
-    if (!e) {
-      e = {
-        first: null,
-        last: null
-      };
-
-      map.set(
-        r.device_id,
-        e
-      );
-    }
-
-
-    if (
-      !e.first ||
-      r.ymd <
-        e.first.ymd
-    ) {
-      e.first = {
-        ymd:
-          r.ymd,
-
+    const sql = `
+      SELECT
+        device_id,
+        ymd,
         kg
-      };
-    }
+
+      FROM (
+        SELECT
+          device_id,
+          ymd,
+          kg,
+
+          ROW_NUMBER() OVER (
+            PARTITION BY device_id
+            ORDER BY ymd ASC
+          ) AS ra,
+
+          ROW_NUMBER() OVER (
+            PARTITION BY device_id
+            ORDER BY ymd DESC
+          ) AS rd
+
+        FROM weights
+
+        WHERE
+          device_id IN (${ph})
+          AND ymd >= ?
+      )
+
+      WHERE
+        ra=1
+        OR rd=1
+    `;
 
 
-    if (
-      !e.last ||
-      r.ymd >
-        e.last.ymd
+    const rs =
+      await env.DB
+        .prepare(sql)
+        .bind(
+          ...chunk,
+          start
+        )
+        .all();
+
+
+    for (
+      const r of
+      (
+        rs.results || []
+      )
     ) {
-      e.last = {
-        ymd:
-          r.ymd,
+      const kg =
+        Number(
+          r.kg
+        );
 
-        kg
-      };
+
+      let e =
+        map.get(
+          r.device_id
+        );
+
+
+      if (!e) {
+        e = {
+          first: null,
+          last: null
+        };
+
+        map.set(
+          r.device_id,
+          e
+        );
+      }
+
+
+      if (
+        !e.first ||
+        r.ymd <
+          e.first.ymd
+      ) {
+        e.first = {
+          ymd:
+            r.ymd,
+
+          kg
+        };
+      }
+
+
+      if (
+        !e.last ||
+        r.ymd >
+          e.last.ymd
+      ) {
+        e.last = {
+          ymd:
+            r.ymd,
+
+          kg
+        };
+      }
     }
   }
 
@@ -4589,6 +4614,9 @@ async function ranking(
 
 /* ============================================================
    ライバル：自分＋登録したライバル
+
+   ライバル数には上限を設けないため、
+   D1の100パラメータ上限を超えないよう100件ずつ取得する。
    ============================================================ */
 
 async function rivalRanking(
@@ -4613,38 +4641,63 @@ async function rivalRanking(
   ];
 
 
-  const ph =
-    ids
-      .map(
-        () => '?'
-      )
-      .join(',');
-
-
-  const rs =
-    await env.DB
-      .prepare(`
-        SELECT
-          device_id,
-          member_id,
-          nickname,
-          icon_ver,
-          group_id
-
-        FROM devices
-
-        WHERE
-          member_id IN (${ph})
-          AND banned=0
-      `)
-      .bind(
-        ...ids
-      )
-      .all();
-
-
   const people =
-    rs.results || [];
+    [];
+
+
+  const ID_CHUNK_SIZE =
+    100;
+
+
+  for (
+    let offset = 0;
+    offset < ids.length;
+    offset += ID_CHUNK_SIZE
+  ) {
+
+    const chunk =
+      ids.slice(
+        offset,
+        offset + ID_CHUNK_SIZE
+      );
+
+
+    const ph =
+      chunk
+        .map(
+          () => '?'
+        )
+        .join(',');
+
+
+    const rs =
+      await env.DB
+        .prepare(`
+          SELECT
+            device_id,
+            member_id,
+            nickname,
+            icon_ver,
+            group_id
+
+          FROM devices
+
+          WHERE
+            member_id IN (${ph})
+            AND banned=0
+        `)
+        .bind(
+          ...chunk
+        )
+        .all();
+
+
+    people.push(
+      ...(
+        rs.results || []
+      )
+    );
+  }
 
 
   const gids =
@@ -4666,11 +4719,25 @@ async function rivalRanking(
     new Map();
 
 
-  if (
-    gids.length
+  const GROUP_CHUNK_SIZE =
+    100;
+
+
+  for (
+    let offset = 0;
+    offset < gids.length;
+    offset += GROUP_CHUNK_SIZE
   ) {
+
+    const chunk =
+      gids.slice(
+        offset,
+        offset + GROUP_CHUNK_SIZE
+      );
+
+
     const gph =
-      gids
+      chunk
         .map(
           () => '?'
         )
@@ -4691,7 +4758,7 @@ async function rivalRanking(
           WHERE group_id IN (${gph})
         `)
         .bind(
-          ...gids
+          ...chunk
         )
         .all();
 

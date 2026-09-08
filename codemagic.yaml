@@ -7,12 +7,13 @@
 # App Store Version: 1.0.1
 # iPhone専用
 #
-# 2026-09-07
+# 2026-09-08
 # ・Node / npm 固定
 # ・Xcode固定
 # ・Capacitor依存をpackage.jsonで固定
 # ・package-lock.jsonがあればnpm ci
 # ・lockfile未作成時は生成後npm ci
+# ・operator-ui.js をビルド対象として検証
 # ・App Store / TestFlightへの自動提出は行わない
 
 workflows:
@@ -317,6 +318,8 @@ workflows:
 
           app.js
 
+          operator-ui.js
+
           leader.js
 
           tsuda-fx.js
@@ -429,6 +432,7 @@ workflows:
             index.html \
             style.css \
             app.js \
+            operator-ui.js \
             leader.js \
             notify.js \
             privacy.html \
@@ -818,30 +822,3 @@ workflows:
       - package-lock.json
 
       - ios/App/Podfile.lock
-
-
-    publishing:
-
-
-      email:
-
-        recipients:
-
-          - jomon@jomonkusama.com
-
-
-        notify:
-
-          success: true
-
-          failure: true
-
-
-      app_store_connect:
-
-        auth: integration
-
-
-        submit_to_testflight: false
-
-        submit_to_app_store: false

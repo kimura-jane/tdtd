@@ -27,48 +27,93 @@ import {
    ・通常ユーザー用 owner / leader API とは分離する
    ============================================================ */
 
-const DEVICE_ID_RE = /^[A-Za-z0-9_-]{8,64}$/;
-const MEMBER_ID_RE = /^[0-9A-Z]{6,32}$/;
-const OPERATOR_OWNER_ID = '__MINYASE_OPERATOR__';
-const LEADER_MAX = 5;
+const DEVICE_ID_RE =
+  /^[A-Za-z0-9_-]{8,64}$/;
+
+const MEMBER_ID_RE =
+  /^[0-9A-Z]{6,32}$/;
+
+const OPERATOR_OWNER_ID =
+  '__MINYASE_OPERATOR__';
+
+const LEADER_MAX =
+  5;
+
 
 async function readBody(req) {
+
   try {
-    const body = await req.json();
-    return body && typeof body === 'object' ? body : {};
+
+    const body =
+      await req.json();
+
+
+    return (
+      body &&
+      typeof body ===
+        'object'
+    )
+      ? body
+      : {};
+
+
   } catch {
+
     return {};
   }
 }
 
-function operatorMemberId(env) {
-  const id = String((env && env.OPERATOR_MEMBER_ID) || '')
-    .trim()
-    .toUpperCase();
 
-  return MEMBER_ID_RE.test(id)
+function operatorMemberId(env) {
+
+  const id =
+    String(
+      (
+        env &&
+        env.OPERATOR_MEMBER_ID
+      ) ||
+      ''
+    )
+      .trim()
+      .toUpperCase();
+
+
+  return MEMBER_ID_RE.test(
+    id
+  )
     ? id
     : null;
 }
+
 
 export function isOperatorMember(
   env,
   memberId
 ) {
+
   const configured =
-    operatorMemberId(env);
+    operatorMemberId(
+      env
+    );
+
 
   const actual =
-    String(memberId || '')
+    String(
+      memberId ||
+      ''
+    )
       .trim()
       .toUpperCase();
+
 
   return !!(
     configured &&
     actual &&
-    configured === actual
+    configured ===
+      actual
   );
 }
+
 
 async function deviceFromRequest(
   req,
@@ -77,18 +122,23 @@ async function deviceFromRequest(
     allowBanned = false
   } = {}
 ) {
+
   const deviceId =
     String(
       req.headers.get(
         'x-device-id'
-      ) || ''
-    ).trim();
+      ) ||
+      ''
+    )
+      .trim();
+
 
   if (
     !DEVICE_ID_RE.test(
       deviceId
     )
   ) {
+
     return {
       error:
         bad(
@@ -98,17 +148,24 @@ async function deviceFromRequest(
     };
   }
 
+
   const dev =
     await env.DB
-      .prepare(
-        'SELECT * FROM devices WHERE device_id=?'
-      )
+      .prepare(`
+        SELECT *
+        FROM devices
+        WHERE device_id=?
+      `)
       .bind(
         deviceId
       )
       .first();
 
-  if (!dev) {
+
+  if (
+    !dev
+  ) {
+
     return {
       error:
         bad(
@@ -119,12 +176,16 @@ async function deviceFromRequest(
     };
   }
 
+
   if (
     Number(
-      dev.banned || 0
-    ) === 1 &&
+      dev.banned ||
+      0
+    ) ===
+      1 &&
     !allowBanned
   ) {
+
     return {
       error:
         bad(
@@ -135,23 +196,28 @@ async function deviceFromRequest(
     };
   }
 
+
   return {
     dev
   };
 }
 
+
 export async function isOperatorRequest(
   req,
   env
 ) {
+
   const member =
     await deviceFromRequest(
       req,
       env,
       {
-        allowBanned: true
+        allowBanned:
+          true
       }
     );
+
 
   return !!(
     member.dev &&
@@ -162,21 +228,26 @@ export async function isOperatorRequest(
   );
 }
 
+
 async function requireOperator(
   req,
   env
 ) {
+
   const member =
     await deviceFromRequest(
       req,
       env
     );
 
+
   if (
     member.error
   ) {
+
     return member;
   }
+
 
   if (
     !isOperatorMember(
@@ -184,6 +255,7 @@ async function requireOperator(
       member.dev.member_id
     )
   ) {
+
     return {
       error:
         bad(
@@ -194,12 +266,15 @@ async function requireOperator(
     };
   }
 
+
   return member;
 }
+
 
 function noSuchTable(
   error
 ) {
+
   const text =
     String(
       (
@@ -211,6 +286,7 @@ function noSuchTable(
     )
       .toLowerCase();
 
+
   return (
     text.includes(
       'no such table'
@@ -221,18 +297,24 @@ function noSuchTable(
   );
 }
 
+
 async function optionalRun(
   env,
   sql,
   ...values
 ) {
+
   try {
+
     await env.DB
-      .prepare(sql)
+      .prepare(
+        sql
+      )
       .bind(
         ...values
       )
       .run();
+
 
   } catch (error) {
 
@@ -241,25 +323,33 @@ async function optionalRun(
         error
       )
     ) {
+
       return;
     }
+
 
     throw error;
   }
 }
+
 
 async function optionalFirst(
   env,
   sql,
   ...values
 ) {
+
   try {
+
     return await env.DB
-      .prepare(sql)
+      .prepare(
+        sql
+      )
       .bind(
         ...values
       )
       .first();
+
 
   } catch (error) {
 
@@ -268,8 +358,10 @@ async function optionalFirst(
         error
       )
     ) {
+
       return null;
     }
+
 
     throw error;
   }
@@ -278,16 +370,13 @@ async function optionalFirst(
 
 /* ============================================================
    運営アカウントを通常参加者から完全分離
-
-   既存の体重履歴そのものは削除しない。
-   group_id=NULL にすることで人数・ランキング・集計から外す。
-   投票、外部連携、Push、通常参加用の閲覧・ライバル状態は削除する。
    ============================================================ */
 
 async function activateOperator(
   env,
   dev
 ) {
+
   await env.DB.batch([
 
     env.DB
@@ -304,6 +393,7 @@ async function activateOperator(
         dev.device_id
       ),
 
+
     env.DB
       .prepare(`
         UPDATE devices
@@ -318,6 +408,7 @@ async function activateOperator(
       ),
   ]);
 
+
   await optionalRun(
     env,
     `
@@ -326,6 +417,7 @@ async function activateOperator(
     `,
     dev.member_id
   );
+
 
   await optionalRun(
     env,
@@ -336,6 +428,7 @@ async function activateOperator(
     dev.member_id
   );
 
+
   await optionalRun(
     env,
     `
@@ -344,6 +437,7 @@ async function activateOperator(
     `,
     dev.member_id
   );
+
 
   await optionalRun(
     env,
@@ -354,6 +448,7 @@ async function activateOperator(
     dev.member_id
   );
 
+
   await optionalRun(
     env,
     `
@@ -362,6 +457,7 @@ async function activateOperator(
     `,
     dev.member_id
   );
+
 
   await optionalRun(
     env,
@@ -372,6 +468,7 @@ async function activateOperator(
     dev.device_id
   );
 
+
   await optionalRun(
     env,
     `
@@ -381,6 +478,7 @@ async function activateOperator(
     dev.device_id
   );
 
+
   await optionalRun(
     env,
     `
@@ -389,6 +487,7 @@ async function activateOperator(
     `,
     dev.member_id
   );
+
 
   dev.group_id =
     null;
@@ -402,6 +501,46 @@ async function activateOperator(
 
 
 /* ============================================================
+   運営アカウント削除前の保護
+   ============================================================ */
+
+export async function prepareOperatorForDelete(
+  env,
+  context
+) {
+
+  if (
+    !context ||
+    !context.member_id ||
+    !context.device_id
+  ) {
+
+    return false;
+  }
+
+
+  if (
+    !isOperatorMember(
+      env,
+      context.member_id
+    )
+  ) {
+
+    return false;
+  }
+
+
+  await activateOperator(
+    env,
+    context
+  );
+
+
+  return true;
+}
+
+
+/* ============================================================
    グループ所有確認
    ============================================================ */
 
@@ -409,19 +548,23 @@ async function ownedGroup(
   env,
   rawGroupId
 ) {
+
   const groupId =
     normalizeCode(
       rawGroupId
     );
 
+
   if (
     !groupId
   ) {
+
     return {
       error:
         'bad_code'
     };
   }
+
 
   const group =
     await env.DB
@@ -438,24 +581,29 @@ async function ownedGroup(
       )
       .first();
 
+
   if (
     !group
   ) {
+
     return {
       error:
         'group_not_found'
     };
   }
 
+
   return {
     group
   };
 }
 
+
 async function groupExternalEnabled(
   env,
   groupId
 ) {
+
   const row =
     await optionalFirst(
       env,
@@ -467,6 +615,7 @@ async function groupExternalEnabled(
       groupId
     );
 
+
   return (
     Number(
       (
@@ -474,14 +623,17 @@ async function groupExternalEnabled(
         row.enabled
       ) ||
       0
-    ) === 1
+    ) ===
+      1
   );
 }
+
 
 async function groupLeaderCount(
   env,
   groupId
 ) {
+
   const row =
     await optionalFirst(
       env,
@@ -493,6 +645,7 @@ async function groupLeaderCount(
       groupId
     );
 
+
   return Number(
     (
       row &&
@@ -502,10 +655,12 @@ async function groupLeaderCount(
   );
 }
 
+
 async function groupMemberCount(
   env,
   groupId
 ) {
+
   const row =
     await env.DB
       .prepare(`
@@ -520,6 +675,7 @@ async function groupMemberCount(
       )
       .first();
 
+
   return Number(
     (
       row &&
@@ -529,10 +685,12 @@ async function groupMemberCount(
   );
 }
 
+
 async function groupJson(
   env,
   group
 ) {
+
   return {
     group_id:
       group.group_id,
@@ -551,7 +709,8 @@ async function groupJson(
     show_weight:
       Number(
         group.show_weight
-      ) === 1,
+      ) ===
+        1,
 
     max_members:
       Number(
@@ -585,8 +744,6 @@ async function groupJson(
       null,
   };
 }
-
-
 /* ============================================================
    status
    ============================================================ */
@@ -595,17 +752,21 @@ async function statusRoute(
   req,
   env
 ) {
+
   const member =
     await deviceFromRequest(
       req,
       env
     );
 
+
   if (
     member.error
   ) {
+
     return member.error;
   }
+
 
   if (
     !isOperatorMember(
@@ -613,6 +774,7 @@ async function statusRoute(
       member.dev.member_id
     )
   ) {
+
     return json(
       req,
       {
@@ -625,10 +787,12 @@ async function statusRoute(
     );
   }
 
+
   await activateOperator(
     env,
     member.dev
   );
+
 
   const count =
     await env.DB
@@ -641,6 +805,7 @@ async function statusRoute(
         OPERATOR_OWNER_ID
       )
       .first();
+
 
   return json(
     req,
@@ -678,6 +843,7 @@ async function listGroups(
   req,
   env
 ) {
+
   const rs =
     await env.DB
       .prepare(`
@@ -693,14 +859,17 @@ async function listGroups(
       )
       .all();
 
+
   const groups =
     [];
+
 
   for (
     const group of
     rs.results ||
     []
   ) {
+
     groups.push(
       await groupJson(
         env,
@@ -708,6 +877,7 @@ async function listGroups(
       )
     );
   }
+
 
   return json(
     req,
@@ -733,6 +903,7 @@ async function createGroup(
   env,
   dev
 ) {
+
   if (
     !await rateOk(
       env,
@@ -740,6 +911,7 @@ async function createGroup(
       dev.device_id
     )
   ) {
+
     return bad(
       req,
       'rate_limited',
@@ -747,19 +919,23 @@ async function createGroup(
     );
   }
 
+
   const body =
     await readBody(
       req
     );
+
 
   const name =
     normGroupName(
       body.name
     );
 
+
   if (
     !name
   ) {
+
     return bad(
       req,
       isBanned(
@@ -769,6 +945,7 @@ async function createGroup(
         : 'bad_name'
     );
   }
+
 
   const start =
     body.start_ymd ===
@@ -782,26 +959,31 @@ async function createGroup(
           body.start_ymd
         );
 
+
   if (
     !isYmd(
       start
     )
   ) {
+
     return bad(
       req,
       'bad_ymd'
     );
   }
 
+
   if (
     start >
     todayYmdJST()
   ) {
+
     return bad(
       req,
       'future_ymd'
     );
   }
+
 
   const showWeight =
     body.show_weight ===
@@ -815,16 +997,20 @@ async function createGroup(
             : 0
         );
 
+
   let groupId =
     null;
+
 
   for (
     let i = 0;
     i < 16;
     i++
   ) {
+
     const candidate =
       genCode();
+
 
     const exists =
       await env.DB
@@ -838,9 +1024,11 @@ async function createGroup(
         )
         .first();
 
+
     if (
       !exists
     ) {
+
       groupId =
         candidate;
 
@@ -848,15 +1036,18 @@ async function createGroup(
     }
   }
 
+
   if (
     !groupId
   ) {
+
     return bad(
       req,
       'code_alloc_failed',
       500
     );
   }
+
 
   await env.DB
     .prepare(`
@@ -889,6 +1080,7 @@ async function createGroup(
     )
     .run();
 
+
   const group =
     await env.DB
       .prepare(`
@@ -900,6 +1092,7 @@ async function createGroup(
         groupId
       )
       .first();
+
 
   return json(
     req,
@@ -927,15 +1120,18 @@ async function getGroup(
   env,
   rawGroupId
 ) {
+
   const owned =
     await ownedGroup(
       env,
       rawGroupId
     );
 
+
   if (
     owned.error
   ) {
+
     return bad(
       req,
       owned.error,
@@ -945,6 +1141,7 @@ async function getGroup(
         : 400
     );
   }
+
 
   return json(
     req,
@@ -971,15 +1168,18 @@ async function patchGroup(
   env,
   rawGroupId
 ) {
+
   const owned =
     await ownedGroup(
       env,
       rawGroupId
     );
 
+
   if (
     owned.error
   ) {
+
     return bad(
       req,
       owned.error,
@@ -990,19 +1190,24 @@ async function patchGroup(
     );
   }
 
+
   const body =
     await readBody(
       req
     );
 
+
   if (
-    'show_weight' in body
+    'show_weight' in
+      body
   ) {
+
     return bad(
       req,
       'show_weight_locked'
     );
   }
+
 
   const sets =
     [];
@@ -1010,17 +1215,22 @@ async function patchGroup(
   const values =
     [];
 
+
   if (
-    'name' in body
+    'name' in
+      body
   ) {
+
     const name =
       normGroupName(
         body.name
       );
 
+
     if (
       !name
     ) {
+
       return bad(
         req,
         isBanned(
@@ -1031,6 +1241,7 @@ async function patchGroup(
       );
     }
 
+
     sets.push(
       'name=?'
     );
@@ -1040,35 +1251,43 @@ async function patchGroup(
     );
   }
 
+
   if (
-    'start_ymd' in body
+    'start_ymd' in
+      body
   ) {
+
     const start =
       String(
         body.start_ymd ||
         ''
       );
 
+
     if (
       !isYmd(
         start
       )
     ) {
+
       return bad(
         req,
         'bad_ymd'
       );
     }
 
+
     if (
       start >
       todayYmdJST()
     ) {
+
       return bad(
         req,
         'future_ymd'
       );
     }
+
 
     sets.push(
       'start_ymd=?'
@@ -1079,19 +1298,23 @@ async function patchGroup(
     );
   }
 
+
   if (
     !sets.length
   ) {
+
     return bad(
       req,
       'nothing_to_update'
     );
   }
 
+
   values.push(
     owned.group.group_id,
     OPERATOR_OWNER_ID
   );
+
 
   await env.DB
     .prepare(`
@@ -1105,6 +1328,7 @@ async function patchGroup(
       ...values
     )
     .run();
+
 
   return await getGroup(
     req,
@@ -1122,18 +1346,23 @@ function memberIconUrl(
   memberId,
   iconVer
 ) {
+
   const version =
     Number(
       iconVer ||
       0
     );
 
+
   if (
     !memberId ||
-    version <= 0
+    version <=
+      0
   ) {
+
     return null;
   }
+
 
   return (
     '/i/' +
@@ -1143,9 +1372,11 @@ function memberIconUrl(
   );
 }
 
+
 function normalizeMemberId(
   raw
 ) {
+
   const value =
     String(
       raw ||
@@ -1154,20 +1385,22 @@ function normalizeMemberId(
       .trim()
       .toUpperCase();
 
+
   return MEMBER_ID_RE.test(
     value
   )
     ? value
     : null;
 }
-
 async function memberRowsForGroup(
   env,
   group
 ) {
+
   const start =
     group.start_ymd ||
     '1900-01-01';
+
 
   const rs =
     await env.DB
@@ -1238,15 +1471,19 @@ async function memberRowsForGroup(
       )
       .all();
 
+
   const todayDay =
     ymdToDay(
       todayYmdJST()
     );
 
+
   const leaders =
     new Set();
 
+
   try {
+
     const lr =
       await env.DB
         .prepare(`
@@ -1259,14 +1496,17 @@ async function memberRowsForGroup(
         )
         .all();
 
+
     for (
       const row of
       lr.results ||
       []
     ) {
+
       if (
         row.member_id
       ) {
+
         leaders.add(
           String(
             row.member_id
@@ -1275,7 +1515,9 @@ async function memberRowsForGroup(
       }
     }
 
+
   } catch {}
+
 
   const rows =
     (
@@ -1295,6 +1537,7 @@ async function memberRowsForGroup(
                   row.first_kg
                 );
 
+
           const lastKg =
             row.last_kg ===
               null ||
@@ -1304,6 +1547,7 @@ async function memberRowsForGroup(
               : Number(
                   row.last_kg
                 );
+
 
           const hasPair =
             !!(
@@ -1319,6 +1563,7 @@ async function memberRowsForGroup(
               )
             );
 
+
           const loss =
             hasPair
               ? round1(
@@ -1326,6 +1571,7 @@ async function memberRowsForGroup(
                   lastKg
                 )
               : null;
+
 
           const idleDays =
             row.last_ymd
@@ -1336,6 +1582,7 @@ async function memberRowsForGroup(
                   )
                 )
               : null;
+
 
           return {
             member_id:
@@ -1394,6 +1641,7 @@ async function memberRowsForGroup(
         }
       );
 
+
   const ranked =
     rows
       .filter(
@@ -1411,11 +1659,13 @@ async function memberRowsForGroup(
             b.loss !==
             a.loss
           ) {
+
             return (
               b.loss -
               a.loss
             );
           }
+
 
           return String(
             a.member_id
@@ -1428,11 +1678,13 @@ async function memberRowsForGroup(
         }
       );
 
+
   let previousLoss =
     null;
 
   let previousRank =
     0;
+
 
   for (
     let i = 0;
@@ -1440,8 +1692,12 @@ async function memberRowsForGroup(
       ranked.length;
     i++
   ) {
+
     const row =
-      ranked[i];
+      ranked[
+        i
+      ];
+
 
     if (
       previousLoss ===
@@ -1449,6 +1705,7 @@ async function memberRowsForGroup(
       row.loss !==
         previousLoss
     ) {
+
       previousRank =
         i +
         1;
@@ -1457,9 +1714,11 @@ async function memberRowsForGroup(
         row.loss;
     }
 
+
     row.rank =
       previousRank;
   }
+
 
   rows.sort(
     (
@@ -1473,25 +1732,31 @@ async function memberRowsForGroup(
         b.rank !==
           null
       ) {
+
         return (
           a.rank -
           b.rank
         );
       }
 
+
       if (
         a.rank !==
         null
       ) {
+
         return -1;
       }
+
 
       if (
         b.rank !==
         null
       ) {
+
         return 1;
       }
+
 
       return String(
         a.nickname ||
@@ -1507,6 +1772,7 @@ async function memberRowsForGroup(
     }
   );
 
+
   const losses =
     rows
       .filter(
@@ -1518,6 +1784,7 @@ async function memberRowsForGroup(
         row =>
           row.loss
       );
+
 
   const totalLoss =
     losses.length
@@ -1534,6 +1801,7 @@ async function memberRowsForGroup(
         )
       : 0;
 
+
   const avgLoss =
     losses.length
       ? round1(
@@ -1541,6 +1809,7 @@ async function memberRowsForGroup(
           losses.length
         )
       : null;
+
 
   return {
     rows,
@@ -1561,20 +1830,24 @@ async function memberRowsForGroup(
   };
 }
 
+
 async function listMembers(
   req,
   env,
   rawGroupId
 ) {
+
   const owned =
     await ownedGroup(
       env,
       rawGroupId
     );
 
+
   if (
     owned.error
   ) {
+
     return bad(
       req,
       owned.error,
@@ -1585,11 +1858,13 @@ async function listMembers(
     );
   }
 
+
   const built =
     await memberRowsForGroup(
       env,
       owned.group
     );
+
 
   return json(
     req,
@@ -1622,15 +1897,18 @@ async function kickMember(
   env,
   rawGroupId
 ) {
+
   const owned =
     await ownedGroup(
       env,
       rawGroupId
     );
 
+
   if (
     owned.error
   ) {
+
     return bad(
       req,
       owned.error,
@@ -1641,24 +1919,29 @@ async function kickMember(
     );
   }
 
+
   const body =
     await readBody(
       req
     );
+
 
   const memberId =
     normalizeMemberId(
       body.member_id
     );
 
+
   if (
     !memberId
   ) {
+
     return bad(
       req,
       'bad_member_id'
     );
   }
+
 
   const target =
     await env.DB
@@ -1677,11 +1960,13 @@ async function kickMember(
       )
       .first();
 
+
   if (
     !target ||
     target.group_id !==
       owned.group.group_id
   ) {
+
     return bad(
       req,
       'not_in_group',
@@ -1689,12 +1974,15 @@ async function kickMember(
     );
   }
 
+
   if (
     Number(
       target.banned ||
       0
-    ) === 1
+    ) ===
+      1
   ) {
+
     return bad(
       req,
       'banned',
@@ -1702,8 +1990,10 @@ async function kickMember(
     );
   }
 
+
   const now =
     Date.now();
+
 
   await env.DB.batch([
 
@@ -1721,6 +2011,7 @@ async function kickMember(
         memberId,
         owned.group.group_id
       ),
+
 
     env.DB
       .prepare(`
@@ -1744,6 +2035,7 @@ async function kickMember(
       ),
   ]);
 
+
   await optionalRun(
     env,
     `
@@ -1755,6 +2047,7 @@ async function kickMember(
     owned.group.group_id,
     memberId
   );
+
 
   await optionalRun(
     env,
@@ -1768,6 +2061,7 @@ async function kickMember(
     memberId
   );
 
+
   await optionalRun(
     env,
     `
@@ -1779,6 +2073,7 @@ async function kickMember(
     owned.group.group_id,
     memberId
   );
+
 
   return json(
     req,
@@ -1798,8 +2093,6 @@ async function kickMember(
     }
   );
 }
-
-
 /* ============================================================
    除名リスト
    ============================================================ */
@@ -1809,15 +2102,18 @@ async function listBans(
   env,
   rawGroupId
 ) {
+
   const owned =
     await ownedGroup(
       env,
       rawGroupId
     );
 
+
   if (
     owned.error
   ) {
+
     return bad(
       req,
       owned.error,
@@ -1827,6 +2123,7 @@ async function listBans(
         : 400
     );
   }
+
 
   const rs =
     await env.DB
@@ -1852,6 +2149,7 @@ async function listBans(
         owned.group.group_id
       )
       .all();
+
 
   const bans =
     (
@@ -1885,6 +2183,7 @@ async function listBans(
         })
       );
 
+
   return json(
     req,
     {
@@ -1909,15 +2208,18 @@ async function unbanMember(
   env,
   rawGroupId
 ) {
+
   const owned =
     await ownedGroup(
       env,
       rawGroupId
     );
 
+
   if (
     owned.error
   ) {
+
     return bad(
       req,
       owned.error,
@@ -1928,24 +2230,29 @@ async function unbanMember(
     );
   }
 
+
   const body =
     await readBody(
       req
     );
+
 
   const memberId =
     normalizeMemberId(
       body.member_id
     );
 
+
   if (
     !memberId
   ) {
+
     return bad(
       req,
       'bad_member_id'
     );
   }
+
 
   await env.DB
     .prepare(`
@@ -1959,6 +2266,7 @@ async function unbanMember(
       memberId
     )
     .run();
+
 
   return json(
     req,
@@ -1985,15 +2293,18 @@ async function listLeaders(
   env,
   rawGroupId
 ) {
+
   const owned =
     await ownedGroup(
       env,
       rawGroupId
     );
 
+
   if (
     owned.error
   ) {
+
     return bad(
       req,
       owned.error,
@@ -2004,10 +2315,13 @@ async function listLeaders(
     );
   }
 
+
   let rows =
     [];
 
+
   try {
+
     const rs =
       await env.DB
         .prepare(`
@@ -2034,9 +2348,11 @@ async function listLeaders(
         )
         .all();
 
+
     rows =
       rs.results ||
       [];
+
 
   } catch (error) {
 
@@ -2045,9 +2361,11 @@ async function listLeaders(
         error
       )
     ) {
+
       throw error;
     }
   }
+
 
   const members =
     await env.DB
@@ -2069,6 +2387,7 @@ async function listLeaders(
       )
       .all();
 
+
   const leaderIds =
     new Set(
       rows.map(
@@ -2076,6 +2395,7 @@ async function listLeaders(
           row.member_id
       )
     );
+
 
   const leaders =
     rows.map(
@@ -2108,6 +2428,7 @@ async function listLeaders(
           owned.group.group_id,
       })
     );
+
 
   const candidates =
     (
@@ -2143,6 +2464,7 @@ async function listLeaders(
         })
       );
 
+
   return json(
     req,
     {
@@ -2165,20 +2487,24 @@ async function listLeaders(
   );
 }
 
+
 async function addLeader(
   req,
   env,
   rawGroupId
 ) {
+
   const owned =
     await ownedGroup(
       env,
       rawGroupId
     );
 
+
   if (
     owned.error
   ) {
+
     return bad(
       req,
       owned.error,
@@ -2189,24 +2515,29 @@ async function addLeader(
     );
   }
 
+
   const body =
     await readBody(
       req
     );
+
 
   const memberId =
     normalizeMemberId(
       body.member_id
     );
 
+
   if (
     !memberId
   ) {
+
     return bad(
       req,
       'bad_member_id'
     );
   }
+
 
   const target =
     await env.DB
@@ -2223,11 +2554,13 @@ async function addLeader(
       )
       .first();
 
+
   if (
     !target ||
     target.group_id !==
       owned.group.group_id
   ) {
+
     return bad(
       req,
       'not_in_group',
@@ -2235,18 +2568,22 @@ async function addLeader(
     );
   }
 
+
   if (
     Number(
       target.banned ||
       0
-    ) === 1
+    ) ===
+      1
   ) {
+
     return bad(
       req,
       'banned',
       403
     );
   }
+
 
   await env.DB
     .prepare(`
@@ -2261,6 +2598,7 @@ async function addLeader(
       )
     `)
     .run();
+
 
   const existing =
     await env.DB
@@ -2277,14 +2615,17 @@ async function addLeader(
       )
       .first();
 
+
   if (
     existing
   ) {
+
     return bad(
       req,
       'already_leader'
     );
   }
+
 
   const count =
     await env.DB
@@ -2298,6 +2639,7 @@ async function addLeader(
       )
       .first();
 
+
   if (
     Number(
       (
@@ -2306,13 +2648,15 @@ async function addLeader(
       ) ||
       0
     ) >=
-    LEADER_MAX
+      LEADER_MAX
   ) {
+
     return bad(
       req,
       'leader_limit'
     );
   }
+
 
   await env.DB
     .prepare(`
@@ -2334,6 +2678,7 @@ async function addLeader(
     )
     .run();
 
+
   return await listLeaders(
     req,
     env,
@@ -2341,21 +2686,25 @@ async function addLeader(
   );
 }
 
+
 async function removeLeader(
   req,
   env,
   rawGroupId,
   rawMemberId
 ) {
+
   const owned =
     await ownedGroup(
       env,
       rawGroupId
     );
 
+
   if (
     owned.error
   ) {
+
     return bad(
       req,
       owned.error,
@@ -2366,19 +2715,23 @@ async function removeLeader(
     );
   }
 
+
   const memberId =
     normalizeMemberId(
       rawMemberId
     );
 
+
   if (
     !memberId
   ) {
+
     return bad(
       req,
       'bad_member_id'
     );
   }
+
 
   await optionalRun(
     env,
@@ -2392,14 +2745,13 @@ async function removeLeader(
     memberId
   );
 
+
   return await listLeaders(
     req,
     env,
     owned.group.group_id
   );
 }
-
-
 /* ============================================================
    グループ解散
    ============================================================ */
@@ -2409,15 +2761,18 @@ async function dissolveGroup(
   env,
   rawGroupId
 ) {
+
   const owned =
     await ownedGroup(
       env,
       rawGroupId
     );
 
+
   if (
     owned.error
   ) {
+
     return bad(
       req,
       owned.error,
@@ -2428,8 +2783,10 @@ async function dissolveGroup(
     );
   }
 
+
   const groupId =
     owned.group.group_id;
+
 
   await optionalRun(
     env,
@@ -2440,6 +2797,7 @@ async function dissolveGroup(
     groupId
   );
 
+
   await optionalRun(
     env,
     `
@@ -2448,6 +2806,7 @@ async function dissolveGroup(
     `,
     groupId
   );
+
 
   await optionalRun(
     env,
@@ -2458,6 +2817,7 @@ async function dissolveGroup(
     groupId
   );
 
+
   await optionalRun(
     env,
     `
@@ -2466,6 +2826,7 @@ async function dissolveGroup(
     `,
     groupId
   );
+
 
   await env.DB.batch([
 
@@ -2481,6 +2842,7 @@ async function dissolveGroup(
         groupId
       ),
 
+
     env.DB
       .prepare(`
         DELETE FROM group_bans
@@ -2490,6 +2852,7 @@ async function dissolveGroup(
         groupId
       ),
 
+
     env.DB
       .prepare(`
         DELETE FROM watching
@@ -2498,6 +2861,7 @@ async function dissolveGroup(
       .bind(
         groupId
       ),
+
 
     env.DB
       .prepare(`
@@ -2511,6 +2875,7 @@ async function dissolveGroup(
         OPERATOR_OWNER_ID
       ),
   ]);
+
 
   return json(
     req,
@@ -2538,17 +2903,21 @@ export async function operatorParticipationGuard(
   pathname,
   method
 ) {
+
   const operator =
     await isOperatorRequest(
       req,
       env
     );
 
+
   if (
     !operator
   ) {
+
     return null;
   }
+
 
   const p =
     String(
@@ -2560,6 +2929,7 @@ export async function operatorParticipationGuard(
         ''
       );
 
+
   const m =
     String(
       method ||
@@ -2568,6 +2938,7 @@ export async function operatorParticipationGuard(
     )
       .toUpperCase();
 
+
   if (
     p ===
       '/api/weights' ||
@@ -2575,12 +2946,14 @@ export async function operatorParticipationGuard(
       '/api/weights/'
     )
   ) {
+
     return bad(
       req,
       'operator_not_allowed',
       403
     );
   }
+
 
   if (
     p ===
@@ -2589,12 +2962,14 @@ export async function operatorParticipationGuard(
       '/api/vote/'
     )
   ) {
+
     return bad(
       req,
       'operator_not_allowed',
       403
     );
   }
+
 
   const normalGroupMutation =
     (
@@ -2605,7 +2980,9 @@ export async function operatorParticipationGuard(
         'PATCH',
         'DELETE'
       ]
-        .includes(m)
+        .includes(
+          m
+        )
     ) ||
     (
       p ===
@@ -2662,7 +3039,9 @@ export async function operatorParticipationGuard(
         'POST',
         'DELETE'
       ]
-        .includes(m)
+        .includes(
+          m
+        )
     ) ||
     (
       p.startsWith(
@@ -2672,15 +3051,18 @@ export async function operatorParticipationGuard(
         'DELETE'
     );
 
+
   if (
     normalGroupMutation
   ) {
+
     return bad(
       req,
       'operator_not_allowed',
       403
     );
   }
+
 
   if (
     p ===
@@ -2689,12 +3071,14 @@ export async function operatorParticipationGuard(
       '/api/rivals/'
     )
   ) {
+
     return bad(
       req,
       'operator_not_allowed',
       403
     );
   }
+
 
   if (
     p ===
@@ -2703,6 +3087,7 @@ export async function operatorParticipationGuard(
       '/api/watching/'
     )
   ) {
+
     return bad(
       req,
       'operator_not_allowed',
@@ -2710,10 +3095,9 @@ export async function operatorParticipationGuard(
     );
   }
 
+
   return null;
 }
-
-
 /* ============================================================
    運営API ルーティング
    ============================================================ */
@@ -2723,6 +3107,7 @@ export async function operatorRoute(
   env,
   url
 ) {
+
   const p =
     url.pathname
       .replace(
@@ -2730,8 +3115,10 @@ export async function operatorRoute(
         ''
       );
 
+
   const m =
     req.method;
+
 
   if (
     p ===
@@ -2739,11 +3126,13 @@ export async function operatorRoute(
     m ===
       'GET'
   ) {
+
     return await statusRoute(
       req,
       env
     );
   }
+
 
   const member =
     await requireOperator(
@@ -2751,16 +3140,20 @@ export async function operatorRoute(
       env
     );
 
+
   if (
     member.error
   ) {
+
     return member.error;
   }
+
 
   await activateOperator(
     env,
     member.dev
   );
+
 
   if (
     p ===
@@ -2771,16 +3164,19 @@ export async function operatorRoute(
       m ===
         'GET'
     ) {
+
       return await listGroups(
         req,
         env
       );
     }
 
+
     if (
       m ===
         'POST'
     ) {
+
       return await createGroup(
         req,
         env,
@@ -2788,12 +3184,14 @@ export async function operatorRoute(
       );
     }
 
+
     return bad(
       req,
       'method_not_allowed',
       405
     );
   }
+
 
   const groupMatch =
     /^\/api\/operator\/groups\/([0-9A-Z]{8})$/
@@ -2801,16 +3199,22 @@ export async function operatorRoute(
         p
       );
 
+
   if (
     groupMatch
   ) {
+
     const groupId =
-      groupMatch[1];
+      groupMatch[
+        1
+      ];
+
 
     if (
       m ===
         'GET'
     ) {
+
       return await getGroup(
         req,
         env,
@@ -2818,10 +3222,12 @@ export async function operatorRoute(
       );
     }
 
+
     if (
       m ===
         'PATCH'
     ) {
+
       return await patchGroup(
         req,
         env,
@@ -2829,16 +3235,19 @@ export async function operatorRoute(
       );
     }
 
+
     if (
       m ===
         'DELETE'
     ) {
+
       return await dissolveGroup(
         req,
         env,
         groupId
       );
     }
+
 
     return bad(
       req,
@@ -2847,11 +3256,13 @@ export async function operatorRoute(
     );
   }
 
+
   const membersMatch =
     /^\/api\/operator\/groups\/([0-9A-Z]{8})\/members$/
       .exec(
         p
       );
+
 
   if (
     membersMatch
@@ -2861,6 +3272,7 @@ export async function operatorRoute(
       m !==
         'GET'
     ) {
+
       return bad(
         req,
         'method_not_allowed',
@@ -2868,18 +3280,23 @@ export async function operatorRoute(
       );
     }
 
+
     return await listMembers(
       req,
       env,
-      membersMatch[1]
+      membersMatch[
+        1
+      ]
     );
   }
+
 
   const kickMatch =
     /^\/api\/operator\/groups\/([0-9A-Z]{8})\/kick$/
       .exec(
         p
       );
+
 
   if (
     kickMatch
@@ -2889,6 +3306,7 @@ export async function operatorRoute(
       m !==
         'POST'
     ) {
+
       return bad(
         req,
         'method_not_allowed',
@@ -2896,18 +3314,23 @@ export async function operatorRoute(
       );
     }
 
+
     return await kickMember(
       req,
       env,
-      kickMatch[1]
+      kickMatch[
+        1
+      ]
     );
   }
+
 
   const bansMatch =
     /^\/api\/operator\/groups\/([0-9A-Z]{8})\/bans$/
       .exec(
         p
       );
+
 
   if (
     bansMatch
@@ -2917,6 +3340,7 @@ export async function operatorRoute(
       m !==
         'GET'
     ) {
+
       return bad(
         req,
         'method_not_allowed',
@@ -2924,18 +3348,23 @@ export async function operatorRoute(
       );
     }
 
+
     return await listBans(
       req,
       env,
-      bansMatch[1]
+      bansMatch[
+        1
+      ]
     );
   }
+
 
   const unbanMatch =
     /^\/api\/operator\/groups\/([0-9A-Z]{8})\/unban$/
       .exec(
         p
       );
+
 
   if (
     unbanMatch
@@ -2945,6 +3374,7 @@ export async function operatorRoute(
       m !==
         'POST'
     ) {
+
       return bad(
         req,
         'method_not_allowed',
@@ -2952,18 +3382,23 @@ export async function operatorRoute(
       );
     }
 
+
     return await unbanMember(
       req,
       env,
-      unbanMatch[1]
+      unbanMatch[
+        1
+      ]
     );
   }
+
 
   const leadersMatch =
     /^\/api\/operator\/groups\/([0-9A-Z]{8})\/leaders$/
       .exec(
         p
       );
+
 
   if (
     leadersMatch
@@ -2973,23 +3408,31 @@ export async function operatorRoute(
       m ===
         'GET'
     ) {
+
       return await listLeaders(
         req,
         env,
-        leadersMatch[1]
+        leadersMatch[
+          1
+        ]
       );
     }
+
 
     if (
       m ===
         'POST'
     ) {
+
       return await addLeader(
         req,
         env,
-        leadersMatch[1]
+        leadersMatch[
+          1
+        ]
       );
     }
+
 
     return bad(
       req,
@@ -2998,11 +3441,13 @@ export async function operatorRoute(
     );
   }
 
+
   const leaderDeleteMatch =
     /^\/api\/operator\/groups\/([0-9A-Z]{8})\/leaders\/([0-9A-Z]{6,32})$/
       .exec(
         p
       );
+
 
   if (
     leaderDeleteMatch
@@ -3012,6 +3457,7 @@ export async function operatorRoute(
       m !==
         'DELETE'
     ) {
+
       return bad(
         req,
         'method_not_allowed',
@@ -3019,13 +3465,19 @@ export async function operatorRoute(
       );
     }
 
+
     return await removeLeader(
       req,
       env,
-      leaderDeleteMatch[1],
-      leaderDeleteMatch[2]
+      leaderDeleteMatch[
+        1
+      ],
+      leaderDeleteMatch[
+        2
+      ]
     );
   }
+
 
   return bad(
     req,

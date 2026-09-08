@@ -14,7 +14,9 @@
 # ・package-lock.jsonがあればnpm ci
 # ・lockfile未作成時は生成後npm ci
 # ・operator-ui.js をビルド対象として検証
-# ・App Store / TestFlightへの自動提出は行わない
+# ・IPAをApp Store Connectへアップロード
+# ・TestFlight Beta Reviewへの自動提出は行わない
+# ・App Store Reviewへの自動提出は行わない
 
 workflows:
 
@@ -822,3 +824,19 @@ workflows:
       - package-lock.json
 
       - ios/App/Podfile.lock
+
+
+    publishing:
+
+      app_store_connect:
+
+        auth: integration
+
+        # App Store ConnectへIPAをアップロードする。
+        # これによりAppleの処理完了後、TestFlightに表示される。
+
+        submit_to_testflight: false
+
+        # App Store審査へは自動提出しない。
+
+        submit_to_app_store: false

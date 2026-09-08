@@ -536,6 +536,16 @@ async function privacyState(
 
 /* ============================================================
    一括状態
+
+   D1は1クエリ100パラメータ上限。
+
+   hiddenWeightSet:
+     同じIDをUNIONの両側へbindするため
+     50件 × 2 = 100パラメータで分割。
+
+   lockMap:
+     IDを1回だけbindするため
+     100件ずつ分割。
    ============================================================ */
 
 export async function hiddenWeightSet(
@@ -554,68 +564,95 @@ export async function hiddenWeightSet(
     );
 
 
+  const hidden =
+    new Set();
+
+
   if (
     !ids.length
   ) {
 
-    return new Set();
+    return hidden;
   }
 
 
-  const ph =
-    ids
-      .map(
-        () => '?'
-      )
-      .join(
-        ','
+  const CHUNK_SIZE =
+    50;
+
+
+  for (
+    let offset = 0;
+    offset < ids.length;
+    offset += CHUNK_SIZE
+  ) {
+
+    const chunk =
+      ids.slice(
+        offset,
+        offset + CHUNK_SIZE
       );
 
 
-  /*
-   * lockがあればhidden列の状態に関係なく
-   * 必ず非公開扱い。
-   */
-  const rs =
-    await env.DB
-      .prepare(`
-        SELECT member_id
+    const ph =
+      chunk
+        .map(
+          () => '?'
+        )
+        .join(
+          ','
+        );
 
-        FROM weight_privacy
 
-        WHERE
-          hidden=1
-          AND member_id IN (${ph})
+    /*
+     * lockがあればhidden列の状態に関係なく
+     * 必ず非公開扱い。
+     */
+    const rs =
+      await env.DB
+        .prepare(`
+          SELECT member_id
 
-        UNION
+          FROM weight_privacy
 
-        SELECT member_id
+          WHERE
+            hidden=1
+            AND member_id IN (${ph})
 
-        FROM weight_privacy_lock
+          UNION
 
-        WHERE
-          locked=1
-          AND member_id IN (${ph})
-      `)
-      .bind(
-        ...ids,
-        ...ids
+          SELECT member_id
+
+          FROM weight_privacy_lock
+
+          WHERE
+            locked=1
+            AND member_id IN (${ph})
+        `)
+        .bind(
+          ...chunk,
+          ...chunk
+        )
+        .all();
+
+
+    for (
+      const row of
+      (
+        rs.results ||
+        []
       )
-      .all();
+    ) {
+
+      hidden.add(
+        String(
+          row.member_id
+        )
+      );
+    }
+  }
 
 
-  return new Set(
-    (
-      rs.results ||
-      []
-    )
-      .map(
-        r =>
-          String(
-            r.member_id
-          )
-      )
-  );
+  return hidden;
 }
 
 
@@ -647,81 +684,99 @@ async function lockMap(
   }
 
 
-  const ph =
-    ids
-      .map(
-        () => '?'
-      )
-      .join(
-        ','
-      );
-
-
-  const rs =
-    await env.DB
-      .prepare(`
-        SELECT
-          member_id,
-          locked,
-          updated_by
-
-        FROM weight_privacy_lock
-
-        WHERE
-          locked=1
-          AND member_id IN (${ph})
-      `)
-      .bind(
-        ...ids
-      )
-      .all();
+  const CHUNK_SIZE =
+    100;
 
 
   for (
-    const r of
-    (
-      rs.results ||
-      []
-    )
+    let offset = 0;
+    offset < ids.length;
+    offset += CHUNK_SIZE
   ) {
 
-    const by =
-      r.updated_by
-        ? String(
-            r.updated_by
-          )
-        : '';
+    const chunk =
+      ids.slice(
+        offset,
+        offset + CHUNK_SIZE
+      );
 
 
-    let kind =
-      'other';
+    const ph =
+      chunk
+        .map(
+          () => '?'
+        )
+        .join(
+          ','
+        );
 
 
-    if (
-      by ===
-        'self'
-    ) {
+    const rs =
+      await env.DB
+        .prepare(`
+          SELECT
+            member_id,
+            locked,
+            updated_by
 
-      kind =
-        'self';
+          FROM weight_privacy_lock
 
-    } else if (
-      by.startsWith(
-        'admin'
+          WHERE
+            locked=1
+            AND member_id IN (${ph})
+        `)
+        .bind(
+          ...chunk
+        )
+        .all();
+
+
+    for (
+      const r of
+      (
+        rs.results ||
+        []
       )
     ) {
 
-      kind =
-        'admin';
+      const by =
+        r.updated_by
+          ? String(
+              r.updated_by
+            )
+          : '';
+
+
+      let kind =
+        'other';
+
+
+      if (
+        by ===
+          'self'
+      ) {
+
+        kind =
+          'self';
+
+      } else if (
+        by.startsWith(
+          'admin'
+        )
+      ) {
+
+        kind =
+          'admin';
+      }
+
+
+      map.set(
+        String(
+          r.member_id
+        ),
+        kind
+      );
     }
-
-
-    map.set(
-      String(
-        r.member_id
-      ),
-      kind
-    );
   }
 
 

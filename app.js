@@ -2001,7 +2001,6 @@ function promptSheet(options) {
         input
       );
 
-
       sh.appendChild(
         wrap
       );
@@ -3974,8 +3973,11 @@ function renderIcon() {
 
     el.iconDel.hidden =
       !(
-        cache.me &&
-        cache.me.icon_url
+        (
+          cache.me &&
+          cache.me.icon_url
+        ) ||
+        cache.iconPending
       );
   }
 
@@ -4501,6 +4503,7 @@ function currentRange() {
         ymdToDay(
           `${year}-12-31`
         ),
+               ),
 
       label:
         `${year}年`
@@ -4997,7 +5000,6 @@ function drawChart() {
       )
     );
 
-
     ctx.stroke();
 
 
@@ -5200,43 +5202,41 @@ function drawChart() {
         3
       ]
     );
+           ctx.strokeStyle =
+        '#c9948a';
 
 
-    ctx.strokeStyle =
-      '#c9948a';
+      ctx.lineWidth =
+        1.5;
 
 
-    ctx.lineWidth =
-      1.5;
+      ctx.beginPath();
 
 
-    ctx.beginPath();
+      ctx.moveTo(
+        x(
+          last.day
+        ),
+        y(
+          last.kg
+        )
+      );
 
 
-    ctx.moveTo(
-      x(
-        last.day
-      ),
-      y(
-        last.kg
-      )
-    );
+      ctx.lineTo(
+        x(
+          rightEnd
+        ),
+        y(
+          last.kg
+        )
+      );
 
 
-    ctx.lineTo(
-      x(
-        rightEnd
-      ),
-      y(
-        last.kg
-      )
-    );
+      ctx.stroke();
 
 
-    ctx.stroke();
-
-
-    ctx.restore();
+      ctx.restore();
   }
 
 
@@ -5333,6 +5333,7 @@ function drawSummary() {
 
     el.summary.textContent =
       '';
+
 
     return;
   }
@@ -6308,8 +6309,6 @@ async function memberMenu(
     ].run();
   }
 }
-
-
 /* ============================================================
    ライバル
    ============================================================ */
@@ -6975,8 +6974,6 @@ async function loadRanking() {
       `<li class="empty">${emsg(e)}</li>`;
   }
 }
-
-
 /* ============================================================
    他チーム追加
    ============================================================ */
@@ -7690,6 +7687,7 @@ function init() {
 
       state.offset--;
 
+
       renderLog();
     };
 
@@ -8024,9 +8022,7 @@ function init() {
         );
       }
     };
-
-
-  /* ----------------------------------------------------------
+     /* ----------------------------------------------------------
      スタート日
      ---------------------------------------------------------- */
 
@@ -9008,3 +9004,5 @@ async function start() {
 
 
 start();
+   
+     

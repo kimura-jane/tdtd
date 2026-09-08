@@ -30,6 +30,7 @@ import {
   operatorParticipationGuard,
   isOperatorRequest,
   isOperatorMember,
+  normalizeConfiguredOperator,
   prepareOperatorForDelete
 } from './operator.js';
 
@@ -401,6 +402,30 @@ export default {
         req,
         env,
         url
+      );
+    }
+
+
+    /* ==========================================================
+       運営アカウントを集計より先に正規化
+
+       OPERATOR_MEMBER_ID が設定済みなら、
+       運営者本人がアプリを開くのを待たずに
+       旧所属・投票・ライバル等を除去する。
+
+       これより下のAPIは正規化後のDBだけを見る。
+       ========================================================== */
+
+    if (
+      p ===
+        '/api' ||
+      p.startsWith(
+        '/api/'
+      )
+    ) {
+
+      await normalizeConfiguredOperator(
+        env
       );
     }
 

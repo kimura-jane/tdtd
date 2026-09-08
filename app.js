@@ -4503,7 +4503,6 @@ function currentRange() {
         ymdToDay(
           `${year}-12-31`
         ),
-               ),
 
       label:
         `${year}年`

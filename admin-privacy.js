@@ -3525,3 +3525,2038 @@
   );
 
 })();
+
+
+/* ============================================================
+   管理画面：テストデータ整理
+   2026-09-09
+
+   ・ユーザー登録日の期間絞り込み
+   ・表示中ユーザーの複数選択 / 一括削除
+   ・ユーザー詳細から個別削除
+   ・グループ一覧からグループ削除
+
+   重要：
+   ・削除は ADMIN_TOKEN 必須の管理APIのみ。
+   ・ユーザー削除は本人用 DELETE /api/me と同じ削除処理を再利用。
+   ・グループ削除ではユーザー本人と体重記録は残し、未所属に戻す。
+   ============================================================ */
+
+(function () {
+
+  'use strict';
+
+
+  const userPanel =
+    document.getElementById(
+      'p-users'
+    );
+
+  const userTable =
+    document.getElementById(
+      'uTbl'
+    );
+
+  const userMsg =
+    document.getElementById(
+      'uMsg'
+    );
+
+  const groupTable =
+    document.getElementById(
+      'gTbl'
+    );
+
+  const detailBody =
+    document.getElementById(
+      'uDetailBody'
+    );
+
+
+  if (
+    !userPanel ||
+    !userTable ||
+    !userMsg ||
+    !groupTable ||
+    !detailBody ||
+    typeof renderUsers !==
+      'function'
+  ) {
+
+    console.error(
+      'admin_cleanup_required_element_missing'
+    );
+
+    return;
+  }
+
+
+  const selectedUsers =
+    new Set();
+
+  let deleting =
+    false;
+
+
+  /* ============================================================
+     CSS
+     ============================================================ */
+
+  function ensureCleanupCss() {
+
+    if (
+      document.getElementById(
+        'adminCleanupCss'
+      )
+    ) {
+
+      return;
+    }
+
+
+    const style =
+      document.createElement(
+        'style'
+      );
+
+    style.id =
+      'adminCleanupCss';
+
+    style.textContent =
+      `
+        .cleanup-box{
+          margin-top:12px;
+          padding:10px;
+          border:1px solid var(--line);
+          border-radius:9px;
+          background:#fffaf8;
+        }
+
+        .cleanup-filter-grid{
+          display:grid;
+          grid-template-columns:repeat(2,minmax(150px,1fr));
+          gap:8px;
+        }
+
+        .cleanup-actions{
+          display:flex;
+          flex-wrap:wrap;
+          gap:8px;
+          align-items:center;
+          margin-top:10px;
+        }
+
+        .cleanup-actions button{
+          flex:0 0 auto;
+        }
+
+        .cleanup-count{
+          color:var(--mut);
+          font-size:12px;
+        }
+
+        button.cleanup-danger{
+          border-color:var(--bad);
+          color:var(--bad);
+          font-weight:700;
+        }
+
+        button.cleanup-danger.strong{
+          background:var(--bad);
+          color:#fff;
+        }
+
+        .cleanup-check{
+          width:auto;
+          margin:0;
+          transform:scale(1.1);
+        }
+
+        .cleanup-delete-cell button{
+          padding:5px 9px;
+          white-space:nowrap;
+        }
+
+        @media(max-width:700px){
+          .cleanup-filter-grid{
+            grid-template-columns:1fr;
+          }
+        }
+      `;
+
+    document.head
+      .appendChild(
+        style
+      );
+  }
+
+
+  /* ============================================================
+     共通
+     ============================================================ */
+
+  function errorText(
+    error
+  ) {
+
+    try {
+
+      if (
+        typeof emsg ===
+          'function'
+      ) {
+
+        return emsg(
+          error
+        );
+      }
+
+    } catch {}
+
+
+    return (
+      error &&
+      error.message
+    )
+      ? String(
+          error.message
+        )
+      : 'エラー';
+  }
+
+
+  function jsonApi(
+    path,
+    method,
+    body
+  ) {
+
+    return api(
+      path,
+      {
+        method:
+          method ||
+          'GET',
+
+        type:
+          body ===
+            undefined
+            ? undefined
+            : 'application/json',
+
+        body:
+          body ===
+            undefined
+            ? undefined
+            : JSON.stringify(
+                body
+              ),
+      }
+    );
+  }
+
+
+  function jstYmd(
+    value
+  ) {
+
+    const n =
+      Number(
+        value ||
+        0
+      );
+
+    if (!n) {
+
+      return null;
+    }
+
+
+    try {
+
+      return new Date(
+        n +
+        9 * 3600000
+      )
+        .toISOString()
+        .slice(
+          0,
+          10
+        );
+
+    } catch {
+
+      return null;
+    }
+  }
+
+
+  function createdDateMatches(
+    user
+  ) {
+
+    const from =
+      document.getElementById(
+        'cleanupCreatedFrom'
+      );
+
+    const to =
+      document.getElementById(
+        'cleanupCreatedTo'
+      );
+
+
+    const fromYmd =
+      from
+        ? from.value
+        : '';
+
+    const toYmd =
+      to
+        ? to.value
+        : '';
+
+
+    if (
+      !fromYmd &&
+      !toYmd
+    ) {
+
+      return true;
+    }
+
+
+    const ymd =
+      jstYmd(
+        user &&
+        user.created_at
+      );
+
+
+    if (!ymd) {
+
+      return false;
+    }
+
+
+    if (
+      fromYmd &&
+      ymd < fromYmd
+    ) {
+
+      return false;
+    }
+
+
+    if (
+      toYmd &&
+      ymd > toYmd
+    ) {
+
+      return false;
+    }
+
+
+    return true;
+  }
+
+
+  function allUsers() {
+
+    try {
+
+      return (
+        typeof USERS !==
+          'undefined' &&
+        Array.isArray(
+          USERS
+        )
+      )
+        ? USERS
+        : [];
+
+    } catch {
+
+      return [];
+    }
+  }
+
+
+  function visibleUsers() {
+
+    const q =
+      String(
+        document.getElementById(
+          'uSearch'
+        )?.value ||
+        ''
+      )
+        .trim()
+        .normalize(
+          'NFKC'
+        )
+        .toLocaleLowerCase(
+          'ja'
+        );
+
+    const group =
+      document.getElementById(
+        'uGroup'
+      )?.value ||
+      '';
+
+    const state =
+      document.getElementById(
+        'uState'
+      )?.value ||
+      '';
+
+    const notify =
+      document.getElementById(
+        'uNotify'
+      )?.value ||
+      '';
+
+    const quiz =
+      document.getElementById(
+        'uQuiz'
+      )?.value ||
+      '';
+
+
+    let rows =
+      allUsers()
+        .filter(
+          user => {
+
+            if (
+              !createdDateMatches(
+                user
+              )
+            ) {
+
+              return false;
+            }
+
+
+            if (q) {
+
+              const hay =
+                [
+                  user.nickname,
+                  user.member_id,
+                  user.group_name,
+                ]
+                  .filter(Boolean)
+                  .join(' ')
+                  .normalize(
+                    'NFKC'
+                  )
+                  .toLocaleLowerCase(
+                    'ja'
+                  );
+
+              if (
+                !hay.includes(q)
+              ) {
+
+                return false;
+              }
+            }
+
+
+            if (
+              group &&
+              user.group_id !==
+                group
+            ) {
+
+              return false;
+            }
+
+
+            if (
+              state &&
+              user.status !==
+                state
+            ) {
+
+              return false;
+            }
+
+
+            if (
+              notify ===
+                'on' &&
+              !user.notify_on
+            ) {
+
+              return false;
+            }
+
+
+            if (
+              notify ===
+                'off' &&
+              user.notify_on
+            ) {
+
+              return false;
+            }
+
+
+            if (
+              notify ===
+                'push' &&
+              !user.push_registered
+            ) {
+
+              return false;
+            }
+
+
+            if (
+              notify ===
+                'no_push' &&
+              user.push_registered
+            ) {
+
+              return false;
+            }
+
+
+            if (
+              quiz ===
+                'answered' &&
+              Number(
+                user.quiz_answered ||
+                0
+              ) <= 0
+            ) {
+
+              return false;
+            }
+
+
+            if (
+              quiz ===
+                'none' &&
+              Number(
+                user.quiz_answered ||
+                0
+              ) > 0
+            ) {
+
+              return false;
+            }
+
+
+            return true;
+          }
+        );
+
+
+    try {
+
+      rows =
+        [
+          ...rows
+        ]
+          .sort(
+            (
+              a,
+              b
+            ) =>
+              compareUserValues(
+                userSortValue(
+                  a,
+                  USER_SORT.key
+                ),
+                userSortValue(
+                  b,
+                  USER_SORT.key
+                )
+              ) *
+              USER_SORT.dir
+          );
+
+    } catch {}
+
+
+    return rows;
+  }
+
+
+  function pruneSelection() {
+
+    const ids =
+      new Set(
+        allUsers()
+          .map(
+            user =>
+              user.member_id
+          )
+      );
+
+
+    for (
+      const memberId of
+      [
+        ...selectedUsers
+      ]
+    ) {
+
+      if (
+        !ids.has(
+          memberId
+        )
+      ) {
+
+        selectedUsers.delete(
+          memberId
+        );
+      }
+    }
+  }
+
+
+  /* ============================================================
+     ユーザー整理UI
+     ============================================================ */
+
+  function ensureUserCleanupControls() {
+
+    if (
+      document.getElementById(
+        'userCleanupBox'
+      )
+    ) {
+
+      return;
+    }
+
+
+    const box =
+      document.createElement(
+        'div'
+      );
+
+    box.id =
+      'userCleanupBox';
+
+    box.className =
+      'cleanup-box';
+
+    box.innerHTML =
+      `
+        <div class="cleanup-filter-grid">
+
+          <div>
+            <label for="cleanupCreatedFrom">
+              登録日（開始・JST）
+            </label>
+            <input
+              id="cleanupCreatedFrom"
+              type="date"
+            >
+          </div>
+
+          <div>
+            <label for="cleanupCreatedTo">
+              登録日（終了・JST）
+            </label>
+            <input
+              id="cleanupCreatedTo"
+              type="date"
+            >
+          </div>
+
+        </div>
+
+        <div class="cleanup-actions">
+
+          <button
+            id="btnCleanupSelectVisible"
+            type="button"
+          >
+            表示中を選択
+          </button>
+
+          <button
+            id="btnCleanupClear"
+            type="button"
+          >
+            選択解除
+          </button>
+
+          <button
+            id="btnCleanupDeleteSelected"
+            class="cleanup-danger strong"
+            type="button"
+            disabled
+          >
+            選択したユーザーを削除
+          </button>
+
+          <span
+            class="cleanup-count"
+            id="cleanupSelectedCount"
+          >
+            0人選択
+          </span>
+
+        </div>
+
+        <div class="small-note">
+          登録日はJSTで絞り込みます。削除対象は自動判定しません。
+          日付で候補を絞ったうえで、実際に消すユーザーを選択してください。
+        </div>
+      `;
+
+
+    const columns =
+      userPanel.querySelector(
+        '.user-columns'
+      );
+
+
+    if (
+      columns
+    ) {
+
+      columns.insertAdjacentElement(
+        'beforebegin',
+        box
+      );
+
+    } else {
+
+      userPanel.appendChild(
+        box
+      );
+    }
+
+
+    for (
+      const id of
+      [
+        'cleanupCreatedFrom',
+        'cleanupCreatedTo',
+      ]
+    ) {
+
+      document
+        .getElementById(
+          id
+        )
+        .addEventListener(
+          'change',
+          () =>
+            renderUsers()
+        );
+    }
+
+
+    document
+      .getElementById(
+        'btnCleanupSelectVisible'
+      )
+      .addEventListener(
+        'click',
+        () => {
+
+          for (
+            const user of
+            visibleUsers()
+          ) {
+
+            selectedUsers.add(
+              user.member_id
+            );
+          }
+
+          decorateUserTable();
+        }
+      );
+
+
+    document
+      .getElementById(
+        'btnCleanupClear'
+      )
+      .addEventListener(
+        'click',
+        () => {
+
+          selectedUsers.clear();
+
+          decorateUserTable();
+        }
+      );
+
+
+    document
+      .getElementById(
+        'btnCleanupDeleteSelected'
+      )
+      .addEventListener(
+        'click',
+        deleteSelectedUsers
+      );
+  }
+
+
+  function ensureCreatedAtColumn() {
+
+    try {
+
+      if (
+        Array.isArray(
+          USER_COLS
+        ) &&
+        !USER_COLS.includes(
+          'created_at'
+        )
+      ) {
+
+        USER_COLS.push(
+          'created_at'
+        );
+
+        sessionStorage.setItem(
+          K_USER_COLS,
+          JSON.stringify(
+            USER_COLS
+          )
+        );
+
+
+        const input =
+          document.querySelector(
+            '#uCols input[value="created_at"]'
+          );
+
+        if (input) {
+
+          input.checked =
+            true;
+        }
+      }
+
+    } catch {}
+  }
+
+
+  const originalRenderUsers =
+    renderUsers;
+
+
+  renderUsers =
+    function cleanupAwareRenderUsers() {
+
+      ensureUserCleanupControls();
+
+      ensureCreatedAtColumn();
+
+
+      let original =
+        null;
+
+      let changed =
+        false;
+
+
+      try {
+
+        original =
+          USERS;
+
+        const filtered =
+          original.filter(
+            createdDateMatches
+          );
+
+        USERS =
+          filtered;
+
+        changed =
+          true;
+
+        originalRenderUsers();
+
+      } finally {
+
+        if (changed) {
+
+          USERS =
+            original;
+        }
+      }
+
+
+      pruneSelection();
+
+      decorateUserTable();
+    };
+
+
+  /*
+   * admin.html 側で oninput / onchange に旧 renderUsers の
+   * 関数オブジェクトが直接代入済みなので、ここで新しい
+   * 日付フィルタ対応版へ付け直す。
+   */
+  const userFilterBindings = [
+    ['uSearch', 'oninput'],
+    ['uGroup', 'onchange'],
+    ['uState', 'onchange'],
+    ['uNotify', 'onchange'],
+    ['uQuiz', 'onchange'],
+  ];
+
+
+  for (
+    const [
+      id,
+      prop
+    ] of
+    userFilterBindings
+  ) {
+
+    const node =
+      document.getElementById(
+        id
+      );
+
+    if (node) {
+
+      node[prop] =
+        renderUsers;
+    }
+  }
+
+
+  function decorateUserTable() {
+
+    const rows =
+      visibleUsers();
+
+
+    const trs =
+      [
+        ...userTable
+          .querySelectorAll(
+            'tr'
+          )
+      ];
+
+
+    if (
+      !trs.length
+    ) {
+
+      updateSelectionStatus(
+        rows
+      );
+
+      return;
+    }
+
+
+    const head =
+      trs[0];
+
+
+    if (
+      !head.querySelector(
+        'th[data-cleanup-select-head]'
+      )
+    ) {
+
+      const th =
+        document.createElement(
+          'th'
+        );
+
+      th.dataset.cleanupSelectHead =
+        '1';
+
+      th.textContent =
+        '選択';
+
+      head.insertBefore(
+        th,
+        head.firstChild
+      );
+    }
+
+
+    if (
+      !rows.length
+    ) {
+
+      const empty =
+        trs[1];
+
+      if (
+        empty &&
+        empty.firstElementChild
+      ) {
+
+        empty.firstElementChild.colSpan =
+          Math.max(
+            1,
+            Number(
+              empty.firstElementChild.colSpan ||
+              1
+            ) +
+            1
+          );
+      }
+
+      updateSelectionStatus(
+        rows
+      );
+
+      return;
+    }
+
+
+    const bodyRows =
+      trs.slice(
+        1
+      );
+
+
+    rows.forEach(
+      (
+        user,
+        index
+      ) => {
+
+        const tr =
+          bodyRows[
+            index
+          ];
+
+        if (!tr) {
+
+          return;
+        }
+
+
+        tr.dataset.cleanupMemberId =
+          user.member_id;
+
+
+        let td =
+          tr.querySelector(
+            'td[data-cleanup-select-cell]'
+          );
+
+
+        if (!td) {
+
+          td =
+            document.createElement(
+              'td'
+            );
+
+          td.dataset.cleanupSelectCell =
+            '1';
+
+          tr.insertBefore(
+            td,
+            tr.firstChild
+          );
+        }
+
+
+        td.innerHTML =
+          '';
+
+
+        const input =
+          document.createElement(
+            'input'
+          );
+
+        input.type =
+          'checkbox';
+
+        input.className =
+          'cleanup-check';
+
+        input.checked =
+          selectedUsers.has(
+            user.member_id
+          );
+
+        input.setAttribute(
+          'aria-label',
+          (
+            user.nickname ||
+            '名前未設定'
+          ) +
+          ' を削除対象として選択'
+        );
+
+
+        input.addEventListener(
+          'click',
+          event => {
+
+            event.stopPropagation();
+          }
+        );
+
+        input.addEventListener(
+          'keydown',
+          event => {
+
+            event.stopPropagation();
+          }
+        );
+
+        input.addEventListener(
+          'change',
+          () => {
+
+            if (
+              input.checked
+            ) {
+
+              selectedUsers.add(
+                user.member_id
+              );
+
+            } else {
+
+              selectedUsers.delete(
+                user.member_id
+              );
+            }
+
+            updateSelectionStatus(
+              rows
+            );
+          }
+        );
+
+
+        td.appendChild(
+          input
+        );
+      }
+    );
+
+
+    updateSelectionStatus(
+      rows
+    );
+  }
+
+
+  function updateSelectionStatus(
+    rows =
+      visibleUsers()
+  ) {
+
+    const count =
+      document.getElementById(
+        'cleanupSelectedCount'
+      );
+
+    const button =
+      document.getElementById(
+        'btnCleanupDeleteSelected'
+      );
+
+
+    if (count) {
+
+      count.textContent =
+        selectedUsers.size +
+        '人選択';
+    }
+
+
+    if (button) {
+
+      button.disabled =
+        deleting ||
+        selectedUsers.size ===
+          0;
+    }
+
+
+    if (userMsg) {
+
+      userMsg.textContent =
+        rows.length +
+        '人表示 / 全' +
+        allUsers().length +
+        '人' +
+        (
+          selectedUsers.size
+            ? (
+                ' ／ ' +
+                selectedUsers.size +
+                '人選択'
+              )
+            : ''
+        );
+
+      userMsg.className =
+        'msg ok';
+    }
+  }
+
+
+  async function deleteMembers(
+    memberIds,
+    {
+      single = false
+    } = {}
+  ) {
+
+    if (
+      deleting ||
+      !memberIds.length
+    ) {
+
+      return;
+    }
+
+
+    const map =
+      new Map(
+        allUsers()
+          .map(
+            user => [
+              user.member_id,
+              user,
+            ]
+          )
+      );
+
+
+    const users =
+      memberIds
+        .map(
+          id =>
+            map.get(id) ||
+            {
+              member_id:
+                id,
+
+              nickname:
+                null,
+            }
+        );
+
+
+    const sample =
+      users
+        .slice(
+          0,
+          8
+        )
+        .map(
+          user =>
+            '・' +
+            (
+              user.nickname ||
+              '名前未設定'
+            ) +
+            ' (' +
+            user.member_id +
+            ')'
+        )
+        .join('\n');
+
+
+    const more =
+      users.length > 8
+        ? (
+            '\nほか ' +
+            (
+              users.length -
+              8
+            ) +
+            '人'
+          )
+        : '';
+
+
+    const ok =
+      window.confirm(
+        (
+          single
+            ? 'このユーザーを完全に削除します。'
+            : users.length +
+              '人のユーザーを完全に削除します。'
+        ) +
+        '\n\n' +
+        sample +
+        more +
+        '\n\n体重記録・ライバル・ブロック・投票・Push・公開設定・外部連携同意・プロフィール画像等の関連データも削除されます。' +
+        '\n対象ユーザーが通常グループのオーナーの場合、その所有グループも解散します。' +
+        '\n\nこの操作は元に戻せません。続行しますか？'
+      );
+
+
+    if (!ok) {
+
+      return;
+    }
+
+
+    const typed =
+      window.prompt(
+        '最終確認です。実行する場合は「削除」と入力してください。'
+      );
+
+
+    if (
+      typed !==
+        '削除'
+    ) {
+
+      return;
+    }
+
+
+    deleting =
+      true;
+
+    updateSelectionStatus();
+
+
+    if (userMsg) {
+
+      userMsg.textContent =
+        '削除中… 0 / ' +
+        memberIds.length;
+
+      userMsg.className =
+        'msg';
+    }
+
+
+    const succeeded =
+      [];
+
+    const failed =
+      [];
+
+
+    for (
+      let i = 0;
+      i < memberIds.length;
+      i++
+    ) {
+
+      const memberId =
+        memberIds[i];
+
+
+      try {
+
+        await jsonApi(
+          '/api/admin/users/' +
+          encodeURIComponent(
+            memberId
+          ),
+          'DELETE',
+          {
+            confirm_member_id:
+              memberId,
+          }
+        );
+
+        succeeded.push(
+          memberId
+        );
+
+        selectedUsers.delete(
+          memberId
+        );
+
+      } catch (
+        error
+      ) {
+
+        failed.push(
+          {
+            member_id:
+              memberId,
+
+            error:
+              errorText(
+                error
+              ),
+          }
+        );
+      }
+
+
+      if (userMsg) {
+
+        userMsg.textContent =
+          '削除中… ' +
+          (
+            i +
+            1
+          ) +
+          ' / ' +
+          memberIds.length;
+      }
+    }
+
+
+    deleting =
+      false;
+
+
+    try {
+
+      if (
+        typeof CURRENT_USER !==
+          'undefined' &&
+        succeeded.includes(
+          CURRENT_USER
+        ) &&
+        typeof closeUserDetail ===
+          'function'
+      ) {
+
+        closeUserDetail();
+      }
+
+    } catch {}
+
+
+    try {
+
+      if (
+        typeof loadGroups ===
+          'function'
+      ) {
+
+        await loadGroups();
+      }
+
+      if (
+        typeof loadUsers ===
+          'function'
+      ) {
+
+        await loadUsers();
+      }
+
+    } catch (
+      error
+    ) {
+
+      failed.push(
+        {
+          member_id:
+            '再読み込み',
+
+          error:
+            errorText(
+              error
+            ),
+        }
+      );
+    }
+
+
+    try {
+
+      if (
+        typeof loadExternalGroupStates ===
+          'function'
+      ) {
+
+        await loadExternalGroupStates();
+      }
+
+    } catch {}
+
+
+    const failText =
+      failed.length
+        ? (
+            '\n失敗：\n' +
+            failed
+              .map(
+                item =>
+                  item.member_id +
+                  '：' +
+                  item.error
+              )
+              .join('\n')
+          )
+        : '';
+
+
+    if (userMsg) {
+
+      userMsg.textContent =
+        succeeded.length +
+        '人を削除しました。' +
+        (
+          failed.length
+            ? (
+                ' ' +
+                failed.length +
+                '件失敗。'
+              )
+            : ''
+        ) +
+        failText;
+
+      userMsg.className =
+        'msg ' +
+        (
+          failed.length
+            ? 'ng'
+            : 'ok'
+        );
+    }
+
+
+  }
+
+
+  async function deleteSelectedUsers() {
+
+    await deleteMembers(
+      [
+        ...selectedUsers
+      ]
+    );
+  }
+
+
+  /* ============================================================
+     ユーザー詳細：個別削除
+     ============================================================ */
+
+  function ensureUserDeleteCard() {
+
+    let card =
+      document.getElementById(
+        'uAdminDeleteCard'
+      );
+
+    if (card) {
+
+      return card;
+    }
+
+
+    card =
+      document.createElement(
+        'div'
+      );
+
+    card.id =
+      'uAdminDeleteCard';
+
+    card.className =
+      'detail-card full';
+
+    card.innerHTML =
+      `
+        <h3>
+          管理者：ユーザー削除
+        </h3>
+
+        <div class="detail-actions">
+          <button
+            id="btnAdminDeleteUser"
+            class="cleanup-danger strong"
+            type="button"
+          >
+            このユーザーを削除
+          </button>
+        </div>
+
+        <div class="small-note">
+          テストアカウント等を完全削除するための管理機能です。
+          通常の利用者を誤って削除しないでください。
+        </div>
+      `;
+
+
+    detailBody.appendChild(
+      card
+    );
+
+
+    card
+      .querySelector(
+        '#btnAdminDeleteUser'
+      )
+      .addEventListener(
+        'click',
+        async () => {
+
+          let memberId =
+            null;
+
+          try {
+
+            memberId =
+              CURRENT_USER ||
+              null;
+
+          } catch {}
+
+
+          if (!memberId) {
+
+            memberId =
+              String(
+                document.getElementById(
+                  'uDetailId'
+                )?.textContent ||
+                ''
+              )
+                .trim()
+                .toUpperCase();
+          }
+
+
+          if (
+            !/^[0-9A-Z]{6,32}$/
+              .test(
+                memberId ||
+                ''
+              )
+          ) {
+
+            return;
+          }
+
+
+          await deleteMembers(
+            [
+              memberId
+            ],
+            {
+              single:
+                true,
+            }
+          );
+        }
+      );
+
+
+    return card;
+  }
+
+
+  /* ============================================================
+     グループ削除
+     ============================================================ */
+
+  function groupsArray() {
+
+    try {
+
+      return (
+        typeof GROUPS !==
+          'undefined' &&
+        Array.isArray(
+          GROUPS
+        )
+      )
+        ? GROUPS
+        : [];
+
+    } catch {
+
+      return [];
+    }
+  }
+
+
+  function decorateGroupDelete() {
+
+    const groups =
+      groupsArray();
+
+    const trs =
+      [
+        ...groupTable
+          .querySelectorAll(
+            'tr'
+          )
+      ];
+
+
+    if (
+      !trs.length
+    ) {
+
+      return;
+    }
+
+
+    const head =
+      trs[0];
+
+
+    if (
+      !head.querySelector(
+        'th[data-cleanup-group-head]'
+      )
+    ) {
+
+      const th =
+        document.createElement(
+          'th'
+        );
+
+      th.dataset.cleanupGroupHead =
+        '1';
+
+      th.textContent =
+        '削除';
+
+      head.appendChild(
+        th
+      );
+    }
+
+
+    trs
+      .slice(
+        1
+      )
+      .forEach(
+        (
+          tr,
+          index
+        ) => {
+
+          const group =
+            groups[
+              index
+            ];
+
+          if (
+            !group ||
+            !group.id
+          ) {
+
+            return;
+          }
+
+
+          let td =
+            tr.querySelector(
+              'td[data-cleanup-group-cell]'
+            );
+
+          if (!td) {
+
+            td =
+              document.createElement(
+                'td'
+              );
+
+            td.dataset.cleanupGroupCell =
+              '1';
+
+            td.className =
+              'cleanup-delete-cell';
+
+            tr.appendChild(
+              td
+            );
+          }
+
+
+          if (
+            td.dataset.cleanupGroupId ===
+              group.id &&
+            td.firstElementChild
+          ) {
+
+            return;
+          }
+
+
+          td.dataset.cleanupGroupId =
+            group.id;
+
+          td.innerHTML =
+            '';
+
+
+          const button =
+            document.createElement(
+              'button'
+            );
+
+          button.type =
+            'button';
+
+          button.className =
+            'cleanup-danger';
+
+          button.textContent =
+            '削除';
+
+          button.title =
+            'グループを解散して削除';
+
+
+          button.addEventListener(
+            'click',
+            async event => {
+
+              event.preventDefault();
+
+              event.stopPropagation();
+
+              await deleteGroup(
+                group
+              );
+            }
+          );
+
+
+          td.appendChild(
+            button
+          );
+        }
+      );
+  }
+
+
+  async function deleteGroup(
+    group
+  ) {
+
+    if (
+      deleting ||
+      !group ||
+      !group.id
+    ) {
+
+      return;
+    }
+
+
+    const name =
+      group.name ||
+      group.id;
+
+    const code =
+      group.code ||
+      group.id;
+
+
+    const ok =
+      window.confirm(
+        'グループ「' +
+        name +
+        '」を解散して削除します。\n\n' +
+        'コード：' +
+        code +
+        '\n人数：' +
+        Number(
+          group.members ||
+          0
+        ) +
+        '人\n\n' +
+        'メンバーのアカウントと体重記録は削除しません。所属だけ解除して未所属に戻します。\n' +
+        'リーダー・グループBAN・閲覧登録・外部WEB連携設定等のグループ関連情報は削除します。\n\n' +
+        'この操作は元に戻せません。続行しますか？'
+      );
+
+
+    if (!ok) {
+
+      return;
+    }
+
+
+    const typed =
+      window.prompt(
+        '最終確認です。表示されているグループコードを入力してください。\n' +
+        code
+      );
+
+
+    if (
+      !typed ||
+      String(typed)
+        .normalize('NFKC')
+        .replace(
+          /[\s\u3000_\-\u2010-\u2015\u2212\uff0d]/g,
+          ''
+        )
+        .toUpperCase() !==
+        String(group.id)
+          .toUpperCase()
+    ) {
+
+      return;
+    }
+
+
+    deleting =
+      true;
+
+
+    try {
+
+      await jsonApi(
+        '/api/admin/users/groups/' +
+        encodeURIComponent(
+          group.id
+        ),
+        'DELETE',
+        {
+          confirm_group_id:
+            typed,
+        }
+      );
+
+
+      if (
+        typeof loadGroups ===
+          'function'
+      ) {
+
+        await loadGroups();
+      }
+
+
+      if (
+        typeof loadUsers ===
+          'function'
+      ) {
+
+        await loadUsers();
+      }
+
+
+      try {
+
+        if (
+          typeof loadExternalGroupStates ===
+            'function'
+        ) {
+
+          await loadExternalGroupStates();
+        }
+
+      } catch {}
+
+
+      window.alert(
+        'グループ「' +
+        name +
+        '」を削除しました。\nメンバーのアカウントと体重記録は残っています。'
+      );
+
+
+    } catch (
+      error
+    ) {
+
+      window.alert(
+        errorText(
+          error
+        )
+      );
+
+    } finally {
+
+      deleting =
+        false;
+
+      decorateGroupDelete();
+    }
+  }
+
+
+  const groupCleanupObserver =
+    new MutationObserver(
+      decorateGroupDelete
+    );
+
+  groupCleanupObserver.observe(
+    groupTable,
+    {
+      childList:
+        true,
+
+      subtree:
+        true,
+    }
+  );
+
+
+  /* ============================================================
+     エラーメッセージ追加
+     ============================================================ */
+
+  try {
+
+    if (
+      typeof ERR ===
+        'object' &&
+      ERR
+    ) {
+
+      ERR.confirm_required =
+        '削除確認情報が一致しません';
+
+      ERR.operator_delete_not_allowed =
+        '運営アカウントはこの管理削除から消せません';
+
+      ERR.delete_failed =
+        'ユーザー削除に失敗しました';
+    }
+
+  } catch {}
+
+
+  /* ============================================================
+     初期化
+     ============================================================ */
+
+  ensureCleanupCss();
+
+  ensureUserCleanupControls();
+
+  ensureCreatedAtColumn();
+
+  ensureUserDeleteCard();
+
+  decorateGroupDelete();
+
+
+  /*
+   * 既にユーザー一覧が読み込まれている場合にも反映する。
+   */
+  try {
+
+    if (
+      allUsers().length
+    ) {
+
+      renderUsers();
+    }
+
+  } catch {}
+
+})();

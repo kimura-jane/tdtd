@@ -7,13 +7,15 @@
 # App Store Version: 1.0.2
 # iPhone専用
 #
-# 2026-09-08
+# 2026-09-11
 # ・Node / npm 固定
 # ・Xcode固定
 # ・Capacitor依存をpackage.jsonで固定
 # ・package-lock.jsonがあればnpm ci
 # ・lockfile未作成時は生成後npm ci
 # ・operator-ui.js をビルド対象として検証
+# ・iOSアプリの対応言語を日本語に固定
+# ・完成したIPAの日本語設定を再検証
 # ・IPAをApp Store Connectへアップロード
 # ・TestFlight Beta Reviewへの自動提出は行わない
 # ・App Store Reviewへの自動提出は行わない
@@ -601,7 +603,7 @@ workflows:
           echo "OK: iPhone only"
 
 
-      - name: iOS Privacy Usage Description を設定する
+      - name: iOSの日本語設定とPrivacy Usage Descriptionを設定する
 
         script: |
 
@@ -618,6 +620,36 @@ workflows:
             exit 1
 
           fi
+
+
+          # アプリ本体のデフォルト言語を日本語にする。
+          /usr/libexec/PlistBuddy \
+            -c "Set :CFBundleDevelopmentRegion ja" \
+            "$PLIST" \
+          || \
+          /usr/libexec/PlistBuddy \
+            -c "Add :CFBundleDevelopmentRegion string ja" \
+            "$PLIST"
+
+
+          # Web UI側で日本語を管理しているため、
+          # CFBundleLocalizationsで日本語対応を明示する。
+          # 既存値を残して英語扱いになるのを防ぐため、
+          # 一度削除して日本語だけを設定する。
+          /usr/libexec/PlistBuddy \
+            -c "Delete :CFBundleLocalizations" \
+            "$PLIST" \
+          || true
+
+
+          /usr/libexec/PlistBuddy \
+            -c "Add :CFBundleLocalizations array" \
+            "$PLIST"
+
+
+          /usr/libexec/PlistBuddy \
+            -c "Add :CFBundleLocalizations:0 string ja" \
+            "$PLIST"
 
 
           /usr/libexec/PlistBuddy \
@@ -643,6 +675,79 @@ workflows:
 
           plutil -lint \
             "$PLIST"
+
+
+          python3 <<'PY'
+
+          import plistlib
+
+
+          path = (
+              "ios/App/App/Info.plist"
+          )
+
+
+          with open(
+              path,
+              "rb"
+          ) as f:
+
+              plist = plistlib.load(
+                  f
+              )
+
+
+          development_region = (
+              plist.get(
+                  "CFBundleDevelopmentRegion"
+              )
+          )
+
+
+          localizations = (
+              plist.get(
+                  "CFBundleLocalizations"
+              )
+          )
+
+
+          print(
+              "CFBundleDevelopmentRegion =",
+              development_region
+          )
+
+
+          print(
+              "CFBundleLocalizations =",
+              localizations
+          )
+
+
+          if (
+              development_region
+              != "ja"
+          ):
+
+              raise SystemExit(
+                  "ERROR: CFBundleDevelopmentRegion が ja ではありません"
+              )
+
+
+          if (
+              localizations
+              != ["ja"]
+          ):
+
+              raise SystemExit(
+                  "ERROR: CFBundleLocalizations が ['ja'] ではありません"
+              )
+
+
+          print(
+              "OK: iOS language = Japanese"
+          )
+
+          PY
 
 
       - name: CocoaPods
@@ -809,6 +914,163 @@ workflows:
           xcode-project build-ipa \
             --workspace "$CM_BUILD_DIR/$XCODE_WORKSPACE" \
             --scheme "$XCODE_SCHEME"
+
+
+      - name: 完成したIPAの日本語設定を検証する
+
+        script: |
+
+          set -e
+
+
+          IPA="$(
+
+            find \
+              "$CM_BUILD_DIR/ios/App/build/ios/ipa" \
+              -maxdepth 1 \
+              -type f \
+              -name '*.ipa' \
+            | head -n 1
+
+          )"
+
+
+          if [ -z "$IPA" ]; then
+
+            echo "ERROR: IPA が見つかりません"
+
+            exit 1
+
+          fi
+
+
+          echo "IPA=$IPA"
+
+
+          TMP_DIR="$(mktemp -d)"
+
+
+          cleanup() {
+
+            rm -rf "$TMP_DIR"
+
+          }
+
+
+          trap cleanup EXIT
+
+
+          unzip \
+            -q \
+            "$IPA" \
+            -d "$TMP_DIR"
+
+
+          APP_DIR="$(
+
+            find \
+              "$TMP_DIR/Payload" \
+              -maxdepth 1 \
+              -type d \
+              -name '*.app' \
+            | head -n 1
+
+          )"
+
+
+          if [ -z "$APP_DIR" ]; then
+
+            echo "ERROR: IPA内の.appが見つかりません"
+
+            exit 1
+
+          fi
+
+
+          APP_PLIST="$APP_DIR/Info.plist"
+
+
+          if [ ! -f "$APP_PLIST" ]; then
+
+            echo "ERROR: IPA内のInfo.plistが見つかりません"
+
+            exit 1
+
+          fi
+
+
+          python3 \
+            - "$APP_PLIST" \
+            <<'PY'
+
+          import plistlib
+          import sys
+
+
+          path = sys.argv[1]
+
+
+          with open(
+              path,
+              "rb"
+          ) as f:
+
+              plist = plistlib.load(
+                  f
+              )
+
+
+          development_region = (
+              plist.get(
+                  "CFBundleDevelopmentRegion"
+              )
+          )
+
+
+          localizations = (
+              plist.get(
+                  "CFBundleLocalizations"
+              )
+          )
+
+
+          print(
+              "FINAL CFBundleDevelopmentRegion =",
+              development_region
+          )
+
+
+          print(
+              "FINAL CFBundleLocalizations =",
+              localizations
+          )
+
+
+          if (
+              development_region
+              != "ja"
+          ):
+
+              raise SystemExit(
+                  "ERROR: 完成IPAのCFBundleDevelopmentRegionがjaではありません"
+              )
+
+
+          if (
+              localizations
+              != ["ja"]
+          ):
+
+              raise SystemExit(
+                  "ERROR: 完成IPAのCFBundleLocalizationsが['ja']ではありません"
+              )
+
+
+          print(
+              "OK: Final IPA language = Japanese"
+          )
+
+          PY
 
 
     artifacts:

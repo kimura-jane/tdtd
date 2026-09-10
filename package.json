@@ -1,6 +1,6 @@
 {
   "name": "minyase",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "private": true,
   "description": "みんやせ - グループで体重を共有して痩せるアプリ",
   "packageManager": "npm@10.8.2",

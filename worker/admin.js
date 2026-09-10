@@ -21,174 +21,503 @@ import {
 
    2026-09-10
    ・管理画面から1日 / 月曜日の未入力チェック対応
+   ・管理画面の未入力チェックは現在所属者全員を対象
    ============================================================ */
 
-const IMPORT_MAX_BYTES = 2 * 1024 * 1024;   // CSV 取り込みの上限
-const BATCH_SIZE = 50;                      // D1 batch の分割単位
-const DEVICE_ID_RE = /^[A-Za-z0-9_-]{8,64}$/;  // route() の判定と同一
+const IMPORT_MAX_BYTES = 2 * 1024 * 1024;
+const BATCH_SIZE = 50;
+const DEVICE_ID_RE = /^[A-Za-z0-9_-]{8,64}$/;
 const ICON_PREFIX = 'icon/';
 
 /* ---------- 小物 ---------- */
-function iconKey(memberId) { return ICON_PREFIX + memberId + '.jpg'; }
 
-function num(v) { return v === null || v === undefined ? null : Number(v); }
-
-function mask(s) {
-  const t = String(s || '');
-  return t.length <= 10 ? t : t.slice(0, 8) + '…' + t.slice(-2);
+function iconKey(memberId) {
+  return ICON_PREFIX + memberId + '.jpg';
 }
 
+function num(v) {
+  return v === null || v === undefined
+    ? null
+    : Number(v);
+}
+
+function mask(s) {
+  const t =
+    String(s || '');
+
+  return t.length <= 10
+    ? t
+    : t.slice(0, 8) +
+      '…' +
+      t.slice(-2);
+}
+
+
 /* 時間差から中身を推測されないよう長さと全バイトを比較する */
+
 function safeEqual(a, b) {
-  const x = String(a || ''), y = String(b || '');
-  if (x.length !== y.length || x.length === 0) return false;
+  const x =
+    String(a || '');
+
+  const y =
+    String(b || '');
+
+  if (
+    x.length !== y.length ||
+    x.length === 0
+  ) {
+    return false;
+  }
+
   let d = 0;
-  for (let i = 0; i < x.length; i++) d |= x.charCodeAt(i) ^ y.charCodeAt(i);
+
+  for (
+    let i = 0;
+    i < x.length;
+    i++
+  ) {
+    d |=
+      x.charCodeAt(i) ^
+      y.charCodeAt(i);
+  }
+
   return d === 0;
 }
 
+
 function adminOk(req, env) {
-  const want = String(env.ADMIN_TOKEN || '');
-  if (!want) return null;                       // 未設定は 503 にする
-  const h = String(req.headers.get('authorization') || '').trim();
-  const m = /^Bearer\s+(.+)$/i.exec(h);
-  const got = m ? m[1].trim() : String(req.headers.get('x-admin-token') || '').trim();
-  return safeEqual(got, want);
+  const want =
+    String(env.ADMIN_TOKEN || '');
+
+  if (!want) {
+    return null;
+  }
+
+  const h =
+    String(
+      req.headers.get(
+        'authorization'
+      ) || ''
+    )
+      .trim();
+
+  const m =
+    /^Bearer\s+(.+)$/i.exec(h);
+
+  const got =
+    m
+      ? m[1].trim()
+      : String(
+          req.headers.get(
+            'x-admin-token'
+          ) || ''
+        )
+          .trim();
+
+  return safeEqual(
+    got,
+    want
+  );
 }
+
 
 /* 日付の正規化。YYYY-MM-DD / YYYY/M/D / YYYYMMDD を受ける */
+
 function normYmd(raw) {
-  const s = String(raw || '').trim();
-  let m = /^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})$/.exec(s);
-  if (!m) m = /^(\d{4})(\d{2})(\d{2})$/.exec(s);
-  if (!m) return null;
-  const y = Number(m[1]), mo = Number(m[2]), d = Number(m[3]);
-  if (mo < 1 || mo > 12 || d < 1 || d > 31) return null;
-  const dt = new Date(Date.UTC(y, mo - 1, d));
-  if (dt.getUTCFullYear() !== y || dt.getUTCMonth() !== mo - 1 || dt.getUTCDate() !== d) return null;
-  const ymd = `${y}-${String(mo).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-  return isYmd(ymd) ? ymd : null;
+  const s =
+    String(raw || '')
+      .trim();
+
+  let m =
+    /^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})$/
+      .exec(s);
+
+  if (!m) {
+    m =
+      /^(\d{4})(\d{2})(\d{2})$/
+        .exec(s);
+  }
+
+  if (!m) {
+    return null;
+  }
+
+  const y =
+    Number(m[1]);
+
+  const mo =
+    Number(m[2]);
+
+  const d =
+    Number(m[3]);
+
+  if (
+    mo < 1 ||
+    mo > 12 ||
+    d < 1 ||
+    d > 31
+  ) {
+    return null;
+  }
+
+  const dt =
+    new Date(
+      Date.UTC(
+        y,
+        mo - 1,
+        d
+      )
+    );
+
+  if (
+    dt.getUTCFullYear() !== y ||
+    dt.getUTCMonth() !== mo - 1 ||
+    dt.getUTCDate() !== d
+  ) {
+    return null;
+  }
+
+  const ymd =
+    `${y}-${String(mo).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+
+  return isYmd(ymd)
+    ? ymd
+    : null;
 }
 
-function ph(n) { return new Array(n).fill('?').join(','); }
+
+function ph(n) {
+  return new Array(n)
+    .fill('?')
+    .join(',');
+}
+
 
 async function readBodyText(req) {
-  const len = Number(req.headers.get('content-length') || 0);
-  if (len && len > IMPORT_MAX_BYTES) return { error: 'import_too_large' };
-  const t = await req.text();
-  if (t.length > IMPORT_MAX_BYTES) return { error: 'import_too_large' };
-  return { text: t };
+  const len =
+    Number(
+      req.headers.get(
+        'content-length'
+      ) || 0
+    );
+
+  if (
+    len &&
+    len > IMPORT_MAX_BYTES
+  ) {
+    return {
+      error:
+        'import_too_large'
+    };
+  }
+
+  const t =
+    await req.text();
+
+  if (
+    t.length >
+    IMPORT_MAX_BYTES
+  ) {
+    return {
+      error:
+        'import_too_large'
+    };
+  }
+
+  return {
+    text: t
+  };
 }
+
 
 async function readJson(req) {
   try {
-    const b = await req.json();
-    return (b && typeof b === 'object') ? b : {};
+    const b =
+      await req.json();
+
+    return (
+      b &&
+      typeof b === 'object'
+    )
+      ? b
+      : {};
+
   } catch {
     return {};
   }
 }
 
+
 /* ---------- D1 参照 ---------- */
-async function getGroup(env, gid) {
-  return await env.DB.prepare('SELECT * FROM groups WHERE group_id=?').bind(gid).first();
+
+async function getGroup(
+  env,
+  gid
+) {
+  return await env.DB
+    .prepare(
+      'SELECT * FROM groups WHERE group_id=?'
+    )
+    .bind(gid)
+    .first();
 }
 
-async function getMembers(env, gid) {
-  const rs = await env.DB.prepare(
-    `SELECT device_id, member_id, nickname, icon_ver, goal_weight,
-            notify_on, notify_days, notify_hour, joined_at
-       FROM devices WHERE group_id=? AND banned=0
-      ORDER BY joined_at ASC`
-  ).bind(gid).all();
+
+async function getMembers(
+  env,
+  gid
+) {
+  const rs =
+    await env.DB
+      .prepare(`
+        SELECT
+          device_id,
+          member_id,
+          nickname,
+          icon_ver,
+          goal_weight,
+          notify_on,
+          notify_days,
+          notify_hour,
+          joined_at
+
+        FROM devices
+
+        WHERE
+          group_id=?
+          AND banned=0
+
+        ORDER BY joined_at ASC
+      `)
+      .bind(gid)
+      .all();
+
   return rs.results || [];
 }
 
-// index.js の isOwnerOf と同じ判定（owner_id は member_id 運用。旧 device_id 行も拾う）
-function isOwnerOf(group, dev) {
-  return group.owner_id === dev.member_id || group.owner_id === dev.device_id;
+
+// index.js の isOwnerOf と同じ判定
+// owner_id は member_id 運用。旧 device_id 行も拾う
+
+function isOwnerOf(
+  group,
+  dev
+) {
+  return (
+    group.owner_id ===
+      dev.member_id ||
+    group.owner_id ===
+      dev.device_id
+  );
 }
 
+
 /* ---------- 監査ログ ---------- */
+
 async function ensureLogTable(env) {
   try {
-    await env.DB.prepare(
-      `CREATE TABLE IF NOT EXISTS admin_log (
-         ts INTEGER, actor TEXT, action TEXT, group_id TEXT, detail TEXT
-       )`
-    ).run();
+    await env.DB
+      .prepare(`
+        CREATE TABLE IF NOT EXISTS admin_log (
+          ts INTEGER,
+          actor TEXT,
+          action TEXT,
+          group_id TEXT,
+          detail TEXT
+        )
+      `)
+      .run();
+
     return true;
+
   } catch {
     return false;
   }
 }
 
-async function writeLog(env, actor, action, gid, detail) {
+
+async function writeLog(
+  env,
+  actor,
+  action,
+  gid,
+  detail
+) {
   const rec = {
-    ts: Date.now(),
+    ts:
+      Date.now(),
+
     actor,
+
     action,
-    group_id: gid || null,
-    detail: detail || null,
+
+    group_id:
+      gid || null,
+
+    detail:
+      detail || null,
   };
 
   try {
-    await ensureLogTable(env);
-    await env.DB.prepare(
-      'INSERT INTO admin_log (ts,actor,action,group_id,detail) VALUES (?,?,?,?,?)'
-    ).bind(
-      rec.ts,
-      rec.actor,
-      rec.action,
-      rec.group_id,
-      JSON.stringify(rec.detail)
-    ).run();
+    await ensureLogTable(
+      env
+    );
+
+    await env.DB
+      .prepare(`
+        INSERT INTO admin_log (
+          ts,
+          actor,
+          action,
+          group_id,
+          detail
+        )
+        VALUES (?,?,?,?,?)
+      `)
+      .bind(
+        rec.ts,
+        rec.actor,
+        rec.action,
+        rec.group_id,
+        JSON.stringify(
+          rec.detail
+        )
+      )
+      .run();
+
   } catch (e) {
-    console.log('admin_log_failed', JSON.stringify(rec));
+    console.log(
+      'admin_log_failed',
+      JSON.stringify(rec)
+    );
   }
 }
+
 
 /* ============================================================
    ⑤ 日付指定・全員体重＋総重量
    ============================================================ */
 
-async function dayView(env, g, date, fill) {
-  const members = await getMembers(env, g.group_id);
-  const ids = members.map(m => m.device_id);
+async function dayView(
+  env,
+  g,
+  date,
+  fill
+) {
+  const members =
+    await getMembers(
+      env,
+      g.group_id
+    );
 
-  const exact = new Map();
+  const ids =
+    members.map(
+      m =>
+        m.device_id
+    );
+
+  const exact =
+    new Map();
+
 
   if (ids.length) {
-    const rs = await env.DB.prepare(
-      `SELECT device_id, ymd, kg, updated_at FROM weights
-        WHERE device_id IN (${ph(ids.length)}) AND ymd=?`
-    ).bind(...ids, date).all();
+    const rs =
+      await env.DB
+        .prepare(`
+          SELECT
+            device_id,
+            ymd,
+            kg,
+            updated_at
 
-    for (const r of (rs.results || [])) {
-      exact.set(r.device_id, r);
+          FROM weights
+
+          WHERE
+            device_id IN (${ph(ids.length)})
+            AND ymd=?
+        `)
+        .bind(
+          ...ids,
+          date
+        )
+        .all();
+
+    for (
+      const r of
+      (
+        rs.results || []
+      )
+    ) {
+      exact.set(
+        r.device_id,
+        r
+      );
     }
   }
 
-  // &fill=last : 未記録を「その日以前の直近の実測」で補完する
-  const back = new Map();
 
-  if (fill && ids.length) {
-    const rs = await env.DB.prepare(
-      `SELECT device_id, ymd, kg, updated_at FROM (
-         SELECT device_id, ymd, kg, updated_at,
-                ROW_NUMBER() OVER (
-                  PARTITION BY device_id
-                  ORDER BY ymd DESC
-                ) AS rn
-           FROM weights
-          WHERE device_id IN (${ph(ids.length)}) AND ymd <= ?
-       ) WHERE rn = 1`
-    ).bind(...ids, date).all();
+  /*
+   * &fill=last :
+   * 未記録を「その日以前の直近の実測」で補完する
+   */
 
-    for (const r of (rs.results || [])) {
-      back.set(r.device_id, r);
+  const back =
+    new Map();
+
+
+  if (
+    fill &&
+    ids.length
+  ) {
+    const rs =
+      await env.DB
+        .prepare(`
+          SELECT
+            device_id,
+            ymd,
+            kg,
+            updated_at
+
+          FROM (
+            SELECT
+              device_id,
+              ymd,
+              kg,
+              updated_at,
+
+              ROW_NUMBER() OVER (
+                PARTITION BY device_id
+                ORDER BY ymd DESC
+              ) AS rn
+
+            FROM weights
+
+            WHERE
+              device_id IN (${ph(ids.length)})
+              AND ymd <= ?
+          )
+
+          WHERE rn = 1
+        `)
+        .bind(
+          ...ids,
+          date
+        )
+        .all();
+
+    for (
+      const r of
+      (
+        rs.results || []
+      )
+    ) {
+      back.set(
+        r.device_id,
+        r
+      );
     }
   }
+
 
   const rows = [];
   const filledIds = [];
@@ -196,61 +525,126 @@ async function dayView(env, g, date, fill) {
   let total = 0;
   let recorded = 0;
 
-  for (const m of members) {
-    const hit = exact.get(m.device_id);
-    const alt = hit ? null : (fill ? back.get(m.device_id) : null);
-    const src = hit || alt || null;
+
+  for (
+    const m of
+    members
+  ) {
+    const hit =
+      exact.get(
+        m.device_id
+      );
+
+    const alt =
+      hit
+        ? null
+        : (
+            fill
+              ? back.get(
+                  m.device_id
+                )
+              : null
+          );
+
+    const src =
+      hit ||
+      alt ||
+      null;
 
     const kg =
       src
-        ? Number(src.kg)
+        ? Number(
+            src.kg
+          )
         : null;
 
-    if (hit) recorded++;
-
-    if (alt) {
-      filledIds.push(m.member_id);
+    if (hit) {
+      recorded++;
     }
 
-    if (kg !== null) {
+    if (alt) {
+      filledIds.push(
+        m.member_id
+      );
+    }
+
+    if (
+      kg !== null
+    ) {
       total += kg;
     }
 
     rows.push({
-      id: m.member_id,
-      name: m.nickname || null,
-      weight: kg,
-      ymd: src ? src.ymd : null,
-      recordedAt:
-        src && src.updated_at != null
-          ? Number(src.updated_at)
+      id:
+        m.member_id,
+
+      name:
+        m.nickname ||
+        null,
+
+      weight:
+        kg,
+
+      ymd:
+        src
+          ? src.ymd
           : null,
-      filled: !!alt,
+
+      recordedAt:
+        src &&
+        src.updated_at != null
+          ? Number(
+              src.updated_at
+            )
+          : null,
+
+      filled:
+        !!alt,
     });
   }
 
+
   const out = {
     date,
+
     group: {
-      id: g.group_id,
-      name: g.name,
+      id:
+        g.group_id,
+
+      name:
+        g.name,
     },
-    members: rows,
+
+    members:
+      rows,
+
     total:
-      rows.some(r => r.weight !== null)
+      rows.some(
+        r =>
+          r.weight !== null
+      )
         ? round1(total)
         : null,
+
     recorded,
-    count: members.length,
+
+    count:
+      members.length,
   };
 
+
   if (fill) {
-    out.filled = true;
-    out.filled_ids = filledIds;
+    out.filled =
+      true;
+
+    out.filled_ids =
+      filledIds;
   }
+
 
   return out;
 }
+
 
 /* ============================================================
    ⑥ 書き出し
@@ -258,47 +652,80 @@ async function dayView(env, g, date, fill) {
 
 function csvCell(v) {
   const s =
-    v === null || v === undefined
+    v === null ||
+    v === undefined
       ? ''
       : String(v);
 
   return /[",\r\n]/.test(s)
-    ? '"' + s.replace(/"/g, '""') + '"'
+    ? '"' +
+      s.replace(
+        /"/g,
+        '""'
+      ) +
+      '"'
     : s;
 }
 
+
 function asciiSlug(s) {
-  const t = String(s || '')
-    .replace(/[^A-Za-z0-9_-]+/g, '_')
-    .replace(/^_+|_+$/g, '');
+  const t =
+    String(s || '')
+      .replace(
+        /[^A-Za-z0-9_-]+/g,
+        '_'
+      )
+      .replace(
+        /^_+|_+$/g,
+        ''
+      );
 
   return t || 'group';
 }
 
-function dispositionHeader(base, ext) {
+
+function dispositionHeader(
+  base,
+  ext
+) {
   const ascii =
     `minyase_${asciiSlug(base)}_${todayYmdJST().replace(/-/g, '')}.${ext}`;
 
   const utf8 =
     `minyase_${base}_${todayYmdJST().replace(/-/g, '')}.${ext}`;
 
-  return `attachment; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(utf8)}`;
+  return (
+    `attachment; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(utf8)}`
+  );
 }
 
-async function exportCsv(req, env, g, actor) {
-  const members = await getMembers(env, g.group_id);
+
+async function exportCsv(
+  req,
+  env,
+  g,
+  actor
+) {
+  const members =
+    await getMembers(
+      env,
+      g.group_id
+    );
 
   const byDev =
     new Map(
-      members.map(m => [
-        m.device_id,
-        m,
-      ])
+      members.map(
+        m => [
+          m.device_id,
+          m,
+        ]
+      )
     );
 
   const ids =
     members.map(
-      m => m.device_id
+      m =>
+        m.device_id
     );
 
   /*
@@ -310,6 +737,7 @@ async function exportCsv(req, env, g, actor) {
    * 一般ユーザー向け GET /api/export では
    * device_id を絶対に出さない。
    */
+
   const isAdmin =
     actor === 'admin';
 
@@ -321,17 +749,39 @@ async function exportCsv(req, env, g, actor) {
 
   let n = 0;
 
-  if (ids.length) {
-    const rs = await env.DB.prepare(
-      `SELECT device_id, ymd, kg
-         FROM weights
-        WHERE device_id IN (${ph(ids.length)})
-        ORDER BY ymd ASC, device_id ASC`
-    ).bind(...ids).all();
 
-    for (const r of (rs.results || [])) {
+  if (ids.length) {
+    const rs =
+      await env.DB
+        .prepare(`
+          SELECT
+            device_id,
+            ymd,
+            kg
+
+          FROM weights
+
+          WHERE device_id IN (${ph(ids.length)})
+
+          ORDER BY
+            ymd ASC,
+            device_id ASC
+        `)
+        .bind(
+          ...ids
+        )
+        .all();
+
+    for (
+      const r of
+      (
+        rs.results || []
+      )
+    ) {
       const m =
-        byDev.get(r.device_id);
+        byDev.get(
+          r.device_id
+        );
 
       if (!m) {
         continue;
@@ -341,26 +791,48 @@ async function exportCsv(req, env, g, actor) {
         lines.push([
           r.ymd,
           g.group_id,
-          csvCell(g.name),
+          csvCell(
+            g.name
+          ),
           m.member_id,
-          csvCell(m.nickname || ''),
-          csvCell(r.device_id),
-          Number(r.kg).toFixed(1),
-        ].join(','));
+          csvCell(
+            m.nickname || ''
+          ),
+          csvCell(
+            r.device_id
+          ),
+          Number(
+            r.kg
+          )
+            .toFixed(1),
+        ]
+          .join(',')
+        );
+
       } else {
         lines.push([
           r.ymd,
           g.group_id,
-          csvCell(g.name),
+          csvCell(
+            g.name
+          ),
           m.member_id,
-          csvCell(m.nickname || ''),
-          Number(r.kg).toFixed(1),
-        ].join(','));
+          csvCell(
+            m.nickname || ''
+          ),
+          Number(
+            r.kg
+          )
+            .toFixed(1),
+        ]
+          .join(',')
+        );
       }
 
       n++;
     }
   }
+
 
   await writeLog(
     env,
@@ -368,27 +840,37 @@ async function exportCsv(req, env, g, actor) {
     'export_csv',
     g.group_id,
     {
-      rows: n,
-      members: members.length,
-      device_id_included: isAdmin,
+      rows:
+        n,
+
+      members:
+        members.length,
+
+      device_id_included:
+        isAdmin,
     }
   );
 
+
   // Excel で文字化けしないよう BOM を付ける
+
   return new Response(
     '\uFEFF' +
     lines.join('\r\n') +
     '\r\n',
     {
       status: 200,
+
       headers: {
         'content-type':
           'text/csv; charset=utf-8',
+
         'content-disposition':
           dispositionHeader(
             g.name,
             'csv'
           ),
+
         'cache-control':
           'no-store',
       },
@@ -396,179 +878,353 @@ async function exportCsv(req, env, g, actor) {
   );
 }
 
-/* 全バックアップ（管理画面のみ）。
-   device_id は実質パスワードなので含めない。端末の復旧は
-   POST /api/admin/device/swap（member_id 据え置き）で行う。 */
-async function exportJson(req, env, g, actor) {
-  const members = await getMembers(env, g.group_id);
-  const byDev = new Map(members.map(m => [m.device_id, m]));
-  const ids = members.map(m => m.device_id);
 
-  const pick = async (sql, mapper) => {
-    if (!ids.length) return [];
+/*
+ * 全バックアップ（管理画面のみ）。
+ * device_id は実質パスワードなので含めない。
+ * 端末の復旧は POST /api/admin/device/swap
+ * （member_id 据え置き）で行う。
+ */
 
-    const rs =
-      await env.DB
-        .prepare(sql)
-        .bind(...ids)
-        .all();
+async function exportJson(
+  req,
+  env,
+  g,
+  actor
+) {
+  const members =
+    await getMembers(
+      env,
+      g.group_id
+    );
 
-    return (rs.results || [])
-      .map(mapper)
-      .filter(Boolean);
-  };
+  const byDev =
+    new Map(
+      members.map(
+        m => [
+          m.device_id,
+          m
+        ]
+      )
+    );
 
-  const weights = await pick(
-    `SELECT device_id, ymd, kg, updated_at
-       FROM weights
-      WHERE device_id IN (${ph(ids.length)})
-      ORDER BY ymd ASC`,
-    r => {
-      const m = byDev.get(r.device_id);
+  const ids =
+    members.map(
+      m =>
+        m.device_id
+    );
 
-      return m
-        ? {
-            member_id: m.member_id,
-            ymd: r.ymd,
-            kg: Number(r.kg),
-            updated_at: num(r.updated_at),
-          }
-        : null;
-    }
-  );
 
-  const rivals = await pick(
-    `SELECT device_id, rival_member_id
-       FROM rivals
-      WHERE device_id IN (${ph(ids.length)})`,
-    r => {
-      const m = byDev.get(r.device_id);
+  const pick =
+    async (
+      sql,
+      mapper
+    ) => {
+      if (
+        !ids.length
+      ) {
+        return [];
+      }
 
-      return m
-        ? {
-            member_id: m.member_id,
-            rival_member_id: r.rival_member_id,
-          }
-        : null;
-    }
-  );
+      const rs =
+        await env.DB
+          .prepare(sql)
+          .bind(
+            ...ids
+          )
+          .all();
 
-  const blocks = await pick(
-    `SELECT device_id, blocked_member_id
-       FROM blocks
-      WHERE device_id IN (${ph(ids.length)})`,
-    r => {
-      const m = byDev.get(r.device_id);
+      return (
+        rs.results || []
+      )
+        .map(mapper)
+        .filter(Boolean);
+    };
 
-      return m
-        ? {
-            member_id: m.member_id,
-            blocked_member_id: r.blocked_member_id,
-          }
-        : null;
-    }
-  );
 
-  const watching = await pick(
-    `SELECT device_id, group_id
-       FROM watching
-      WHERE device_id IN (${ph(ids.length)})`,
-    r => {
-      const m = byDev.get(r.device_id);
+  const weights =
+    await pick(
+      `
+        SELECT
+          device_id,
+          ymd,
+          kg,
+          updated_at
 
-      return m
-        ? {
-            member_id: m.member_id,
-            group_id: r.group_id,
-          }
-        : null;
-    }
-  );
+        FROM weights
+
+        WHERE
+          device_id IN (${ph(ids.length)})
+
+        ORDER BY ymd ASC
+      `,
+      r => {
+        const m =
+          byDev.get(
+            r.device_id
+          );
+
+        return m
+          ? {
+              member_id:
+                m.member_id,
+
+              ymd:
+                r.ymd,
+
+              kg:
+                Number(
+                  r.kg
+                ),
+
+              updated_at:
+                num(
+                  r.updated_at
+                ),
+            }
+          : null;
+      }
+    );
+
+
+  const rivals =
+    await pick(
+      `
+        SELECT
+          device_id,
+          rival_member_id
+
+        FROM rivals
+
+        WHERE
+          device_id IN (${ph(ids.length)})
+      `,
+      r => {
+        const m =
+          byDev.get(
+            r.device_id
+          );
+
+        return m
+          ? {
+              member_id:
+                m.member_id,
+
+              rival_member_id:
+                r.rival_member_id,
+            }
+          : null;
+      }
+    );
+
+
+  const blocks =
+    await pick(
+      `
+        SELECT
+          device_id,
+          blocked_member_id
+
+        FROM blocks
+
+        WHERE
+          device_id IN (${ph(ids.length)})
+      `,
+      r => {
+        const m =
+          byDev.get(
+            r.device_id
+          );
+
+        return m
+          ? {
+              member_id:
+                m.member_id,
+
+              blocked_member_id:
+                r.blocked_member_id,
+            }
+          : null;
+      }
+    );
+
+
+  const watching =
+    await pick(
+      `
+        SELECT
+          device_id,
+          group_id
+
+        FROM watching
+
+        WHERE
+          device_id IN (${ph(ids.length)})
+      `,
+      r => {
+        const m =
+          byDev.get(
+            r.device_id
+          );
+
+        return m
+          ? {
+              member_id:
+                m.member_id,
+
+              group_id:
+                r.group_id,
+            }
+          : null;
+      }
+    );
+
 
   const bansRs =
     await env.DB
-      .prepare(
-        'SELECT member_id, by_admin, created_at FROM group_bans WHERE group_id=?'
+      .prepare(`
+        SELECT
+          member_id,
+          by_admin,
+          created_at
+
+        FROM group_bans
+
+        WHERE group_id=?
+      `)
+      .bind(
+        g.group_id
       )
-      .bind(g.group_id)
       .all();
 
+
   const body = {
-    app: 'minyase',
-    format_version: 1,
-    exported_at: Date.now(),
+    app:
+      'minyase',
+
+    format_version:
+      1,
+
+    exported_at:
+      Date.now(),
 
     note:
       'device_id は含みません。端末の復旧は /api/admin/device/swap を使ってください。',
 
     group: {
-      group_id: g.group_id,
-      code: fmtCode(g.group_id),
-      name: g.name,
-      owner_id: g.owner_id,
+      group_id:
+        g.group_id,
+
+      code:
+        fmtCode(
+          g.group_id
+        ),
+
+      name:
+        g.name,
+
+      owner_id:
+        g.owner_id,
+
       show_weight:
-        Number(g.show_weight) === 1,
+        Number(
+          g.show_weight
+        ) === 1,
+
       start_ymd:
         g.start_ymd,
+
       max_members:
-        Number(g.max_members || 100),
+        Number(
+          g.max_members || 100
+        ),
+
       created_at:
-        num(g.created_at),
+        num(
+          g.created_at
+        ),
     },
 
     members:
-      members.map(m => ({
-        member_id:
-          m.member_id,
+      members.map(
+        m => ({
+          member_id:
+            m.member_id,
 
-        nickname:
-          m.nickname || null,
+          nickname:
+            m.nickname ||
+            null,
 
-        icon_ver:
-          Number(m.icon_ver || 0),
+          icon_ver:
+            Number(
+              m.icon_ver || 0
+            ),
 
-        goal_weight:
-          num(m.goal_weight),
+          goal_weight:
+            num(
+              m.goal_weight
+            ),
 
-        notify_on:
-          Number(m.notify_on || 0) === 1,
+          notify_on:
+            Number(
+              m.notify_on || 0
+            ) === 1,
 
-        notify_days:
-          Number(m.notify_days || 3),
+          notify_days:
+            Number(
+              m.notify_days || 3
+            ),
 
-        notify_hour:
-          Number(
-            m.notify_hour == null
-              ? 20
-              : m.notify_hour
-          ),
+          notify_hour:
+            Number(
+              m.notify_hour == null
+                ? 20
+                : m.notify_hour
+            ),
 
-        joined_at:
-          num(m.joined_at),
+          joined_at:
+            num(
+              m.joined_at
+            ),
 
-        is_owner:
-          isOwnerOf(g, m),
-      })),
+          is_owner:
+            isOwnerOf(
+              g,
+              m
+            ),
+        })
+      ),
 
     weights,
+
     rivals,
+
     blocks,
+
     watching,
 
     bans:
-      (bansRs.results || []).map(
-        b => ({
-          member_id:
-            b.member_id,
+      (
+        bansRs.results || []
+      )
+        .map(
+          b => ({
+            member_id:
+              b.member_id,
 
-          by_admin:
-            Number(b.by_admin || 0) === 1,
+            by_admin:
+              Number(
+                b.by_admin || 0
+              ) === 1,
 
-          created_at:
-            num(b.created_at),
-        })
-      ),
+            created_at:
+              num(
+                b.created_at
+              ),
+          })
+        ),
   };
+
 
   await writeLog(
     env,
@@ -576,10 +1232,14 @@ async function exportJson(req, env, g, actor) {
     'export_json',
     g.group_id,
     {
-      weights: weights.length,
-      members: members.length,
+      weights:
+        weights.length,
+
+      members:
+        members.length,
     }
   );
+
 
   return new Response(
     JSON.stringify(
@@ -588,7 +1248,9 @@ async function exportJson(req, env, g, actor) {
       2
     ),
     {
-      status: 200,
+      status:
+        200,
+
       headers: {
         'content-type':
           'application/json; charset=utf-8',
@@ -603,6 +1265,7 @@ async function exportJson(req, env, g, actor) {
   );
 }
 
+
 /* ============================================================
    ⑥ 取り込み
    ============================================================ */
@@ -610,7 +1273,10 @@ async function exportJson(req, env, g, actor) {
 function parseCsv(text) {
   const s =
     String(text || '')
-      .replace(/^\uFEFF/, '');
+      .replace(
+        /^\uFEFF/,
+        ''
+      );
 
   const rows = [];
 
@@ -619,31 +1285,49 @@ function parseCsv(text) {
   let q = false;
   let had = false;
 
-  for (let i = 0; i < s.length; i++) {
-    const c = s[i];
+
+  for (
+    let i = 0;
+    i < s.length;
+    i++
+  ) {
+    const c =
+      s[i];
 
     if (q) {
-      if (c === '"') {
-        if (s[i + 1] === '"') {
+      if (
+        c === '"'
+      ) {
+        if (
+          s[i + 1] === '"'
+        ) {
           cur += '"';
           i++;
+
         } else {
           q = false;
         }
+
       } else {
         cur += c;
       }
 
-    } else if (c === '"') {
+    } else if (
+      c === '"'
+    ) {
       q = true;
       had = true;
 
-    } else if (c === ',') {
+    } else if (
+      c === ','
+    ) {
       row.push(cur);
       cur = '';
       had = true;
 
-    } else if (c === '\n') {
+    } else if (
+      c === '\n'
+    ) {
       row.push(cur);
       rows.push(row);
 
@@ -651,7 +1335,9 @@ function parseCsv(text) {
       cur = '';
       had = false;
 
-    } else if (c === '\r') {
+    } else if (
+      c === '\r'
+    ) {
       /* CRLF の CR は捨てる */
 
     } else {
@@ -659,6 +1345,7 @@ function parseCsv(text) {
       had = true;
     }
   }
+
 
   if (
     had ||
@@ -669,14 +1356,17 @@ function parseCsv(text) {
     rows.push(row);
   }
 
+
   return rows.filter(
     r =>
       r.some(
         c =>
-          String(c).trim() !== ''
+          String(c)
+            .trim() !== ''
       )
   );
 }
+
 
 const COL = {
   member_id: [
@@ -699,6 +1389,7 @@ const COL = {
   ],
 };
 
+
 function headerIndex(head) {
   const norm =
     head.map(
@@ -706,33 +1397,51 @@ function headerIndex(head) {
         String(h || '')
           .trim()
           .toLowerCase()
-          .replace(/^\uFEFF/, '')
+          .replace(
+            /^\uFEFF/,
+            ''
+          )
     );
 
-  const find = keys => {
-    for (const k of keys) {
-      const i =
-        norm.indexOf(k);
 
-      if (i >= 0) {
-        return i;
+  const find =
+    keys => {
+      for (
+        const k of
+        keys
+      ) {
+        const i =
+          norm.indexOf(k);
+
+        if (
+          i >= 0
+        ) {
+          return i;
+        }
       }
-    }
 
-    return -1;
-  };
+      return -1;
+    };
+
 
   return {
     member_id:
-      find(COL.member_id),
+      find(
+        COL.member_id
+      ),
 
     date:
-      find(COL.date),
+      find(
+        COL.date
+      ),
 
     weight:
-      find(COL.weight),
+      find(
+        COL.weight
+      ),
   };
 }
+
 
 async function runImport(
   req,
@@ -742,9 +1451,13 @@ async function runImport(
   dryRun
 ) {
   const bt =
-    await readBodyText(req);
+    await readBodyText(
+      req
+    );
 
-  if (bt.error) {
+  if (
+    bt.error
+  ) {
     return bad(
       req,
       bt.error,
@@ -752,18 +1465,28 @@ async function runImport(
     );
   }
 
-  const rows =
-    parseCsv(bt.text);
 
-  if (rows.length < 2) {
+  const rows =
+    parseCsv(
+      bt.text
+    );
+
+
+  if (
+    rows.length < 2
+  ) {
     return bad(
       req,
       'csv_empty'
     );
   }
 
+
   const idx =
-    headerIndex(rows[0]);
+    headerIndex(
+      rows[0]
+    );
+
 
   if (
     idx.member_id < 0 ||
@@ -776,11 +1499,13 @@ async function runImport(
     );
   }
 
+
   const members =
     await getMembers(
       env,
       g.group_id
     );
+
 
   const byMember =
     new Map(
@@ -792,42 +1517,66 @@ async function runImport(
       )
     );
 
+
   const ids =
     members.map(
-      m => m.device_id
+      m =>
+        m.device_id
     );
 
-  // 既存値（skip 判定用）
+
   const cur =
     new Map();
 
+
   if (ids.length) {
     const rs =
-      await env.DB.prepare(
-        `SELECT device_id, ymd, kg
-           FROM weights
-          WHERE device_id IN (${ph(ids.length)})`
-      ).bind(...ids).all();
+      await env.DB
+        .prepare(`
+          SELECT
+            device_id,
+            ymd,
+            kg
 
-    for (const r of (rs.results || [])) {
+          FROM weights
+
+          WHERE
+            device_id IN (${ph(ids.length)})
+        `)
+        .bind(
+          ...ids
+        )
+        .all();
+
+    for (
+      const r of
+      (
+        rs.results || []
+      )
+    ) {
       cur.set(
-        r.device_id + '|' + r.ymd,
-        Number(r.kg)
+        r.device_id +
+        '|' +
+        r.ymd,
+        Number(
+          r.kg
+        )
       );
     }
   }
+
 
   const today =
     todayYmdJST();
 
   const errors = [];
-
   const plan =
     new Map();
 
   let add = 0;
   let update = 0;
   let skip = 0;
+
 
   for (
     let i = 1;
@@ -853,64 +1602,92 @@ async function runImport(
     const rawKg =
       r[idx.weight];
 
-    const push = code =>
-      errors.push({
-        line,
-        member_id:
-          mid || null,
-        date:
-          String(rawDate || '').trim(),
-        error:
-          code,
-      });
+
+    const push =
+      code =>
+        errors.push({
+          line,
+
+          member_id:
+            mid || null,
+
+          date:
+            String(
+              rawDate || ''
+            )
+              .trim(),
+
+          error:
+            code,
+        });
+
 
     if (!mid) {
-      push('bad_member_id');
+      push(
+        'bad_member_id'
+      );
       continue;
     }
+
 
     const m =
       byMember.get(mid);
 
-    /*
-     * 取り込みは他人の記録を書き換える操作なので、
-     * 在籍中のメンバーだけに限る。
-     */
+
     if (!m) {
-      push('not_in_group');
+      push(
+        'not_in_group'
+      );
       continue;
     }
+
 
     const ymd =
-      normYmd(rawDate);
+      normYmd(
+        rawDate
+      );
+
 
     if (!ymd) {
-      push('bad_ymd');
+      push(
+        'bad_ymd'
+      );
       continue;
     }
 
-    if (ymd > today) {
-      push('future_ymd');
+
+    if (
+      ymd > today
+    ) {
+      push(
+        'future_ymd'
+      );
       continue;
     }
+
 
     const kg =
-      normKg(rawKg);
+      normKg(
+        rawKg
+      );
 
-    if (kg === null) {
-      push('bad_kg');
+
+    if (
+      kg === null
+    ) {
+      push(
+        'bad_kg'
+      );
       continue;
     }
+
 
     const key =
       m.device_id +
       '|' +
       ymd;
 
-    /*
-     * 同じ member_id + date が複数あれば
-     * 後の行を採用
-     */
+
     plan.set(
       key,
       {
@@ -924,16 +1701,30 @@ async function runImport(
     );
   }
 
-  for (const [key, v] of plan) {
+
+  for (
+    const [
+      key,
+      v
+    ] of plan
+  ) {
     const before =
       cur.get(key);
 
-    if (before === undefined) {
+
+    if (
+      before ===
+      undefined
+    ) {
       add++;
 
     } else if (
-      round1(before) !==
-      round1(v.kg)
+      round1(
+        before
+      ) !==
+      round1(
+        v.kg
+      )
     ) {
       update++;
 
@@ -942,9 +1733,13 @@ async function runImport(
     }
   }
 
+
   const result = {
-    ok: true,
-    dryRun: !!dryRun,
+    ok:
+      true,
+
+    dryRun:
+      !!dryRun,
 
     group: {
       id:
@@ -955,7 +1750,9 @@ async function runImport(
     },
 
     add,
+
     update,
+
     skip,
 
     rows:
@@ -964,6 +1761,7 @@ async function runImport(
     errors,
   };
 
+
   if (dryRun) {
     return json(
       req,
@@ -971,12 +1769,17 @@ async function runImport(
     );
   }
 
+
   const now =
     Date.now();
 
   const stmts = [];
 
-  for (const v of plan.values()) {
+
+  for (
+    const v of
+    plan.values()
+  ) {
     const before =
       cur.get(
         v.device_id +
@@ -984,35 +1787,43 @@ async function runImport(
         v.ymd
       );
 
-    /*
-     * 冪等。
-     * 同じ値なら書き込まない
-     */
     if (
       before !== undefined &&
-      round1(before) ===
-      round1(v.kg)
+      round1(
+        before
+      ) ===
+      round1(
+        v.kg
+      )
     ) {
       continue;
     }
 
     stmts.push(
-      env.DB.prepare(
-        `INSERT INTO weights
-           (device_id,ymd,kg,updated_at)
-         VALUES (?,?,?,?)
-         ON CONFLICT(device_id,ymd)
-         DO UPDATE SET
-           kg=excluded.kg,
-           updated_at=excluded.updated_at`
-      ).bind(
-        v.device_id,
-        v.ymd,
-        v.kg,
-        now
-      )
+      env.DB
+        .prepare(`
+          INSERT INTO weights (
+            device_id,
+            ymd,
+            kg,
+            updated_at
+          )
+          VALUES (?,?,?,?)
+
+          ON CONFLICT(device_id,ymd)
+          DO UPDATE SET
+            kg=excluded.kg,
+            updated_at=excluded.updated_at
+        `)
+        .bind(
+          v.device_id,
+          v.ymd,
+          v.kg,
+          now
+        )
     );
   }
+
 
   for (
     let i = 0;
@@ -1027,8 +1838,10 @@ async function runImport(
     );
   }
 
+
   result.applied =
     stmts.length;
+
 
   await writeLog(
     env,
@@ -1037,14 +1850,19 @@ async function runImport(
     g.group_id,
     {
       add,
+
       update,
+
       skip,
+
       applied:
         stmts.length,
+
       errors:
         errors.length,
     }
   );
+
 
   return json(
     req,
@@ -1052,11 +1870,9 @@ async function runImport(
   );
 }
 
+
 /* ============================================================
-   端末の差し替え（管理画面のみ）
-   member_id を据え置いて device_id だけ入れ替える。
-   体重・アイコン(R2は member_id キー)・グループ所属・オーナー権限・
-   他人から見たライバル登録・除名リストがそのまま残る。
+   端末の差し替え
    ============================================================ */
 
 async function deviceLookup(
@@ -1081,6 +1897,7 @@ async function deviceLookup(
     )
       .trim();
 
+
   if (
     !mid &&
     !did
@@ -1090,6 +1907,7 @@ async function deviceLookup(
       'bad_member_id'
     );
   }
+
 
   const dev =
     mid
@@ -1107,6 +1925,7 @@ async function deviceLookup(
           .bind(did)
           .first();
 
+
   if (!dev) {
     return bad(
       req,
@@ -1115,17 +1934,24 @@ async function deviceLookup(
     );
   }
 
+
   const c =
-    await env.DB.prepare(
-      `SELECT
-         COUNT(*) AS n,
-         MIN(ymd) AS a,
-         MAX(ymd) AS b
-       FROM weights
-       WHERE device_id=?`
-    )
-      .bind(dev.device_id)
+    await env.DB
+      .prepare(`
+        SELECT
+          COUNT(*) AS n,
+          MIN(ymd) AS a,
+          MAX(ymd) AS b
+
+        FROM weights
+
+        WHERE device_id=?
+      `)
+      .bind(
+        dev.device_id
+      )
       .first();
+
 
   const g =
     dev.group_id
@@ -1135,20 +1961,25 @@ async function deviceLookup(
         )
       : null;
 
+
   return json(
     req,
     {
-      ok: true,
+      ok:
+        true,
 
       device: {
         member_id:
           dev.member_id,
 
         device_id_masked:
-          mask(dev.device_id),
+          mask(
+            dev.device_id
+          ),
 
         nickname:
-          dev.nickname || null,
+          dev.nickname ||
+          null,
 
         icon_ver:
           Number(
@@ -1161,21 +1992,31 @@ async function deviceLookup(
           ) === 1,
 
         created_at:
-          num(dev.created_at),
+          num(
+            dev.created_at
+          ),
 
         last_seen_at:
-          num(dev.last_seen_at),
+          num(
+            dev.last_seen_at
+          ),
 
         weights:
           Number(
-            c ? c.n : 0
+            c
+              ? c.n
+              : 0
           ),
 
         first_ymd:
-          c ? c.a : null,
+          c
+            ? c.a
+            : null,
 
         last_ymd:
-          c ? c.b : null,
+          c
+            ? c.b
+            : null,
 
         group:
           g
@@ -1198,12 +2039,16 @@ async function deviceLookup(
   );
 }
 
+
 async function deviceSwap(
   req,
   env
 ) {
   const b =
-    await readJson(req);
+    await readJson(
+      req
+    );
+
 
   const mid =
     String(
@@ -1212,14 +2057,17 @@ async function deviceSwap(
       .trim()
       .toUpperCase();
 
+
   const nd =
     String(
       b.new_device_id || ''
     )
       .trim();
 
+
   const force =
     !!b.force;
+
 
   if (!mid) {
     return bad(
@@ -1228,8 +2076,11 @@ async function deviceSwap(
     );
   }
 
+
   if (
-    !DEVICE_ID_RE.test(nd)
+    !DEVICE_ID_RE.test(
+      nd
+    )
   ) {
     return bad(
       req,
@@ -1237,12 +2088,15 @@ async function deviceSwap(
     );
   }
 
+
   const old =
-    await env.DB.prepare(
-      'SELECT * FROM devices WHERE member_id=?'
-    )
+    await env.DB
+      .prepare(
+        'SELECT * FROM devices WHERE member_id=?'
+      )
       .bind(mid)
       .first();
+
 
   if (!old) {
     return bad(
@@ -1251,6 +2105,7 @@ async function deviceSwap(
       404
     );
   }
+
 
   if (
     old.device_id === nd
@@ -1261,8 +2116,11 @@ async function deviceSwap(
     );
   }
 
+
   if (
-    Number(old.banned) === 1 &&
+    Number(
+      old.banned
+    ) === 1 &&
     !force
   ) {
     return bad(
@@ -1272,38 +2130,44 @@ async function deviceSwap(
     );
   }
 
-  /*
-   * 入れ直した端末が作ってしまった新しい行。
-   * 空であることを確かめて先に消す
-   */
+
   const stale =
-    await env.DB.prepare(
-      'SELECT * FROM devices WHERE device_id=?'
-    )
+    await env.DB
+      .prepare(
+        'SELECT * FROM devices WHERE device_id=?'
+      )
       .bind(nd)
       .first();
+
 
   let staleInfo =
     null;
 
+
   if (stale) {
     const c =
-      await env.DB.prepare(
-        'SELECT COUNT(*) AS n FROM weights WHERE device_id=?'
-      )
+      await env.DB
+        .prepare(
+          'SELECT COUNT(*) AS n FROM weights WHERE device_id=?'
+        )
         .bind(nd)
         .first();
 
+
     const n =
       Number(
-        c ? c.n : 0
+        c
+          ? c.n
+          : 0
       );
+
 
     const ownsGroup =
       stale.group_id
-        ? await env.DB.prepare(
-            'SELECT group_id FROM groups WHERE group_id=? AND owner_id=?'
-          )
+        ? await env.DB
+            .prepare(
+              'SELECT group_id FROM groups WHERE group_id=? AND owner_id=?'
+            )
             .bind(
               stale.group_id,
               stale.member_id
@@ -1311,13 +2175,12 @@ async function deviceSwap(
             .first()
         : null;
 
-    /*
-     * 記録が入っている／
-     * グループのオーナーになっている行は
-     * 勝手に消さない
-     */
+
     if (
-      (n > 0 || ownsGroup) &&
+      (
+        n > 0 ||
+        ownsGroup
+      ) &&
       !force
     ) {
       return bad(
@@ -1326,6 +2189,7 @@ async function deviceSwap(
         409
       );
     }
+
 
     staleInfo = {
       member_id:
@@ -1339,120 +2203,156 @@ async function deviceSwap(
     };
   }
 
+
   const now =
     Date.now();
 
   const stmts = [];
 
+
   if (stale) {
     stmts.push(
-      env.DB.prepare(
-        'DELETE FROM weights WHERE device_id=?'
-      ).bind(nd),
+      env.DB
+        .prepare(
+          'DELETE FROM weights WHERE device_id=?'
+        )
+        .bind(nd),
 
-      env.DB.prepare(
-        'DELETE FROM watching WHERE device_id=?'
-      ).bind(nd),
+      env.DB
+        .prepare(
+          'DELETE FROM watching WHERE device_id=?'
+        )
+        .bind(nd),
 
-      env.DB.prepare(
-        'DELETE FROM rivals WHERE device_id=?'
-      ).bind(nd),
+      env.DB
+        .prepare(
+          'DELETE FROM rivals WHERE device_id=?'
+        )
+        .bind(nd),
 
-      env.DB.prepare(
-        'DELETE FROM blocks WHERE device_id=?'
-      ).bind(nd),
+      env.DB
+        .prepare(
+          'DELETE FROM blocks WHERE device_id=?'
+        )
+        .bind(nd),
 
-      env.DB.prepare(
-        'DELETE FROM rivals WHERE rival_member_id=?'
-      ).bind(stale.member_id),
+      env.DB
+        .prepare(
+          'DELETE FROM rivals WHERE rival_member_id=?'
+        )
+        .bind(
+          stale.member_id
+        ),
 
-      env.DB.prepare(
-        'DELETE FROM blocks WHERE blocked_member_id=?'
-      ).bind(stale.member_id),
+      env.DB
+        .prepare(
+          'DELETE FROM blocks WHERE blocked_member_id=?'
+        )
+        .bind(
+          stale.member_id
+        ),
 
-      env.DB.prepare(
-        'DELETE FROM devices WHERE device_id=?'
-      ).bind(nd)
+      env.DB
+        .prepare(
+          'DELETE FROM devices WHERE device_id=?'
+        )
+        .bind(nd)
     );
   }
 
-  /*
-   * device_id を持つ表を全部付け替える
-   */
+
   stmts.push(
-    env.DB.prepare(
-      'UPDATE weights SET device_id=? WHERE device_id=?'
-    ).bind(
-      nd,
-      old.device_id
-    ),
+    env.DB
+      .prepare(
+        'UPDATE weights SET device_id=? WHERE device_id=?'
+      )
+      .bind(
+        nd,
+        old.device_id
+      ),
 
-    env.DB.prepare(
-      'UPDATE watching SET device_id=? WHERE device_id=?'
-    ).bind(
-      nd,
-      old.device_id
-    ),
+    env.DB
+      .prepare(
+        'UPDATE watching SET device_id=? WHERE device_id=?'
+      )
+      .bind(
+        nd,
+        old.device_id
+      ),
 
-    env.DB.prepare(
-      'UPDATE rivals SET device_id=? WHERE device_id=?'
-    ).bind(
-      nd,
-      old.device_id
-    ),
+    env.DB
+      .prepare(
+        'UPDATE rivals SET device_id=? WHERE device_id=?'
+      )
+      .bind(
+        nd,
+        old.device_id
+      ),
 
-    env.DB.prepare(
-      'UPDATE blocks SET device_id=? WHERE device_id=?'
-    ).bind(
-      nd,
-      old.device_id
-    ),
+    env.DB
+      .prepare(
+        'UPDATE blocks SET device_id=? WHERE device_id=?'
+      )
+      .bind(
+        nd,
+        old.device_id
+      ),
 
-    env.DB.prepare(
-      'UPDATE devices SET device_id=?, last_seen_at=? WHERE device_id=?'
-    ).bind(
-      nd,
-      now,
-      old.device_id
-    )
+    env.DB
+      .prepare(
+        'UPDATE devices SET device_id=?, last_seen_at=? WHERE device_id=?'
+      )
+      .bind(
+        nd,
+        now,
+        old.device_id
+      )
   );
+
 
   await env.DB.batch(
     stmts
   );
 
-  /*
-   * 消した新規端末側のアイコンを掃除
-   */
+
   if (
     stale &&
     staleInfo &&
-    staleInfo.member_id !== mid
+    staleInfo.member_id !==
+      mid
   ) {
     try {
-      if (env.ICONS) {
+      if (
+        env.ICONS
+      ) {
         await env.ICONS.delete(
           iconKey(
             staleInfo.member_id
           )
         );
       }
+
     } catch {}
   }
 
+
   const after =
-    await env.DB.prepare(
-      'SELECT * FROM devices WHERE device_id=?'
-    )
+    await env.DB
+      .prepare(
+        'SELECT * FROM devices WHERE device_id=?'
+      )
       .bind(nd)
       .first();
 
+
   const cw =
-    await env.DB.prepare(
-      'SELECT COUNT(*) AS n FROM weights WHERE device_id=?'
-    )
+    await env.DB
+      .prepare(
+        'SELECT COUNT(*) AS n FROM weights WHERE device_id=?'
+      )
       .bind(nd)
       .first();
+
 
   await writeLog(
     env,
@@ -1466,10 +2366,14 @@ async function deviceSwap(
         mid,
 
       old_device_id:
-        mask(old.device_id),
+        mask(
+          old.device_id
+        ),
 
       new_device_id:
-        mask(nd),
+        mask(
+          nd
+        ),
 
       removed_stale:
         staleInfo,
@@ -1479,26 +2383,34 @@ async function deviceSwap(
     }
   );
 
+
   return json(
     req,
     {
-      ok: true,
+      ok:
+        true,
 
       member_id:
         mid,
 
       old_device_id_masked:
-        mask(old.device_id),
+        mask(
+          old.device_id
+        ),
 
       new_device_id_masked:
-        mask(nd),
+        mask(
+          nd
+        ),
 
       removed_stale:
         staleInfo,
 
       weights:
         Number(
-          cw ? cw.n : 0
+          cw
+            ? cw.n
+            : 0
         ),
 
       group_id:
@@ -1509,8 +2421,9 @@ async function deviceSwap(
   );
 }
 
+
 /* ============================================================
-   管理画面 API（route() の bad_device_id 判定より上で呼ぶ）
+   管理画面 API
    ============================================================ */
 
 export async function adminRoute(
@@ -1520,7 +2433,9 @@ export async function adminRoute(
   p,
   m
 ) {
-  if (!env.ADMIN_TOKEN) {
+  if (
+    !env.ADMIN_TOKEN
+  ) {
     return bad(
       req,
       'no_admin_token',
@@ -1528,7 +2443,13 @@ export async function adminRoute(
     );
   }
 
-  if (!adminOk(req, env)) {
+
+  if (
+    !adminOk(
+      req,
+      env
+    )
+  ) {
     return bad(
       req,
       'unauthorized',
@@ -1536,143 +2457,173 @@ export async function adminRoute(
     );
   }
 
-  /* グループ一覧（名前・人数・記録率・合計） */
+
+  /* グループ一覧 */
+
   if (
-    p === '/api/admin/groups' &&
-    m === 'GET'
+    p ===
+      '/api/admin/groups' &&
+    m ===
+      'GET'
   ) {
     const date =
       normYmd(
-        url.searchParams.get('date') || ''
+        url.searchParams.get(
+          'date'
+        ) || ''
       ) ||
       todayYmdJST();
 
+
     const rs =
-      await env.DB.prepare(
-        `SELECT
-           g.group_id,
-           g.name,
-           g.owner_id,
-           g.show_weight,
-           g.start_ymd,
-           g.created_at,
+      await env.DB
+        .prepare(`
+          SELECT
+            g.group_id,
+            g.name,
+            g.owner_id,
+            g.show_weight,
+            g.start_ymd,
+            g.created_at,
 
-           (
-             SELECT COUNT(*)
-             FROM devices d
-             WHERE d.group_id=g.group_id
-               AND d.banned=0
-           ) AS members,
+            (
+              SELECT COUNT(*)
+              FROM devices d
+              WHERE
+                d.group_id=g.group_id
+                AND d.banned=0
+            ) AS members,
 
-           (
-             SELECT COUNT(*)
-             FROM devices d
-             JOIN weights w
-               ON w.device_id=d.device_id
-             WHERE d.group_id=g.group_id
-               AND d.banned=0
-               AND w.ymd=?
-           ) AS recorded,
+            (
+              SELECT COUNT(*)
+              FROM devices d
 
-           (
-             SELECT SUM(w.kg)
-             FROM devices d
-             JOIN weights w
-               ON w.device_id=d.device_id
-             WHERE d.group_id=g.group_id
-               AND d.banned=0
-               AND w.ymd=?
-           ) AS total
+              JOIN weights w
+                ON w.device_id=d.device_id
 
-         FROM groups g
-         ORDER BY g.created_at DESC`
-      )
+              WHERE
+                d.group_id=g.group_id
+                AND d.banned=0
+                AND w.ymd=?
+            ) AS recorded,
+
+            (
+              SELECT SUM(w.kg)
+              FROM devices d
+
+              JOIN weights w
+                ON w.device_id=d.device_id
+
+              WHERE
+                d.group_id=g.group_id
+                AND d.banned=0
+                AND w.ymd=?
+            ) AS total
+
+          FROM groups g
+
+          ORDER BY
+            g.created_at DESC
+        `)
         .bind(
           date,
           date
         )
         .all();
 
+
     return json(
       req,
       {
-        ok: true,
+        ok:
+          true,
 
         date,
 
         groups:
-          (rs.results || [])
-            .map(g => {
-              const members =
-                Number(
-                  g.members || 0
-                );
-
-              const recorded =
-                Number(
-                  g.recorded || 0
-                );
-
-              return {
-                id:
-                  g.group_id,
-
-                code:
-                  fmtCode(
-                    g.group_id
-                  ),
-
-                name:
-                  g.name,
-
-                owner_id:
-                  g.owner_id,
-
-                show_weight:
+          (
+            rs.results || []
+          )
+            .map(
+              g => {
+                const members =
                   Number(
-                    g.show_weight
-                  ) === 1,
+                    g.members || 0
+                  );
 
-                start_ymd:
-                  g.start_ymd,
+                const recorded =
+                  Number(
+                    g.recorded || 0
+                  );
 
-                members,
+                return {
+                  id:
+                    g.group_id,
 
-                recorded,
+                  code:
+                    fmtCode(
+                      g.group_id
+                    ),
 
-                rate:
-                  members
-                    ? Math.round(
-                        recorded /
-                        members *
-                        100
-                      )
-                    : 0,
+                  name:
+                    g.name,
 
-                total:
-                  g.total === null ||
-                  g.total === undefined
-                    ? null
-                    : round1(
-                        Number(
-                          g.total
+                  owner_id:
+                    g.owner_id,
+
+                  show_weight:
+                    Number(
+                      g.show_weight
+                    ) === 1,
+
+                  start_ymd:
+                    g.start_ymd,
+
+                  members,
+
+                  recorded,
+
+                  rate:
+                    members
+                      ? Math.round(
+                          recorded /
+                          members *
+                          100
                         )
-                      ),
-              };
-            }),
+                      : 0,
+
+                  total:
+                    g.total === null ||
+                    g.total === undefined
+                      ? null
+                      : round1(
+                          Number(
+                            g.total
+                          )
+                        ),
+                };
+              }
+            ),
       }
     );
   }
 
-  /* ⑤ 日付ビュー（非公開グループもここからは見える） */
+
+  /* ⑤ 日付ビュー */
+
   if (
-    p === '/api/admin/group/day' &&
-    m === 'GET'
+    p ===
+      '/api/admin/group/day' &&
+    m ===
+      'GET'
   ) {
     const gid =
       normalizeCode(
-        url.searchParams.get('gid') || ''
+        url.searchParams.get(
+          'gid'
+        ) || ''
       );
+
 
     if (!gid) {
       return bad(
@@ -1681,11 +2632,13 @@ export async function adminRoute(
       );
     }
 
+
     const g =
       await getGroup(
         env,
         gid
       );
+
 
     if (!g) {
       return bad(
@@ -1695,14 +2648,21 @@ export async function adminRoute(
       );
     }
 
+
     const date =
       normYmd(
-        url.searchParams.get('date') || ''
+        url.searchParams.get(
+          'date'
+        ) || ''
       ) ||
       todayYmdJST();
 
+
     const fill =
-      url.searchParams.get('fill') === 'last';
+      url.searchParams.get(
+        'fill'
+      ) === 'last';
+
 
     const out =
       await dayView(
@@ -1712,13 +2672,16 @@ export async function adminRoute(
         fill
       );
 
+
     out.ok =
       true;
+
 
     out.show_weight =
       Number(
         g.show_weight
       ) === 1;
+
 
     return json(
       req,
@@ -1726,15 +2689,22 @@ export async function adminRoute(
     );
   }
 
+
   /* 1日 / 月曜日の未入力チェック */
+
   if (
-    p === '/api/admin/group/missing-weights' &&
-    m === 'GET'
+    p ===
+      '/api/admin/group/missing-weights' &&
+    m ===
+      'GET'
   ) {
     const gid =
       normalizeCode(
-        url.searchParams.get('gid') || ''
+        url.searchParams.get(
+          'gid'
+        ) || ''
       );
+
 
     if (!gid) {
       return bad(
@@ -1743,11 +2713,13 @@ export async function adminRoute(
       );
     }
 
+
     const g =
       await getGroup(
         env,
         gid
       );
+
 
     if (!g) {
       return bad(
@@ -1756,42 +2728,70 @@ export async function adminRoute(
         404
       );
     }
+
 
     const built =
       await buildMissingWeightCheck(
         env,
         g,
-        url.searchParams.get('kind') || ''
+        url.searchParams.get(
+          'kind'
+        ) || '',
+        {
+          /*
+           * 管理画面では現在の所属者全員を対象にする。
+           *
+           * 既存のLINEコミュニティを後からアプリへ
+           * 登録したケースでも、月初・月曜日の実測入力を
+           * 現在メンバー全員について確認できるようにする。
+           */
+          include_current_members:
+            true,
+        }
       );
 
-    if (built.error) {
+
+    if (
+      built.error
+    ) {
       return bad(
         req,
         built.error,
-        built.error === 'group_not_found'
+        built.error ===
+          'group_not_found'
           ? 404
           : 400
       );
     }
 
+
     return json(
       req,
       {
-        ok: true,
+        ok:
+          true,
+
         ...built,
       }
     );
   }
 
+
   /* ⑥ 書き出し */
+
   if (
-    p === '/api/admin/export' &&
-    m === 'GET'
+    p ===
+      '/api/admin/export' &&
+    m ===
+      'GET'
   ) {
     const gid =
       normalizeCode(
-        url.searchParams.get('gid') || ''
+        url.searchParams.get(
+          'gid'
+        ) || ''
       );
+
 
     if (!gid) {
       return bad(
@@ -1800,11 +2800,13 @@ export async function adminRoute(
       );
     }
 
+
     const g =
       await getGroup(
         env,
         gid
       );
+
 
     if (!g) {
       return bad(
@@ -1814,14 +2816,20 @@ export async function adminRoute(
       );
     }
 
+
     const fmt =
       String(
-        url.searchParams.get('format') ||
+        url.searchParams.get(
+          'format'
+        ) ||
         'csv'
       )
         .toLowerCase();
 
-    if (fmt === 'json') {
+
+    if (
+      fmt === 'json'
+    ) {
       return await exportJson(
         req,
         env,
@@ -1830,7 +2838,10 @@ export async function adminRoute(
       );
     }
 
-    if (fmt === 'csv') {
+
+    if (
+      fmt === 'csv'
+    ) {
       return await exportCsv(
         req,
         env,
@@ -1839,21 +2850,29 @@ export async function adminRoute(
       );
     }
 
+
     return bad(
       req,
       'bad_format'
     );
   }
 
+
   /* ⑥ 取り込み */
+
   if (
-    p === '/api/admin/import' &&
-    m === 'POST'
+    p ===
+      '/api/admin/import' &&
+    m ===
+      'POST'
   ) {
     const gid =
       normalizeCode(
-        url.searchParams.get('gid') || ''
+        url.searchParams.get(
+          'gid'
+        ) || ''
       );
+
 
     if (!gid) {
       return bad(
@@ -1862,11 +2881,13 @@ export async function adminRoute(
       );
     }
 
+
     const g =
       await getGroup(
         env,
         gid
       );
+
 
     if (!g) {
       return bad(
@@ -1876,8 +2897,12 @@ export async function adminRoute(
       );
     }
 
+
     const dry =
-      url.searchParams.get('dryRun') === '1';
+      url.searchParams.get(
+        'dryRun'
+      ) === '1';
+
 
     return await runImport(
       req,
@@ -1888,10 +2913,14 @@ export async function adminRoute(
     );
   }
 
+
   /* 端末の差し替え */
+
   if (
-    p === '/api/admin/device/lookup' &&
-    m === 'GET'
+    p ===
+      '/api/admin/device/lookup' &&
+    m ===
+      'GET'
   ) {
     return await deviceLookup(
       req,
@@ -1900,9 +2929,12 @@ export async function adminRoute(
     );
   }
 
+
   if (
-    p === '/api/admin/device/swap' &&
-    m === 'POST'
+    p ===
+      '/api/admin/device/swap' &&
+    m ===
+      'POST'
   ) {
     return await deviceSwap(
       req,
@@ -1910,10 +2942,14 @@ export async function adminRoute(
     );
   }
 
-  /* 通報の閲覧 */
+
+  /* 通報 */
+
   if (
-    p === '/api/admin/reports' &&
-    m === 'GET'
+    p ===
+      '/api/admin/reports' &&
+    m ===
+      'GET'
   ) {
     const lim =
       Math.min(
@@ -1921,59 +2957,71 @@ export async function adminRoute(
         Math.max(
           1,
           Number(
-            url.searchParams.get('limit') ||
+            url.searchParams.get(
+              'limit'
+            ) ||
             50
           )
         )
       );
 
+
     const rs =
-      await env.DB.prepare(
-        `SELECT
-           r.reporter_id,
-           r.target_id,
-           r.ymd,
-           r.reason,
-           r.created_at,
-           r.handled,
-           a.nickname AS reporter_name,
-           b.nickname AS target_name
+      await env.DB
+        .prepare(`
+          SELECT
+            r.reporter_id,
+            r.target_id,
+            r.ymd,
+            r.reason,
+            r.created_at,
+            r.handled,
+            a.nickname AS reporter_name,
+            b.nickname AS target_name
 
-         FROM reports r
+          FROM reports r
 
-         LEFT JOIN devices a
-           ON a.member_id=r.reporter_id
+          LEFT JOIN devices a
+            ON a.member_id=r.reporter_id
 
-         LEFT JOIN devices b
-           ON b.member_id=r.target_id
+          LEFT JOIN devices b
+            ON b.member_id=r.target_id
 
-         ORDER BY
-           r.handled ASC,
-           r.created_at DESC
+          ORDER BY
+            r.handled ASC,
+            r.created_at DESC
 
-         LIMIT ?`
-      )
+          LIMIT ?
+        `)
         .bind(lim)
         .all();
+
 
     return json(
       req,
       {
-        ok: true,
+        ok:
+          true,
+
         reports:
           rs.results || [],
       }
     );
   }
 
-  /* 監査ログの閲覧 */
+
+  /* 監査ログ */
+
   if (
-    p === '/api/admin/log' &&
-    m === 'GET'
+    p ===
+      '/api/admin/log' &&
+    m ===
+      'GET'
   ) {
     await ensureLogTable(
       env
     );
+
 
     const lim =
       Math.min(
@@ -1981,34 +3029,48 @@ export async function adminRoute(
         Math.max(
           1,
           Number(
-            url.searchParams.get('limit') ||
+            url.searchParams.get(
+              'limit'
+            ) ||
             100
           )
         )
       );
 
+
     const rs =
-      await env.DB.prepare(
-        'SELECT * FROM admin_log ORDER BY ts DESC LIMIT ?'
-      )
+      await env.DB
+        .prepare(`
+          SELECT *
+          FROM admin_log
+          ORDER BY ts DESC
+          LIMIT ?
+        `)
         .bind(lim)
         .all();
+
 
     return json(
       req,
       {
-        ok: true,
+        ok:
+          true,
+
         log:
           rs.results || [],
       }
     );
   }
 
-  return notFound(req);
+
+  return notFound(
+    req
+  );
 }
 
+
 /* ============================================================
-   一般ユーザー向け（route() の端末チェック通過後に呼ぶ）
+   一般ユーザー向け
    ============================================================ */
 
 async function needPublicOwnedGroup(
@@ -2019,8 +3081,11 @@ async function needPublicOwnedGroup(
 ) {
   const gid =
     gidRaw
-      ? normalizeCode(gidRaw)
+      ? normalizeCode(
+          gidRaw
+        )
       : dev.group_id;
+
 
   if (!gid) {
     return {
@@ -2032,11 +3097,13 @@ async function needPublicOwnedGroup(
     };
   }
 
+
   const g =
     await getGroup(
       env,
       gid
     );
+
 
   if (!g) {
     return {
@@ -2048,6 +3115,7 @@ async function needPublicOwnedGroup(
         ),
     };
   }
+
 
   if (
     !isOwnerOf(
@@ -2065,10 +3133,7 @@ async function needPublicOwnedGroup(
     };
   }
 
-  /*
-   * 非公開グループは
-   * オーナーも他人の体重を見られない
-   */
+
   if (
     Number(
       g.show_weight
@@ -2084,10 +3149,13 @@ async function needPublicOwnedGroup(
     };
   }
 
+
   return {
-    group: g,
+    group:
+      g,
   };
 }
+
 
 export async function memberRoute(
   req,
@@ -2097,16 +3165,23 @@ export async function memberRoute(
   p,
   m
 ) {
+
   /* ⑤ 日付ビュー */
+
   if (
-    p === '/api/group/day' &&
-    m === 'GET'
+    p ===
+      '/api/group/day' &&
+    m ===
+      'GET'
   ) {
     const gid =
       normalizeCode(
-        url.searchParams.get('gid') || ''
+        url.searchParams.get(
+          'gid'
+        ) || ''
       ) ||
       dev.group_id;
+
 
     if (!gid) {
       return bad(
@@ -2115,11 +3190,13 @@ export async function memberRoute(
       );
     }
 
+
     const g =
       await getGroup(
         env,
         gid
       );
+
 
     if (!g) {
       return bad(
@@ -2129,19 +3206,26 @@ export async function memberRoute(
       );
     }
 
+
     if (
       gid !==
       dev.group_id
     ) {
       const w =
-        await env.DB.prepare(
-          'SELECT group_id FROM watching WHERE device_id=? AND group_id=?'
-        )
+        await env.DB
+          .prepare(`
+            SELECT group_id
+            FROM watching
+            WHERE
+              device_id=?
+              AND group_id=?
+          `)
           .bind(
             dev.device_id,
             gid
           )
           .first();
+
 
       if (!w) {
         return bad(
@@ -2151,6 +3235,7 @@ export async function memberRoute(
         );
       }
     }
+
 
     if (
       Number(
@@ -2164,14 +3249,21 @@ export async function memberRoute(
       );
     }
 
+
     const date =
       normYmd(
-        url.searchParams.get('date') || ''
+        url.searchParams.get(
+          'date'
+        ) || ''
       ) ||
       todayYmdJST();
 
+
     const fill =
-      url.searchParams.get('fill') === 'last';
+      url.searchParams.get(
+        'fill'
+      ) === 'last';
+
 
     const out =
       await dayView(
@@ -2181,11 +3273,13 @@ export async function memberRoute(
         fill
       );
 
+
     out.ok =
       true;
 
     out.show_weight =
       true;
+
 
     return json(
       req,
@@ -2193,34 +3287,45 @@ export async function memberRoute(
     );
   }
 
+
   /*
    * ⑥ 書き出し
    * 公開グループのオーナーのみ。
    * CSVだけ。
    * device_id は出さない。
    */
+
   if (
-    p === '/api/export' &&
-    m === 'GET'
+    p ===
+      '/api/export' &&
+    m ===
+      'GET'
   ) {
     const r =
       await needPublicOwnedGroup(
         req,
         env,
         dev,
-        url.searchParams.get('gid')
+        url.searchParams.get(
+          'gid'
+        )
       );
+
 
     if (r.resp) {
       return r.resp;
     }
 
+
     const fmt =
       String(
-        url.searchParams.get('format') ||
+        url.searchParams.get(
+          'format'
+        ) ||
         'csv'
       )
         .toLowerCase();
+
 
     if (
       fmt === 'json'
@@ -2232,6 +3337,7 @@ export async function memberRoute(
       );
     }
 
+
     if (
       fmt !== 'csv'
     ) {
@@ -2241,6 +3347,7 @@ export async function memberRoute(
       );
     }
 
+
     return await exportCsv(
       req,
       env,
@@ -2249,25 +3356,36 @@ export async function memberRoute(
     );
   }
 
-  /* ⑥ 取り込み：公開グループのオーナーのみ */
+
+  /* ⑥ 取り込み */
+
   if (
-    p === '/api/import' &&
-    m === 'POST'
+    p ===
+      '/api/import' &&
+    m ===
+      'POST'
   ) {
     const r =
       await needPublicOwnedGroup(
         req,
         env,
         dev,
-        url.searchParams.get('gid')
+        url.searchParams.get(
+          'gid'
+        )
       );
+
 
     if (r.resp) {
       return r.resp;
     }
 
+
     const dry =
-      url.searchParams.get('dryRun') === '1';
+      url.searchParams.get(
+        'dryRun'
+      ) === '1';
+
 
     return await runImport(
       req,
@@ -2277,6 +3395,7 @@ export async function memberRoute(
       dry
     );
   }
+
 
   return null;
 }

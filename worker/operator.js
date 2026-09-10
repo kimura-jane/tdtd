@@ -16,6 +16,10 @@ import {
   isBanned,
 } from './lib.js';
 
+import {
+  buildMissingWeightCheck,
+} from './index.js';
+
 /* ============================================================
    みんやせ / worker/operator.js
    運営専用グループ管理
@@ -25,6 +29,9 @@ import {
    ・管理グループ数に上限は設けない
    ・運営グループの owner_id は内部固定値で保持する
    ・通常ユーザー用 owner / leader API とは分離する
+
+   2026-09-10
+   ・運営グループの1日 / 月曜日未入力チェック対応
    ============================================================ */
 
 const DEVICE_ID_RE =
@@ -1319,6 +1326,82 @@ async function getGroup(
           env,
           owned.group
         ),
+    }
+  );
+}
+
+
+/* ============================================================
+   体重未入力チェック
+
+   ・運営が所有するグループだけ
+   ・今月1日 / 今週月曜日
+   ・実測体重レコードの有無のみ確認
+   ・体重kgは返さない
+   ============================================================ */
+
+async function missingWeights(
+  req,
+  env,
+  url,
+  rawGroupId
+) {
+
+  const owned =
+    await ownedGroup(
+      env,
+      rawGroupId
+    );
+
+
+  if (
+    owned.error
+  ) {
+
+    return bad(
+      req,
+      owned.error,
+      owned.error ===
+        'group_not_found'
+        ? 404
+        : 400
+    );
+  }
+
+
+  const built =
+    await buildMissingWeightCheck(
+      env,
+      owned.group,
+      url.searchParams.get(
+        'kind'
+      ) ||
+      ''
+    );
+
+
+  if (
+    built.error
+  ) {
+
+    return bad(
+      req,
+      built.error,
+      built.error ===
+        'group_not_found'
+        ? 404
+        : 400
+    );
+  }
+
+
+  return json(
+    req,
+    {
+      ok:
+        true,
+
+      ...built,
     }
   );
 }
@@ -3426,6 +3509,43 @@ export async function operatorRoute(
       req,
       'method_not_allowed',
       405
+    );
+  }
+
+
+  /* ---------- 体重未入力チェック ---------- */
+
+  const missingWeightsMatch =
+    /^\/api\/operator\/groups\/([0-9A-Z]{8})\/missing-weights$/
+      .exec(
+        p
+      );
+
+
+  if (
+    missingWeightsMatch
+  ) {
+
+    if (
+      m !==
+        'GET'
+    ) {
+
+      return bad(
+        req,
+        'method_not_allowed',
+        405
+      );
+    }
+
+
+    return await missingWeights(
+      req,
+      env,
+      url,
+      missingWeightsMatch[
+        1
+      ]
     );
   }
 

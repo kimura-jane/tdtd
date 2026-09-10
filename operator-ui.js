@@ -3,6 +3,10 @@
 /* ============================================================
    みんやせ / operator-ui.js
    運営アカウント専用UI
+
+   2026-09-10
+   ・運営グループの1日 / 月曜日未入力チェック対応
+   ・オープンチャット貼り付け用テキストコピー対応
    ============================================================ */
 
 (() => {
@@ -74,6 +78,9 @@
 
     leader_limit:
       'リーダーは5人までです',
+
+    bad_missing_kind:
+      '確認する日を選び直してください',
 
     server_error:
       'サーバーエラーが発生しました',
@@ -896,6 +903,47 @@
         font-size:18px;
         font-weight:900;
         letter-spacing:.05em;
+      }
+
+      .op-missing-box{
+        padding:14px;
+        border:1px solid #eee7df;
+        border-radius:16px;
+        background:#faf8f5;
+      }
+
+      .op-missing-actions{
+        display:flex;
+        flex-wrap:wrap;
+        gap:8px;
+      }
+
+      .op-missing-status{
+        margin:10px 0 0;
+        color:#716961;
+        font-size:12px;
+        line-height:1.6;
+      }
+
+      .op-missing-output{
+        display:block;
+        width:100%;
+        min-height:180px;
+        margin-top:12px;
+        padding:12px;
+        border:1px solid #ded7cf;
+        border-radius:12px;
+        background:#fff;
+        color:#332f2b;
+        font:inherit;
+        font-size:14px;
+        line-height:1.7;
+        resize:vertical;
+        box-sizing:border-box;
+      }
+
+      .op-missing-copy{
+        margin-top:8px;
       }
 
       .op-danger-zone{
@@ -2311,6 +2359,20 @@
     );
 
 
+    const missingTitle =
+      node(
+        'h3',
+        'op-section-title',
+        '未入力チェック'
+      );
+
+
+    const missing =
+      buildMissingWeightBox(
+        group
+      );
+
+
     const editTitle =
       node(
         'h3',
@@ -2460,6 +2522,8 @@
       codeRow,
       meta,
       summary,
+      missingTitle,
+      missing,
       editTitle,
       edit,
       memberTitle,
@@ -2468,6 +2532,372 @@
       banList,
       danger
     );
+  }
+
+
+  /* ==========================================================
+     未入力チェック
+     ========================================================== */
+
+  function buildMissingWeightBox(
+    group
+  ) {
+
+    const wrap =
+      node(
+        'div',
+        'op-missing-box'
+      );
+
+
+    const note =
+      node(
+        'p',
+        'note',
+        '対象日に実際の体重入力がないメンバーを抽出します。体重の数値は表示しません。'
+      );
+
+
+    note.style.marginTop =
+      '0';
+
+
+    const actions =
+      node(
+        'div',
+        'op-missing-actions'
+      );
+
+
+    const month =
+      node(
+        'button',
+        'ghost sm',
+        '今月1日'
+      );
+
+
+    const monday =
+      node(
+        'button',
+        'ghost sm',
+        '今週月曜日'
+      );
+
+
+    month.type =
+      'button';
+
+    monday.type =
+      'button';
+
+
+    const status =
+      node(
+        'p',
+        'op-missing-status',
+        '確認する日を選んでください。'
+      );
+
+
+    const output =
+      node(
+        'textarea',
+        'op-missing-output'
+      );
+
+
+    output.readOnly =
+      true;
+
+    output.hidden =
+      true;
+
+    output.setAttribute(
+      'aria-label',
+      'オープンチャット用呼びかけテキスト'
+    );
+
+
+    const copy =
+      node(
+        'button',
+        'ghost sm op-missing-copy',
+        'テキストをコピー'
+      );
+
+
+    copy.type =
+      'button';
+
+    copy.hidden =
+      true;
+
+
+    month.onclick =
+      () =>
+        checkMissingWeights(
+          group,
+          'month_start',
+          {
+            month,
+            monday,
+            status,
+            output,
+            copy
+          }
+        );
+
+
+    monday.onclick =
+      () =>
+        checkMissingWeights(
+          group,
+          'monday',
+          {
+            month,
+            monday,
+            status,
+            output,
+            copy
+          }
+        );
+
+
+    copy.onclick =
+      async () => {
+
+        const text =
+          String(
+            output.value ||
+            ''
+          );
+
+
+        if (
+          !text
+        ) {
+
+          return;
+        }
+
+
+        const copied =
+          await copyPlainText(
+            text
+          );
+
+
+        if (
+          copied
+        ) {
+
+          const before =
+            copy.textContent;
+
+
+          copy.textContent =
+            'コピーしました';
+
+
+          setTimeout(
+            () => {
+
+              copy.textContent =
+                before;
+            },
+            1200
+          );
+
+
+        } else {
+
+          await showAlert(
+            'コピーできませんでした',
+            '下のテキスト欄を長押ししてコピーしてください。'
+          );
+
+
+          try {
+
+            output.focus();
+            output.select();
+
+          } catch {}
+        }
+      };
+
+
+    actions.append(
+      month,
+      monday
+    );
+
+
+    wrap.append(
+      note,
+      actions,
+      status,
+      output,
+      copy
+    );
+
+
+    return wrap;
+  }
+
+
+  async function checkMissingWeights(
+    group,
+    kind,
+    ui
+  ) {
+
+    if (
+      !group ||
+      !group.group_id
+    ) {
+
+      return;
+    }
+
+
+    ui.month.disabled =
+      true;
+
+    ui.monday.disabled =
+      true;
+
+    ui.copy.hidden =
+      true;
+
+    ui.output.hidden =
+      true;
+
+    ui.output.value =
+      '';
+
+    ui.status.textContent =
+      '確認中…';
+
+
+    try {
+
+      const data =
+        await api(
+          '/api/operator/groups/' +
+          encodeURIComponent(
+            group.group_id
+          ) +
+          '/missing-weights?kind=' +
+          encodeURIComponent(
+            kind
+          )
+        );
+
+
+      if (
+        data.available ===
+          false
+      ) {
+
+        ui.status.textContent =
+          data.message ||
+          '対象日はグループのスタート日前です。';
+
+        return;
+      }
+
+
+      const text =
+        String(
+          data.text ||
+          ''
+        );
+
+
+      const eligible =
+        Number(
+          data.eligible_count ||
+          0
+        );
+
+
+      const recorded =
+        Number(
+          data.recorded_count ||
+          0
+        );
+
+
+      const missing =
+        Number(
+          data.missing_count ||
+          0
+        );
+
+
+      ui.status.textContent =
+        (
+          String(
+            data.date_label ||
+            data.target_ymd ||
+            ''
+          ) +
+          ' ／ 対象 ' +
+          eligible +
+          '人 ／ 入力済み ' +
+          recorded +
+          '人 ／ 未入力 ' +
+          missing +
+          '人'
+        );
+
+
+      if (
+        !text
+      ) {
+
+        ui.output.hidden =
+          true;
+
+        ui.copy.hidden =
+          true;
+
+        return;
+      }
+
+
+      ui.output.value =
+        text;
+
+      ui.output.hidden =
+        false;
+
+      ui.copy.hidden =
+        false;
+
+
+    } catch (e) {
+
+      ui.status.textContent =
+        emsg(e);
+
+      ui.output.hidden =
+        true;
+
+      ui.copy.hidden =
+        true;
+
+
+    } finally {
+
+      ui.month.disabled =
+        false;
+
+      ui.monday.disabled =
+        false;
+    }
   }
 
 
@@ -3180,6 +3610,129 @@
      コピー
      ========================================================== */
 
+  async function copyPlainText(
+    value
+  ) {
+
+    const text =
+      String(
+        value ||
+        ''
+      );
+
+
+    if (
+      !text
+    ) {
+
+      return false;
+    }
+
+
+    try {
+
+      if (
+        navigator.clipboard &&
+        typeof navigator.clipboard.writeText ===
+          'function'
+      ) {
+
+        await navigator.clipboard.writeText(
+          text
+        );
+
+        return true;
+      }
+
+    } catch {}
+
+
+    let textarea =
+      null;
+
+
+    try {
+
+      textarea =
+        document.createElement(
+          'textarea'
+        );
+
+
+      textarea.value =
+        text;
+
+      textarea.setAttribute(
+        'readonly',
+        ''
+      );
+
+      textarea.style.position =
+        'fixed';
+
+      textarea.style.left =
+        '-9999px';
+
+      textarea.style.top =
+        '0';
+
+      textarea.style.opacity =
+        '0';
+
+
+      document.body.appendChild(
+        textarea
+      );
+
+
+      textarea.focus();
+      textarea.select();
+
+
+      if (
+        typeof textarea.setSelectionRange ===
+          'function'
+      ) {
+
+        textarea.setSelectionRange(
+          0,
+          textarea.value.length
+        );
+      }
+
+
+      const copied =
+        typeof document.execCommand ===
+          'function' &&
+        document.execCommand(
+          'copy'
+        );
+
+
+      textarea.remove();
+
+
+      return !!copied;
+
+
+    } catch {
+
+      if (
+        textarea &&
+        textarea.parentNode
+      ) {
+
+        textarea.parentNode.removeChild(
+          textarea
+        );
+      }
+
+
+      return false;
+    }
+  }
+
+
   async function copyCode(
     raw,
     button
@@ -3191,13 +3744,15 @@
       );
 
 
-    try {
+    const copied =
+      await copyPlainText(
+        code
+      );
 
-      await navigator.clipboard
-        .writeText(
-          code
-        );
 
+    if (
+      copied
+    ) {
 
       if (
         button
@@ -3222,13 +3777,14 @@
       }
 
 
-    } catch {
-
-      await showAlert(
-        '参加コード',
-        code
-      );
+      return;
     }
+
+
+    await showAlert(
+      '参加コード',
+      code
+    );
   }
 
 

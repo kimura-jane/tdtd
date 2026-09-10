@@ -11,7 +11,7 @@ import {
 
 /* ============================================================
    つだつダイエット部 / worker/index.js
-   2026-09-08
+   2026-09-10
 
    リーダー権限（最大5人）対応
    ・オーナーはリーダーの任命／解任ができる
@@ -21,6 +21,12 @@ import {
    2026-09-08
    ・利用停止中でも DELETE /api/me のみ許可
    ・その他のAPIは従来どおり banned 403
+
+   2026-09-10
+   ・オーナー / リーダー向け体重未入力チェック
+   ・今月1日 / 今週月曜日
+   ・実測レコードの有無だけで判定
+   ・体重kgは未入力チェックAPIでは返さない
    ============================================================ */
 
 /* ---------- アイコン設定 ---------- */
@@ -769,6 +775,587 @@ function permStatus(code) {
 }
 
 
+/* ============================================================
+   体重未入力チェック共通処理
+
+   通常オーナー / リーダー、
+   運営アカウント、
+   開発者管理画面の3経路から同じ判定を使う。
+
+   ・kind=month_start → 今月1日
+   ・kind=monday      → 今週月曜日
+   ・JST基準
+   ・現在そのグループに所属
+   ・banned=0
+   ・対象日までに現在の所属が開始している
+   ・対象日にweightsの実測行が無い人だけ未入力
+   ・kg自体は取得も返却もしない
+   ============================================================ */
+
+const MISSING_WEEKDAYS_JA = [
+  '日',
+  '月',
+  '火',
+  '水',
+  '木',
+  '金',
+  '土',
+];
+
+
+function missingTargetYmd(
+  kind
+) {
+  const today =
+    todayYmdJST();
+
+
+  if (
+    kind ===
+      'month_start'
+  ) {
+
+    return (
+      today.slice(
+        0,
+        8
+      ) +
+      '01'
+    );
+  }
+
+
+  if (
+    kind ===
+      'monday'
+  ) {
+
+    const date =
+      new Date(
+        today +
+        'T00:00:00Z'
+      );
+
+
+    const day =
+      date.getUTCDay();
+
+
+    const back =
+      (
+        day +
+        6
+      ) %
+      7;
+
+
+    date.setUTCDate(
+      date.getUTCDate() -
+      back
+    );
+
+
+    return date
+      .toISOString()
+      .slice(
+        0,
+        10
+      );
+  }
+
+
+  return null;
+}
+
+
+function missingDateLabel(
+  ymd
+) {
+  if (
+    !isYmd(
+      ymd
+    )
+  ) {
+
+    return ymd || '';
+  }
+
+
+  const parts =
+    ymd
+      .split('-')
+      .map(Number);
+
+
+  const date =
+    new Date(
+      ymd +
+      'T00:00:00Z'
+    );
+
+
+  const weekday =
+    MISSING_WEEKDAYS_JA[
+      date.getUTCDay()
+    ];
+
+
+  return (
+    parts[1] +
+    '/' +
+    parts[2] +
+    '（' +
+    weekday +
+    '）'
+  );
+}
+
+
+function missingMemberText(
+  row
+) {
+  const nickname =
+    String(
+      (
+        row &&
+        row.nickname
+      ) ||
+      ''
+    )
+      .trim();
+
+
+  if (
+    !nickname
+  ) {
+
+    return (
+      '名前未設定（' +
+      String(
+        (
+          row &&
+          row.member_id
+        ) ||
+        'ID不明'
+      ) +
+      '）'
+    );
+  }
+
+
+  /*
+   * ニックネーム自体に敬称が入っている場合は
+   * 「さんさん」にならないよう追加しない。
+   */
+  if (
+    /(?:さん|ちゃん|くん|君|様)$/
+      .test(
+        nickname
+      )
+  ) {
+
+    return nickname;
+  }
+
+
+  return (
+    nickname +
+    'さん'
+  );
+}
+
+
+export async function buildMissingWeightCheck(
+  env,
+  group,
+  kind
+) {
+  const targetYmd =
+    missingTargetYmd(
+      String(
+        kind ||
+        ''
+      )
+    );
+
+
+  if (
+    !targetYmd
+  ) {
+
+    return {
+      error:
+        'bad_missing_kind'
+    };
+  }
+
+
+  if (
+    !group ||
+    !group.group_id
+  ) {
+
+    return {
+      error:
+        'group_not_found'
+    };
+  }
+
+
+  const groupStart =
+    isYmd(
+      group.start_ymd
+    )
+      ? group.start_ymd
+      : null;
+
+
+  const dateLabel =
+    missingDateLabel(
+      targetYmd
+    );
+
+
+  if (
+    groupStart &&
+    targetYmd <
+      groupStart
+  ) {
+
+    return {
+      available:
+        false,
+
+      kind,
+
+      target_ymd:
+        targetYmd,
+
+      date_label:
+        dateLabel,
+
+      group_id:
+        group.group_id,
+
+      group_name:
+        group.name ||
+        null,
+
+      eligible_count:
+        0,
+
+      recorded_count:
+        0,
+
+      missing_count:
+        0,
+
+      missing:
+        [],
+
+      text:
+        '',
+
+      message:
+        dateLabel +
+        'はグループのスタート日前です。',
+    };
+  }
+
+
+  /*
+   * 対象日の23:59:59.999 JST。
+   *
+   * joined_at は現在の所属開始時刻（Date.now()のms）。
+   * 対象日より後に参加した人は未入力扱いにしない。
+   *
+   * 古いデータ等でjoined_atがNULLなら、
+   * 現在所属しているメンバーとして対象に含める。
+   */
+  const targetEndAt =
+    Date.parse(
+      targetYmd +
+      'T23:59:59.999+09:00'
+    );
+
+
+  const rs =
+    await env.DB
+      .prepare(`
+        SELECT
+          d.device_id,
+          d.member_id,
+          d.nickname,
+          d.joined_at,
+
+          CASE
+            WHEN EXISTS (
+              SELECT 1
+              FROM weights w
+              WHERE
+                w.device_id=d.device_id
+                AND w.ymd=?
+            )
+            THEN 1
+            ELSE 0
+          END AS recorded
+
+        FROM devices d
+
+        WHERE
+          d.group_id=?
+          AND d.banned=0
+
+        ORDER BY
+          CASE
+            WHEN d.joined_at IS NULL
+            THEN 0
+            ELSE 1
+          END ASC,
+          d.joined_at ASC,
+          d.member_id ASC
+      `)
+      .bind(
+        targetYmd,
+        group.group_id
+      )
+      .all();
+
+
+  const currentMembers =
+    rs.results ||
+    [];
+
+
+  const eligible =
+    currentMembers
+      .filter(
+        row => {
+
+          if (
+            row.joined_at ===
+              null ||
+            row.joined_at ===
+              undefined ||
+            row.joined_at ===
+              ''
+          ) {
+
+            return true;
+          }
+
+
+          const joinedAt =
+            Number(
+              row.joined_at
+            );
+
+
+          /*
+           * 値が古い形式などで数値化できない場合、
+           * 誤って未入力対象から落とすより
+           * 現在所属者として含める。
+           */
+          if (
+            !Number.isFinite(
+              joinedAt
+            )
+          ) {
+
+            return true;
+          }
+
+
+          return (
+            joinedAt <=
+            targetEndAt
+          );
+        }
+      );
+
+
+  const missing =
+    eligible
+      .filter(
+        row =>
+          Number(
+            row.recorded ||
+            0
+          ) !==
+          1
+      )
+      .map(
+        row => ({
+          member_id:
+            row.member_id,
+
+          nickname:
+            row.nickname ||
+            null,
+        })
+      );
+
+
+  const recordedCount =
+    eligible.length -
+    missing.length;
+
+
+  const groupName =
+    String(
+      group.name ||
+      'グループ'
+    );
+
+
+  let text;
+
+
+  if (
+    missing.length
+  ) {
+
+    text =
+      (
+        '【' +
+        groupName +
+        '】\n' +
+
+        dateLabel +
+        'の体重入力がまだ確認できていない方です。\n\n' +
+
+        missing
+          .map(
+            row =>
+              '・' +
+              missingMemberText(
+                row
+              )
+          )
+          .join('\n') +
+
+        '\n\n' +
+
+        'みんやせへの入力をお願いします！'
+      );
+
+  } else {
+
+    text =
+      (
+        '【' +
+        groupName +
+        '】\n' +
+
+        dateLabel +
+        'の体重入力は全員確認できました！'
+      );
+  }
+
+
+  return {
+    available:
+      true,
+
+    kind,
+
+    target_ymd:
+      targetYmd,
+
+    date_label:
+      dateLabel,
+
+    group_id:
+      group.group_id,
+
+    group_name:
+      group.name ||
+      null,
+
+    eligible_count:
+      eligible.length,
+
+    recorded_count:
+      recordedCount,
+
+    missing_count:
+      missing.length,
+
+    missing,
+
+    text,
+
+    message:
+      null,
+  };
+}
+
+
+async function missingWeightsForLedGroup(
+  req,
+  env,
+  dev,
+  url
+) {
+  const led =
+    await requireLedGroup(
+      env,
+      dev
+    );
+
+
+  if (
+    led.error
+  ) {
+
+    return bad(
+      req,
+      led.error,
+      permStatus(
+        led.error
+      )
+    );
+  }
+
+
+  const built =
+    await buildMissingWeightCheck(
+      env,
+      led.group,
+      url.searchParams.get(
+        'kind'
+      ) ||
+      ''
+    );
+
+
+  if (
+    built.error
+  ) {
+
+    return bad(
+      req,
+      built.error,
+      built.error ===
+        'group_not_found'
+        ? 404
+        : 400
+    );
+  }
+
+
+  return json(
+    req,
+    {
+      ok:
+        true,
+
+      ...built,
+    }
+  );
+}
+
+
 /* ---------- 端末 ---------- */
 
 async function getDevice(
@@ -1365,6 +1952,24 @@ async function route(
       req,
       env,
       dev
+    );
+  }
+
+
+  /* ---------- 体重未入力チェック ---------- */
+
+  if (
+    p ===
+      '/api/groups/missing-weights' &&
+    m ===
+      'GET'
+  ) {
+
+    return await missingWeightsForLedGroup(
+      req,
+      env,
+      dev,
+      url
     );
   }
 
@@ -2794,8 +3399,6 @@ async function requireOwnedGroup(
     group: g
   };
 }
-
-
 async function patchGroup(
   req,
     env,

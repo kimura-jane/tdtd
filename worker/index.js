@@ -780,14 +780,15 @@ function permStatus(code) {
 
    通常オーナー / リーダー、
    運営アカウント、
-   開発者管理画面の3経路から同じ判定を使う。
+   開発者管理画面の3経路から共通処理を使う。
 
    ・kind=month_start → 今月1日
    ・kind=monday      → 今週月曜日
    ・JST基準
    ・現在そのグループに所属
    ・banned=0
-   ・対象日までに現在の所属が開始している
+   ・通常は対象日までに現在の所属が開始している人だけ
+   ・管理画面は include_current_members=true で現在所属者全員を対象可能
    ・対象日にweightsの実測行が無い人だけ未入力
    ・kg自体は取得も返却もしない
    ============================================================ */
@@ -968,7 +969,8 @@ function missingMemberText(
 export async function buildMissingWeightCheck(
   env,
   group,
-  kind
+  kind,
+  options = {}
 ) {
   const targetYmd =
     missingTargetYmd(
@@ -1000,6 +1002,13 @@ export async function buildMissingWeightCheck(
         'group_not_found'
     };
   }
+
+
+  const includeCurrentMembers =
+    !!(
+      options &&
+      options.include_current_members
+    );
 
 
   const groupStart =
@@ -1067,7 +1076,13 @@ export async function buildMissingWeightCheck(
    * 対象日の23:59:59.999 JST。
    *
    * joined_at は現在の所属開始時刻（Date.now()のms）。
-   * 対象日より後に参加した人は未入力扱いにしない。
+   * 通常経路では対象日より後に参加した人は
+   * 未入力扱いにしない。
+   *
+   * 開発者管理画面では、既存コミュニティを後から
+   * アプリへ登録したケースを確認できるよう、
+   * include_current_members=true の場合だけ
+   * joined_at に関係なく現在所属者全員を対象にする。
    *
    * 古いデータ等でjoined_atがNULLなら、
    * 現在所属しているメンバーとして対象に含める。
@@ -1128,50 +1143,52 @@ export async function buildMissingWeightCheck(
 
 
   const eligible =
-    currentMembers
-      .filter(
-        row => {
+    includeCurrentMembers
+      ? currentMembers
+      : currentMembers
+          .filter(
+            row => {
 
-          if (
-            row.joined_at ===
-              null ||
-            row.joined_at ===
-              undefined ||
-            row.joined_at ===
-              ''
-          ) {
+              if (
+                row.joined_at ===
+                  null ||
+                row.joined_at ===
+                  undefined ||
+                row.joined_at ===
+                  ''
+              ) {
 
-            return true;
-          }
-
-
-          const joinedAt =
-            Number(
-              row.joined_at
-            );
+                return true;
+              }
 
 
-          /*
-           * 値が古い形式などで数値化できない場合、
-           * 誤って未入力対象から落とすより
-           * 現在所属者として含める。
-           */
-          if (
-            !Number.isFinite(
-              joinedAt
-            )
-          ) {
-
-            return true;
-          }
+              const joinedAt =
+                Number(
+                  row.joined_at
+                );
 
 
-          return (
-            joinedAt <=
-            targetEndAt
+              /*
+               * 値が古い形式などで数値化できない場合、
+               * 誤って未入力対象から落とすより
+               * 現在所属者として含める。
+               */
+              if (
+                !Number.isFinite(
+                  joinedAt
+                )
+              ) {
+
+                return true;
+              }
+
+
+              return (
+                joinedAt <=
+                targetEndAt
+              );
+            }
           );
-        }
-      );
 
 
   const missing =
@@ -1212,6 +1229,21 @@ export async function buildMissingWeightCheck(
 
 
   if (
+    eligible.length ===
+      0
+  ) {
+
+    text =
+      (
+        '【' +
+        groupName +
+        '】\n' +
+
+        dateLabel +
+        'の対象となるメンバーはいません。'
+      );
+
+  } else if (
     missing.length
   ) {
 

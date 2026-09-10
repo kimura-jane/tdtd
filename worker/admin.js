@@ -5,6 +5,10 @@ import {
   todayYmdJST, isYmd, ymdToDay, round1, normKg, normalizeCode, fmtCode,
 } from './lib.js';
 
+import {
+  buildMissingWeightCheck,
+} from './index.js';
+
 /* ============================================================
    みんやせ / worker/admin.js
    ⑤日付ビュー ⑥書き出し・取り込み ⑦権限 ＋ 端末差し替え
@@ -14,6 +18,9 @@ import {
      show_weight=0（非公開）: 管理画面のみ
    非公開グループはオーナーも他人の体重を見られない仕様（patchGroup の
    コメント参照）。その約束を export/import で破らないための分岐。
+
+   2026-09-10
+   ・管理画面から1日 / 月曜日の未入力チェック対応
    ============================================================ */
 
 const IMPORT_MAX_BYTES = 2 * 1024 * 1024;   // CSV 取り込みの上限
@@ -1716,6 +1723,63 @@ export async function adminRoute(
     return json(
       req,
       out
+    );
+  }
+
+  /* 1日 / 月曜日の未入力チェック */
+  if (
+    p === '/api/admin/group/missing-weights' &&
+    m === 'GET'
+  ) {
+    const gid =
+      normalizeCode(
+        url.searchParams.get('gid') || ''
+      );
+
+    if (!gid) {
+      return bad(
+        req,
+        'bad_code'
+      );
+    }
+
+    const g =
+      await getGroup(
+        env,
+        gid
+      );
+
+    if (!g) {
+      return bad(
+        req,
+        'group_not_found',
+        404
+      );
+    }
+
+    const built =
+      await buildMissingWeightCheck(
+        env,
+        g,
+        url.searchParams.get('kind') || ''
+      );
+
+    if (built.error) {
+      return bad(
+        req,
+        built.error,
+        built.error === 'group_not_found'
+          ? 404
+          : 400
+      );
+    }
+
+    return json(
+      req,
+      {
+        ok: true,
+        ...built,
+      }
     );
   }
 

@@ -2,7 +2,7 @@
 
 /* ============================================================
    みんやせ / leader.js
-   2026-09-07
+   2026-09-10
 
    ・オーナー / リーダー権限
    ・個別体重非表示
@@ -11,6 +11,7 @@
    ・公開グループ参加前の公開範囲選択
    ・外部WEB連携対象グループの本人同意
    ・ブロック相手を含む管理用メンバー一覧
+   ・1日 / 月曜日の体重未入力チェック
    ============================================================ */
 
 (function () {
@@ -49,6 +50,12 @@
 
     ERR.blocked_relation =
       'ブロック関係にあるため操作できません';
+
+    ERR.bad_missing_kind =
+      '確認する日を選び直してください';
+
+    ERR.group_not_started =
+      '対象日はグループのスタート日前です';
 
   } catch {
     return;
@@ -195,6 +202,11 @@
         );
 
 
+        renderMissingWeightButton(
+          null
+        );
+
+
         return;
       }
 
@@ -265,6 +277,11 @@
 
 
       renderManageMembersButton(
+        g
+      );
+
+
+      renderMissingWeightButton(
         g
       );
     };
@@ -494,6 +511,481 @@
           true
 
       }
+    );
+  }
+
+
+  /* ============================================================
+     体重未入力チェック
+     ============================================================ */
+
+  function renderMissingWeightButton(
+    g
+  ) {
+
+    const tools =
+      document.getElementById(
+        'ownerTools'
+      );
+
+
+    if (
+      !tools
+    ) {
+
+      return;
+    }
+
+
+    let button =
+      document.getElementById(
+        'missingWeightCheck'
+      );
+
+
+    if (
+      !g ||
+      !canManage(
+        g
+      )
+    ) {
+
+      if (
+        button
+      ) {
+
+        button.hidden =
+          true;
+      }
+
+
+      return;
+    }
+
+
+    if (
+      !button
+    ) {
+
+      button =
+        document.createElement(
+          'button'
+        );
+
+
+      button.id =
+        'missingWeightCheck';
+
+
+      button.type =
+        'button';
+
+
+      button.className =
+        'ghost sm';
+
+
+      button.textContent =
+        '未入力チェック';
+
+
+      const bans =
+        document.getElementById(
+          'showBans'
+        );
+
+
+      if (
+        bans
+      ) {
+
+        bans.insertAdjacentElement(
+          'beforebegin',
+          button
+        );
+
+      } else {
+
+        tools.appendChild(
+          button
+        );
+      }
+
+
+      button.onclick =
+        openMissingWeightCheck;
+    }
+
+
+    button.hidden =
+      false;
+  }
+
+
+  async function copyPlainText(
+    value
+  ) {
+
+    const text =
+      String(
+        value ||
+        ''
+      );
+
+
+    if (
+      !text
+    ) {
+
+      return false;
+    }
+
+
+    try {
+
+      if (
+        navigator.clipboard &&
+        typeof navigator.clipboard.writeText ===
+          'function'
+      ) {
+
+        await navigator.clipboard
+          .writeText(
+            text
+          );
+
+
+        return true;
+      }
+
+    } catch {}
+
+
+    let textarea =
+      null;
+
+
+    try {
+
+      textarea =
+        document.createElement(
+          'textarea'
+        );
+
+
+      textarea.value =
+        text;
+
+
+      textarea.setAttribute(
+        'readonly',
+        ''
+      );
+
+
+      textarea.setAttribute(
+        'aria-hidden',
+        'true'
+      );
+
+
+      textarea.style.position =
+        'fixed';
+
+
+      textarea.style.left =
+        '-9999px';
+
+
+      textarea.style.top =
+        '0';
+
+
+      textarea.style.opacity =
+        '0';
+
+
+      textarea.style.pointerEvents =
+        'none';
+
+
+      document.body.appendChild(
+        textarea
+      );
+
+
+      textarea.focus();
+
+
+      textarea.select();
+
+
+      if (
+        typeof textarea.setSelectionRange ===
+          'function'
+      ) {
+
+        textarea.setSelectionRange(
+          0,
+          textarea.value.length
+        );
+      }
+
+
+      const copied =
+        typeof document.execCommand ===
+          'function' &&
+        document.execCommand(
+          'copy'
+        );
+
+
+      textarea.remove();
+
+
+      return !!copied;
+
+    } catch {
+
+      if (
+        textarea &&
+        textarea.parentNode
+      ) {
+
+        textarea.parentNode
+          .removeChild(
+            textarea
+          );
+      }
+
+
+      return false;
+    }
+  }
+
+
+  async function openMissingWeightCheck() {
+
+    const g =
+      cache &&
+      cache.group;
+
+
+    if (
+      !g ||
+      !canManage(
+        g
+      )
+    ) {
+
+      return;
+    }
+
+
+    const selected =
+      await menuSheet(
+
+        '未入力チェック',
+
+        '確認する日を選んでください。対象日に体重を実際に入力していないメンバーだけを確認します。',
+
+        [
+          {
+            label:
+              '今月1日'
+          },
+
+          {
+            label:
+              '今週月曜日'
+          }
+        ]
+
+      );
+
+
+    if (
+      selected <
+        0
+    ) {
+
+      return;
+    }
+
+
+    const kind =
+      selected ===
+        0
+        ? 'month_start'
+        : 'monday';
+
+
+    let data;
+
+
+    try {
+
+      data =
+        await api(
+
+          '/api/groups/missing-weights?kind=' +
+          encodeURIComponent(
+            kind
+          )
+
+        );
+
+    } catch (e) {
+
+      say(
+        el.gmsg2,
+        emsg(
+          e
+        ),
+        false
+      );
+
+
+      return;
+    }
+
+
+    if (
+      !data ||
+      data.available ===
+        false
+    ) {
+
+      await alertSheet(
+
+        '未入力チェック',
+
+        (
+          data &&
+          data.message
+        ) ||
+        '対象日はグループのスタート日前です。',
+
+        '閉じる'
+
+      );
+
+
+      return;
+    }
+
+
+    const text =
+      String(
+        data.text ||
+        ''
+      );
+
+
+    if (
+      !text
+    ) {
+
+      await alertSheet(
+        '未入力チェック',
+        '呼びかけ用テキストを作成できませんでした。',
+        '閉じる'
+      );
+
+
+      return;
+    }
+
+
+    const missing =
+      Number(
+        data.missing_count ||
+        0
+      );
+
+
+    const action =
+      await menuSheet(
+
+        missing > 0
+          ? `未入力 ${missing}人`
+          : '全員入力済み',
+
+        text,
+
+        [
+          {
+            label:
+              'テキストをコピー'
+          }
+        ]
+
+      );
+
+
+    if (
+      action !==
+        0
+    ) {
+
+      return;
+    }
+
+
+    const copied =
+      await copyPlainText(
+        text
+      );
+
+
+    if (
+      copied
+    ) {
+
+      await alertSheet(
+
+        'コピーしました',
+
+        'オープンチャットにそのまま貼り付けできます。',
+
+        '閉じる'
+
+      );
+
+
+      return;
+    }
+
+
+    /*
+     * Clipboard API と execCommand の両方が
+     * 利用できない環境では、
+     * native prompt に全文を出して
+     * 長押しコピーできるようにする。
+     */
+    if (
+      typeof window.prompt ===
+        'function'
+    ) {
+
+      window.prompt(
+        'コピーできなかったため、長押しで全文をコピーしてください。',
+        text
+      );
+
+
+      return;
+    }
+
+
+    await alertSheet(
+
+      'コピーできませんでした',
+
+      text,
+
+      '閉じる'
+
     );
   }
 

@@ -4636,44 +4636,6 @@ const EXTERNAL_BASELINE_YMD =
   '2026-09-01';
 
 
-function isMondayYmd(
-  ymd
-) {
-
-  if (
-    !isYmd(
-      ymd
-    )
-  ) {
-
-    return false;
-  }
-
-  const parts =
-    String(
-      ymd
-    )
-      .split('-')
-      .map(
-        Number
-      );
-
-  const date =
-    new Date(
-      Date.UTC(
-        parts[0],
-        parts[1] - 1,
-        parts[2]
-      )
-    );
-
-  return (
-    date.getUTCDay() ===
-      1
-  );
-}
-
-
 async function effectiveWeightHidden(
   env,
   memberId,
@@ -4811,9 +4773,6 @@ async function buildExternalPayload(
     !dev ||
     !group ||
     !isYmd(
-      measurementDate
-    ) ||
-    !isMondayYmd(
       measurementDate
     )
   ) {
@@ -5017,9 +4976,6 @@ export async function queueExternalAfterWeight(
 
   if (
     !isYmd(
-      measurementDate
-    ) ||
-    !isMondayYmd(
       measurementDate
     )
   ) {

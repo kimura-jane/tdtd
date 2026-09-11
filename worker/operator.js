@@ -1376,7 +1376,11 @@ async function missingWeights(
       url.searchParams.get(
         'kind'
       ) ||
-      ''
+      '',
+      {
+        include_current_members:
+          true,
+      }
     );
 
 

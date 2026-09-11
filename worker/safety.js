@@ -2598,17 +2598,12 @@ function externalSenderConfigured(
 
   return !!(
     String(
-      env.EXTERNAL_PUSH_URL ||
+      env.APP_SYNC_API_URL ||
       ''
     ).trim() &&
 
     String(
-      env.EXTERNAL_PUSH_AUTH_HEADER ||
-      ''
-    ).trim() &&
-
-    String(
-      env.EXTERNAL_PUSH_AUTH_VALUE ||
+      env.APP_SYNC_API_KEY ||
       ''
     ).trim()
   );
@@ -4637,6 +4632,48 @@ export async function processCleanupJobs(
    外部WEB
    ============================================================ */
 
+const EXTERNAL_BASELINE_YMD =
+  '2026-09-01';
+
+
+function isMondayYmd(
+  ymd
+) {
+
+  if (
+    !isYmd(
+      ymd
+    )
+  ) {
+
+    return false;
+  }
+
+  const parts =
+    String(
+      ymd
+    )
+      .split('-')
+      .map(
+        Number
+      );
+
+  const date =
+    new Date(
+      Date.UTC(
+        parts[0],
+        parts[1] - 1,
+        parts[2]
+      )
+    );
+
+  return (
+    date.getUTCDay() ===
+      1
+  );
+}
+
+
 async function effectiveWeightHidden(
   env,
   memberId,
@@ -4698,58 +4735,43 @@ async function effectiveWeightHidden(
 }
 
 
-async function lossUntilDate(
+async function baselineWeight(
   env,
-  deviceId,
-  startYmd,
-  ymd
+  deviceId
 ) {
 
-  const rs =
+  const row =
     await env.DB
       .prepare(`
         SELECT
-          ymd,
           kg
 
         FROM weights
 
         WHERE
           device_id=?
-          AND ymd>=?
-          AND ymd<=?
-
-        ORDER BY ymd ASC
+          AND ymd=?
       `)
       .bind(
         deviceId,
-        startYmd ||
-          '1900-01-01',
-        ymd
+        EXTERNAL_BASELINE_YMD
       )
-      .all();
-
-  const rows =
-    rs.results ||
-    [];
+      .first();
 
   if (
-    !rows.length
+    !row ||
+    !Number.isFinite(
+      Number(
+        row.kg
+      )
+    )
   ) {
 
     return null;
   }
 
-  return round1(
-    Number(
-      rows[0].kg
-    ) -
-    Number(
-      rows[
-        rows.length -
-        1
-      ].kg
-    )
+  return Number(
+    row.kg
   );
 }
 
@@ -4790,6 +4812,9 @@ async function buildExternalPayload(
     !group ||
     !isYmd(
       measurementDate
+    ) ||
+    !isMondayYmd(
+      measurementDate
     )
   ) {
 
@@ -4824,7 +4849,12 @@ async function buildExternalPayload(
       .first();
 
   if (
-    !weight
+    !weight ||
+    !Number.isFinite(
+      Number(
+        weight.kg
+      )
+    )
   ) {
 
     return null;
@@ -4838,7 +4868,10 @@ async function buildExternalPayload(
     );
 
   const base = {
-    member_id:
+    event_type:
+      'upsert',
+
+    user_id:
       dev.member_id,
 
     measurement_date:
@@ -4857,15 +4890,35 @@ async function buildExternalPayload(
     hidden
   ) {
 
+    const baseline =
+      await baselineWeight(
+        env,
+        dev.device_id
+      );
+
+    if (
+      baseline ===
+        null
+    ) {
+
+      return null;
+    }
+
     return {
       ...base,
 
+      weight_kg:
+        null,
+
+      weight_hidden:
+        true,
+
       loss_kg:
-        await lossUntilDate(
-          env,
-          dev.device_id,
-          group.start_ymd,
-          measurementDate
+        round1(
+          baseline -
+          Number(
+            weight.kg
+          )
         ),
     };
   }
@@ -4877,6 +4930,9 @@ async function buildExternalPayload(
       Number(
         weight.kg
       ),
+
+    weight_hidden:
+      false,
   };
 }
 
@@ -4961,6 +5017,9 @@ export async function queueExternalAfterWeight(
 
   if (
     !isYmd(
+      measurementDate
+    ) ||
+    !isMondayYmd(
       measurementDate
     )
   ) {
@@ -5051,7 +5110,7 @@ export async function processExternalQueue(
   );
 
   /*
-   * 相手からURL / header / secretが来るまでは
+   * URL / APIキーが揃うまでは
    * 絶対に送信しない。
    */
   if (
@@ -5225,19 +5284,22 @@ export async function processExternalQueue(
       );
 
       headers.set(
-        String(
-          env.EXTERNAL_PUSH_AUTH_HEADER
-        ),
-        String(
-          env.EXTERNAL_PUSH_AUTH_VALUE
+        'authorization',
+        (
+          'Bearer ' +
+          String(
+            env.APP_SYNC_API_KEY
+          )
+            .trim()
         )
       );
 
       const response =
         await fetch(
           String(
-            env.EXTERNAL_PUSH_URL
-          ),
+            env.APP_SYNC_API_URL
+          )
+            .trim(),
           {
             method:
               'POST',

@@ -1357,7 +1357,12 @@ async function missingWeightsForLedGroup(
       url.searchParams.get(
         'kind'
       ) ||
-      ''
+      '',
+      {
+        include_current_members:
+          led.group.owner_id ===
+          '__MINYASE_OPERATOR__',
+      }
     );
 
 

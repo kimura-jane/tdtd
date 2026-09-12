@@ -8,6 +8,13 @@ workers_dev = true
 # ダッシュボード側の変数・シークレットが消えるのを防ぐ
 keep_vars = true
 
+[observability]
+enabled = true
+
+  [observability.logs]
+  invocation_logs = true
+  head_sampling_rate = 1
+
 [assets]
 directory = "."
 binding = "ASSETS"
@@ -28,6 +35,7 @@ bucket_name = "tdtd-icons"
 [[ratelimits]]
 name = "JOIN_LIMITER"
 namespace_id = "1001"
+
   [ratelimits.simple]
   limit = 5
   period = 60

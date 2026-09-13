@@ -5,8 +5,20 @@
 
    対象5チームの月曜速報表示
    ------------------------------------------------------------
-   ・月曜日：ランキング直前に、その日までの月曜速報を表示
-   ・火曜以降：ランキング下に「過去の月曜日履歴」として表示
+   ・月曜日：
+     ランキング直前に、その日までの月曜速報を表示
+
+   ・火曜以降：
+     ランキング下に「過去の月曜日履歴」として表示
+
+   ・表示内容：
+     総体重
+     9/1からの累計増減
+     前週月曜からの1週間増減
+
+   ・9/7だけは前週月曜が存在しないため
+     「9/1から」のみ表示する
+
    ・集計値は /api/weekly-summary から取得
    ============================================================ */
 
@@ -194,6 +206,20 @@
   }
 
 
+  function hasWeeklyComparison(
+    summary,
+    baselineYmd
+  ) {
+
+    return !!(
+      summary &&
+      summary.week_from_ymd &&
+      summary.week_from_ymd !==
+        baselineYmd
+    );
+  }
+
+
   /* ==========================================================
      API
      ========================================================== */
@@ -312,9 +338,19 @@
   border:1px solid rgba(239,88,196,.18);
   border-radius:19px;
   background:
-    radial-gradient(circle at 100% 0%,rgba(239,88,196,.10),transparent 38%),
-    linear-gradient(180deg,#fff 0%,#fffafc 100%);
-  box-shadow:0 5px 18px rgba(82,57,35,.055)
+    radial-gradient(
+      circle at 100% 0%,
+      rgba(239,88,196,.10),
+      transparent 38%
+    ),
+    linear-gradient(
+      180deg,
+      #fff 0%,
+      #fffafc 100%
+    );
+  box-shadow:
+    0 5px 18px
+    rgba(82,57,35,.055)
 }
 
 .weekly-summary-current-title{
@@ -327,31 +363,39 @@
 
 .weekly-summary-current-list{
   display:grid;
-  gap:8px
+  gap:9px
 }
 
 .weekly-summary-current-row{
-  padding:11px 12px;
-  border:1px solid var(--line2,#f4ede6);
-  border-radius:15px;
-  background:rgba(255,255,255,.88)
+  padding:12px;
+  border:
+    1px solid
+    var(--line2,#f4ede6);
+  border-radius:16px;
+  background:
+    rgba(255,255,255,.90)
 }
 
 .weekly-summary-current-row.is-today{
-  border-color:rgba(239,88,196,.26);
-  background:rgba(255,247,252,.96)
+  border-color:
+    rgba(239,88,196,.28);
+  background:
+    rgba(255,247,252,.97);
+  box-shadow:
+    0 3px 12px
+    rgba(239,88,196,.055)
 }
 
 .weekly-summary-current-head{
   display:flex;
   align-items:center;
   gap:7px;
-  margin-bottom:4px
+  margin-bottom:9px
 }
 
 .weekly-summary-current-date{
   color:var(--ink,#181614);
-  font-size:15px;
+  font-size:16px;
   font-weight:900
 }
 
@@ -368,33 +412,75 @@
   line-height:1
 }
 
-.weekly-summary-current-main{
-  color:var(--ink,#181614);
-  font-size:18px;
-  font-variant-numeric:tabular-nums;
-  font-weight:900;
-  line-height:1.45
+.weekly-summary-stats{
+  display:grid;
+  grid-template-columns:
+    repeat(2,minmax(0,1fr));
+  gap:7px
 }
 
-.weekly-summary-current-main .weekly-summary-slash{
-  padding:0 4px;
-  color:var(--faint,#b6aca3);
-  font-weight:700
+.weekly-summary-stat{
+  min-width:0;
+  padding:9px 10px;
+  border:
+    1px solid
+    var(--line2,#f4ede6);
+  border-radius:13px;
+  background:
+    rgba(255,255,255,.82)
+}
+
+.weekly-summary-stat.total{
+  grid-column:1/-1
+}
+
+.weekly-summary-stat.only{
+  grid-column:1/-1
+}
+
+.weekly-summary-stat small{
+  display:block;
+  margin-bottom:2px;
+  color:var(--sub,#7e756d);
+  font-size:10px;
+  font-weight:700;
+  line-height:1.35
+}
+
+.weekly-summary-stat b{
+  display:block;
+  overflow:hidden;
+  color:var(--ink,#181614);
+  font-size:17px;
+  font-variant-numeric:
+    tabular-nums;
+  font-weight:900;
+  line-height:1.35;
+  text-overflow:ellipsis;
+  white-space:nowrap
+}
+
+.weekly-summary-stat.total b{
+  font-size:20px
 }
 
 .weekly-summary-current-count{
-  margin-top:3px;
+  margin-top:7px;
   color:var(--sub,#7e756d);
   font-size:10px;
-  font-weight:700
+  font-weight:700;
+  line-height:1.45
 }
 
 .weekly-summary-history{
   margin:15px 0 2px;
   padding:13px 14px;
-  border:1px solid var(--line,#eee5dc);
+  border:
+    1px solid
+    var(--line,#eee5dc);
   border-radius:18px;
-  background:rgba(255,255,255,.72)
+  background:
+    rgba(255,255,255,.72)
 }
 
 .weekly-summary-history-title{
@@ -412,11 +498,14 @@
 
 .weekly-summary-history-row{
   display:grid;
-  grid-template-columns:54px 1fr;
-  gap:8px;
-  align-items:center;
-  padding:9px 0;
-  border-top:1px solid var(--line2,#f4ede6)
+  grid-template-columns:
+    54px 1fr;
+  gap:9px;
+  align-items:start;
+  padding:11px 0;
+  border-top:
+    1px solid
+    var(--line2,#f4ede6)
 }
 
 .weekly-summary-history-row:first-child{
@@ -424,35 +513,63 @@
 }
 
 .weekly-summary-history-date{
+  padding-top:1px;
   color:var(--ink2,#4b433d);
-  font-size:12px;
+  font-size:13px;
   font-weight:900
 }
 
 .weekly-summary-history-main{
   min-width:0;
   color:var(--ink,#181614);
-  font-size:13px;
-  font-variant-numeric:tabular-nums;
+  font-size:12px;
+  font-variant-numeric:
+    tabular-nums;
   font-weight:800;
-  line-height:1.45
+  line-height:1.55
+}
+
+.weekly-summary-history-line{
+  display:flex;
+  justify-content:space-between;
+  gap:10px;
+  padding:1px 0
+}
+
+.weekly-summary-history-label{
+  color:var(--sub,#7e756d);
+  font-size:10px;
+  font-weight:700
+}
+
+.weekly-summary-history-value{
+  color:var(--ink,#181614);
+  font-size:12px;
+  font-weight:900;
+  text-align:right
 }
 
 .weekly-summary-history-count{
   display:block;
-  margin-top:1px;
+  margin-top:4px;
   color:var(--sub,#7e756d);
   font-size:9px;
   font-weight:700
 }
 
 @media(max-width:380px){
-  .weekly-summary-current-main{
-    font-size:16px
+
+  .weekly-summary-stat b{
+    font-size:15px
+  }
+
+  .weekly-summary-stat.total b{
+    font-size:18px
   }
 
   .weekly-summary-history-row{
-    grid-template-columns:48px 1fr
+    grid-template-columns:
+      48px 1fr
   }
 }
 `;
@@ -481,7 +598,61 @@
   }
 
 
-  function currentRow(summary, todayYmd) {
+  function makeStat(
+    label,
+    value,
+    className = ''
+  ) {
+
+    const stat =
+      document.createElement(
+        'div'
+      );
+
+
+    stat.className =
+      (
+        'weekly-summary-stat ' +
+        className
+      )
+        .trim();
+
+
+    const small =
+      document.createElement(
+        'small'
+      );
+
+
+    small.textContent =
+      label;
+
+
+    const strong =
+      document.createElement(
+        'b'
+      );
+
+
+    strong.textContent =
+      value;
+
+
+    stat.append(
+      small,
+      strong
+    );
+
+
+    return stat;
+  }
+
+
+  function currentRow(
+    summary,
+    todayYmd,
+    baselineYmd
+  ) {
 
     const row =
       document.createElement(
@@ -560,60 +731,67 @@
     }
 
 
-    const main =
+    const stats =
       document.createElement(
         'div'
       );
 
 
-    main.className =
-      'weekly-summary-current-main';
+    stats.className =
+      'weekly-summary-stats';
 
 
-    const total =
-      document.createElement(
-        'span'
-      );
-
-
-    total.textContent =
-      '総体重 ' +
-      kgText(
-        summary.total_kg
-      );
-
-
-    const slash =
-      document.createElement(
-        'span'
-      );
-
-
-    slash.className =
-      'weekly-summary-slash';
-
-
-    slash.textContent =
-      ' / ';
-
-
-    const loss =
-      document.createElement(
-        'span'
-      );
-
-
-    loss.textContent =
-      lossText(
-        summary.loss_kg
-      );
-
-
-    main.append(
-      total,
-      slash,
-      loss
+    stats.appendChild(
+      makeStat(
+        '総体重',
+        kgText(
+          summary.total_kg
+        ),
+        'total'
+      )
     );
+
+
+    const weekly =
+      hasWeeklyComparison(
+        summary,
+        baselineYmd
+      );
+
+
+    stats.appendChild(
+      makeStat(
+        dateText(
+          baselineYmd
+        ) +
+        'から',
+        lossText(
+          summary.loss_kg
+        ),
+        weekly
+          ? ''
+          : 'only'
+      )
+    );
+
+
+    if (
+      weekly
+    ) {
+
+      stats.appendChild(
+        makeStat(
+          '前週 ' +
+          dateText(
+            summary.week_from_ymd
+          ) +
+          'から',
+          lossText(
+            summary.week_loss_kg
+          )
+        )
+      );
+    }
 
 
     const count =
@@ -632,12 +810,12 @@
         summary.counted ||
         0
       ) +
-      '人';
+      '人（体重公開中のみ）';
 
 
     row.append(
       head,
-      main,
+      stats,
       count
     );
 
@@ -646,7 +824,63 @@
   }
 
 
-  function historyRow(summary) {
+  function historyLine(
+    labelText,
+    valueText
+  ) {
+
+    const line =
+      document.createElement(
+        'div'
+      );
+
+
+    line.className =
+      'weekly-summary-history-line';
+
+
+    const label =
+      document.createElement(
+        'span'
+      );
+
+
+    label.className =
+      'weekly-summary-history-label';
+
+
+    label.textContent =
+      labelText;
+
+
+    const value =
+      document.createElement(
+        'span'
+      );
+
+
+    value.className =
+      'weekly-summary-history-value';
+
+
+    value.textContent =
+      valueText;
+
+
+    line.append(
+      label,
+      value
+    );
+
+
+    return line;
+  }
+
+
+  function historyRow(
+    summary,
+    baselineYmd
+  ) {
 
     const item =
       document.createElement(
@@ -684,21 +918,49 @@
       'weekly-summary-history-main';
 
 
-    const line =
-      document.createElement(
-        'div'
-      );
+    main.appendChild(
+      historyLine(
+        '総体重',
+        kgText(
+          summary.total_kg
+        )
+      )
+    );
 
 
-    line.textContent =
-      '総体重 ' +
-      kgText(
-        summary.total_kg
-      ) +
-      ' / ' +
-      lossText(
-        summary.loss_kg
+    main.appendChild(
+      historyLine(
+        dateText(
+          baselineYmd
+        ) +
+        'から',
+        lossText(
+          summary.loss_kg
+        )
+      )
+    );
+
+
+    if (
+      hasWeeklyComparison(
+        summary,
+        baselineYmd
+      )
+    ) {
+
+      main.appendChild(
+        historyLine(
+          '前週 ' +
+          dateText(
+            summary.week_from_ymd
+          ) +
+          'から',
+          lossText(
+            summary.week_loss_kg
+          )
+        )
       );
+    }
 
 
     const count =
@@ -717,11 +979,10 @@
         summary.counted ||
         0
       ) +
-      '人';
+      '人（体重公開中のみ）';
 
 
-    main.append(
-      line,
+    main.appendChild(
       count
     );
 
@@ -806,7 +1067,8 @@
       list.appendChild(
         currentRow(
           summary,
-          data.today_ymd
+          data.today_ymd,
+          data.baseline_ymd
         )
       );
     }
@@ -912,7 +1174,8 @@
 
       list.appendChild(
         historyRow(
-          summary
+          summary,
+          data.baseline_ymd
         )
       );
     }

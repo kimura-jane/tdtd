@@ -29,6 +29,10 @@ const FIRST_MONDAY_YMD =
   '2026-09-07';
 
 
+const LAST_MONDAY_YMD =
+  '2026-12-28';
+
+
 const JST_OFFSET =
   9 * 60 * 60 * 1000;
 
@@ -180,6 +184,20 @@ function isMondayYmd(ymd) {
 }
 
 
+function isActiveMondayYmd(ymd) {
+
+  return !!(
+    ymd >=
+      FIRST_MONDAY_YMD &&
+    ymd <=
+      LAST_MONDAY_YMD &&
+    isMondayYmd(
+      ymd
+    )
+  );
+}
+
+
 function mondayYmdsThrough(todayYmd) {
 
   const first =
@@ -187,17 +205,40 @@ function mondayYmdsThrough(todayYmd) {
       FIRST_MONDAY_YMD
     );
 
-  const end =
+
+  const today =
     ymdToDay(
       todayYmd
+    );
+
+
+  const last =
+    ymdToDay(
+      LAST_MONDAY_YMD
     );
 
 
   if (
     first ===
       null ||
-    end ===
+    today ===
       null ||
+    last ===
+      null
+  ) {
+
+    return [];
+  }
+
+
+  const end =
+    Math.min(
+      today,
+      last
+    );
+
+
+  if (
     end <
       first
   ) {
@@ -494,11 +535,13 @@ async function loadWeightsByDevice(
           ''
         );
 
+
       const ymd =
         String(
           row.ymd ||
           ''
         );
+
 
       const kg =
         Number(
@@ -622,8 +665,10 @@ function buildSummaries(
         let startTotal =
           0;
 
+
         let mondayTotal =
           0;
+
 
         let count =
           0;
@@ -677,8 +722,10 @@ function buildSummaries(
           startTotal +=
             member.baseline_kg;
 
+
           mondayTotal +=
             latest.kg;
+
 
           count++;
         }
@@ -908,6 +955,12 @@ export async function weeklySummaryRoute(
     );
 
 
+  const activeMonday =
+    isActiveMondayYmd(
+      todayYmd
+    );
+
+
   /*
    * グループ自体が体重非公開なら、
    * 実体重を使う速報は返さない。
@@ -933,15 +986,16 @@ export async function weeklySummaryRoute(
           todayYmd,
 
         today_is_monday:
-          isMondayYmd(
-            todayYmd
-          ),
+          activeMonday,
 
         baseline_ymd:
           BASELINE_YMD,
 
         first_monday_ymd:
           FIRST_MONDAY_YMD,
+
+        last_monday_ymd:
+          LAST_MONDAY_YMD,
 
         group: {
           group_id:
@@ -1015,6 +1069,17 @@ export async function weeklySummaryRoute(
     );
 
 
+  /*
+   * 12/28以降の体重は
+   * 月曜速報では一切必要ない。
+   */
+  const weightEndYmd =
+    todayYmd <
+      LAST_MONDAY_YMD
+      ? todayYmd
+      : LAST_MONDAY_YMD;
+
+
   const weightsByDevice =
     await loadWeightsByDevice(
       env,
@@ -1022,7 +1087,7 @@ export async function weeklySummaryRoute(
         row =>
           row.device_id
       ),
-      todayYmd
+      weightEndYmd
     );
 
 
@@ -1047,15 +1112,16 @@ export async function weeklySummaryRoute(
         todayYmd,
 
       today_is_monday:
-        isMondayYmd(
-          todayYmd
-        ),
+        activeMonday,
 
       baseline_ymd:
         BASELINE_YMD,
 
       first_monday_ymd:
         FIRST_MONDAY_YMD,
+
+      last_monday_ymd:
+        LAST_MONDAY_YMD,
 
       group: {
         group_id:

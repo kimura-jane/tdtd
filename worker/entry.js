@@ -42,6 +42,10 @@ import {
   memberWeightDetailRoute
 } from './member-detail.js';
 
+import {
+  weeklySummaryRoute
+} from './weekly-summary.js';
+
 
 /* ============================================================
    みんやせ / worker/entry.js
@@ -640,6 +644,59 @@ export default {
 
         const res =
           await memberWeightDetailRoute(
+            req,
+            env,
+            member.dev,
+            url,
+            p,
+            m
+          );
+
+
+        return (
+          res ||
+          bad(
+            req,
+            'not_found',
+            404
+          )
+        );
+      }
+
+
+      /* --------------------------------------------------------
+         毎週月曜の速報
+
+         ・対象5チームだけ
+         ・9/1を基準体重として使用
+         ・各月曜日以前の最新体重を採用
+         ・未来日の体重は使わない
+         ・体重非公開メンバーは集計しない
+         ・過去入力を修正すれば速報も再計算
+         -------------------------------------------------------- */
+
+      if (
+        p ===
+          '/api/weekly-summary'
+      ) {
+
+        const member =
+          await getMember(
+            req,
+            env
+          );
+
+
+        if (
+          member.error
+        ) {
+
+          return member.error;
+        }
+
+
+        const res =
+          await weeklySummaryRoute(
             req,
             env,
             member.dev,

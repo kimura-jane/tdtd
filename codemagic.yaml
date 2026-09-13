@@ -14,6 +14,7 @@
 # ・package-lock.jsonがあればnpm ci
 # ・lockfile未作成時は生成後npm ci
 # ・member-detail-ui.js をビルド対象として検証
+# ・weekly-summary-ui.js をビルド対象として検証
 # ・operator-ui.js をビルド対象として検証
 # ・iOSアプリの対応言語を日本語に固定
 # ・完成したIPAの日本語設定を再検証
@@ -358,6 +359,8 @@ workflows:
 
           member-detail-ui.js
 
+          weekly-summary-ui.js
+
           operator-ui.js
 
           leader.js
@@ -473,6 +476,7 @@ workflows:
             style.css \
             app.js \
             member-detail-ui.js \
+            weekly-summary-ui.js \
             operator-ui.js \
             leader.js \
             tsuda-fx.js \

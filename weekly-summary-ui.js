@@ -5,11 +5,15 @@
 
    対象5チームの月曜速報表示
    ------------------------------------------------------------
-   ・月曜日：
-     ランキング直前に、その日までの月曜速報を表示
+   ・最新の月曜結果は次の月曜までランキング上に残す
 
-   ・火曜以降：
-     ランキング下に「過去の月曜日履歴」として表示
+   ・月曜日当日：
+     最新2回分をランキング上に表示
+     例 9/14 → 9/7 + 9/14
+
+   ・火曜〜日曜：
+     最新1回分をランキング上に表示
+     それ以前はランキング下の履歴へ
 
    ・表示内容：
      総体重
@@ -997,7 +1001,10 @@
   }
 
 
-  function renderCurrent(data) {
+  function renderCurrent(
+    data,
+    summaries
+  ) {
 
     const rankHead =
       document.getElementById(
@@ -1011,15 +1018,12 @@
     }
 
 
-    const summaries =
-      Array.isArray(
-        data.summaries
-      )
-        ? data.summaries
-        : [];
-
-
-    if (!summaries.length) {
+    if (
+      !Array.isArray(
+        summaries
+      ) ||
+      !summaries.length
+    ) {
 
       return;
     }
@@ -1087,7 +1091,10 @@
   }
 
 
-  function renderHistory(data) {
+  function renderHistory(
+    data,
+    summaries
+  ) {
 
     const rankList =
       document.getElementById(
@@ -1101,21 +1108,21 @@
     }
 
 
-    const summaries =
+    const rows =
       Array.isArray(
-        data.summaries
+        summaries
       )
-        ? [...data.summaries]
+        ? [...summaries]
         : [];
 
 
-    if (!summaries.length) {
+    if (!rows.length) {
 
       return;
     }
 
 
-    summaries.sort(
+    rows.sort(
       (
         a,
         b
@@ -1169,7 +1176,7 @@
 
     for (
       const summary of
-      summaries
+      rows
     ) {
 
       list.appendChild(
@@ -1211,21 +1218,62 @@
     }
 
 
-    if (
+    /*
+     * APIは古い月曜 → 新しい月曜の順。
+     *
+     * 月曜日当日：
+     *   最新2回を上へ。
+     *
+     * 火曜〜日曜：
+     *   最新1回だけ上へ。
+     *
+     * 残りは全てランキング下の履歴。
+     */
+    const summaries =
+      [...data.summaries];
+
+
+    const currentCount =
       data.today_is_monday ===
         true
-    ) {
+        ? Math.min(
+            2,
+            summaries.length
+          )
+        : 1;
 
-      renderCurrent(
-        data
+
+    const splitIndex =
+      Math.max(
+        0,
+        summaries.length -
+        currentCount
       );
 
-    } else {
 
-      renderHistory(
-        data
+    const historySummaries =
+      summaries.slice(
+        0,
+        splitIndex
       );
-    }
+
+
+    const currentSummaries =
+      summaries.slice(
+        splitIndex
+      );
+
+
+    renderCurrent(
+      data,
+      currentSummaries
+    );
+
+
+    renderHistory(
+      data,
+      historySummaries
+    );
   }
 
 

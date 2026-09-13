@@ -38,6 +38,10 @@ import {
   filterMemberWeightPrivacy
 } from './weight-privacy.js';
 
+import {
+  memberWeightDetailRoute
+} from './member-detail.js';
+
 
 /* ============================================================
    みんやせ / worker/entry.js
@@ -601,6 +605,57 @@ export default {
           url,
           p,
           m
+        );
+      }
+
+
+      /* --------------------------------------------------------
+         公開メンバーの体重詳細
+
+         ・自分のチーム
+         ・閲覧登録済みの他チーム
+         ・体重公開中のメンバーのみ
+         ・非公開は本人を含めて閲覧不可
+         -------------------------------------------------------- */
+
+      if (
+        p ===
+          '/api/member-weight-detail'
+      ) {
+
+        const member =
+          await getMember(
+            req,
+            env
+          );
+
+
+        if (
+          member.error
+        ) {
+
+          return member.error;
+        }
+
+
+        const res =
+          await memberWeightDetailRoute(
+            req,
+            env,
+            member.dev,
+            url,
+            p,
+            m
+          );
+
+
+        return (
+          res ||
+          bad(
+            req,
+            'not_found',
+            404
+          )
         );
       }
 

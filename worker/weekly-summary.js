@@ -321,99 +321,6 @@ async function canViewGroup(
 
 
 /* ============================================================
-   双方向ブロック
-
-   ランキングと同様、ブロック関係の相手は
-   集計からも除外する。
-   ============================================================ */
-
-async function mutualBlockedSet(
-  env,
-  dev
-) {
-
-  const result =
-    new Set();
-
-
-  const own =
-    await env.DB
-      .prepare(`
-        SELECT blocked_member_id
-        FROM blocks
-        WHERE device_id=?
-      `)
-      .bind(
-        dev.device_id
-      )
-      .all();
-
-
-  for (
-    const row of
-    (
-      own.results ||
-      []
-    )
-  ) {
-
-    if (
-      row.blocked_member_id
-    ) {
-
-      result.add(
-        String(
-          row.blocked_member_id
-        )
-      );
-    }
-  }
-
-
-  const reverse =
-    await env.DB
-      .prepare(`
-        SELECT d.member_id
-
-        FROM blocks b
-
-        JOIN devices d
-          ON d.device_id=b.device_id
-
-        WHERE b.blocked_member_id=?
-      `)
-      .bind(
-        dev.member_id
-      )
-      .all();
-
-
-  for (
-    const row of
-    (
-      reverse.results ||
-      []
-    )
-  ) {
-
-    if (
-      row.member_id
-    ) {
-
-      result.add(
-        String(
-          row.member_id
-        )
-      );
-    }
-  }
-
-
-  return result;
-}
-
-
-/* ============================================================
    体重履歴
    ============================================================ */
 
@@ -583,25 +490,98 @@ async function loadWeightsByDevice(
 
 
 /* ============================================================
+   指定日以前の最新体重
+   ============================================================ */
+
+function latestAtOrBefore(
+  list,
+  ymd
+) {
+
+  let latest =
+    null;
+
+
+  for (
+    const row of
+    (
+      Array.isArray(
+        list
+      )
+        ? list
+        : []
+    )
+  ) {
+
+    if (
+      row.ymd >
+        ymd
+    ) {
+
+      break;
+    }
+
+
+    latest =
+      row;
+  }
+
+
+  return latest;
+}
+
+
+/* ============================================================
    月曜速報を計算
 
-   total_kg
-     その月曜日以前の最新体重の合計
+   基準体重
+   ------------------------------------------------------------
+   ・9/1に記録があれば9/1
+   ・9/1に記録が無ければ
+     9/1以降の最初の記録
 
-   loss_kg
-     9/1のスタート総体重からの累計減量
+   例：
+   最初の記録が9/10なら
+   9/7速報には入らない。
+   9/14速報から対象になる。
 
-   week_loss_kg
-     直前の集計日からの減量
 
-     9/7だけは前の月曜日が無いため
-     9/1 → 9/7 の変化を使う。
+   total_kg / total_count
+   ------------------------------------------------------------
+   実体重を公開しているメンバーだけ。
+
+   現在非公開のメンバーは、
+   過去の総体重からも除外する。
+
+
+   loss_kg / loss_count
+   ------------------------------------------------------------
+   公開・非公開に関係なく、
+   基準体重からの減量差だけを集計する。
+
+   個人の実体重は返さない。
+
+
+   week_loss_kg / week_count
+   ------------------------------------------------------------
+   前回月曜から今回月曜までの減量差。
+
+   前回月曜より後に初記録した新規対象者は、
+   その人の最初の記録を週次の比較元にする。
+
+
+   ブロック
+   ------------------------------------------------------------
+   チーム全体の公式集計値なので、
+   閲覧者ごとのブロック関係では母数を変えない。
    ============================================================ */
 
 function buildSummaries(
   members,
   weightsByDevice,
-  mondayYmds
+  mondayYmds,
+  hiddenMembers,
+  publicTotalsEnabled
 ) {
 
   const prepared =
@@ -620,18 +600,22 @@ function buildSummaries(
       [];
 
 
-    const baseline =
-      list.find(
-        row =>
-          row.ymd ===
-            BASELINE_YMD
-      );
-
-
     /*
-     * 9/1の基準値が無い人は、
-     * 総体重と減量幅の母集団を揃えるため集計しない。
+     * loadWeightsByDevice() は
+     * 9/1以降を日付昇順で返す。
+     *
+     * したがって先頭が、
+     * その人の基準体重。
+     *
+     * 9/1に記録があれば9/1。
+     * 無ければ9/1以降の最初の記録。
      */
+    const baseline =
+      list.length
+        ? list[0]
+        : null;
+
+
     if (!baseline) {
 
       continue;
@@ -642,8 +626,25 @@ function buildSummaries(
       device_id:
         member.device_id,
 
+      member_id:
+        String(
+          member.member_id ||
+          ''
+        ),
+
+      baseline_ymd:
+        baseline.ymd,
+
       baseline_kg:
         baseline.kg,
+
+      weight_hidden:
+        hiddenMembers.has(
+          String(
+            member.member_id ||
+            ''
+          )
+        ),
 
       weights:
         list,
@@ -651,182 +652,241 @@ function buildSummaries(
   }
 
 
-  /*
-   * 丸め前の総体重を保持する。
-   *
-   * 前週差を
-   * 「丸めた合計同士の差」
-   * ではなく元データから計算するため。
-   */
-  const rawSummaries =
-    mondayYmds.map(
-      mondayYmd => {
-
-        let startTotal =
-          0;
-
-
-        let mondayTotal =
-          0;
-
-
-        let count =
-          0;
-
-
-        for (
-          const member of
-          prepared
-        ) {
-
-          let latest =
-            null;
-
-
-          /*
-           * 月曜日当日までで最新の値を採用。
-           *
-           * 例：
-           * 9/5あり
-           * 9/7なし
-           * 9/8あり
-           *
-           * → 9/7速報は9/5を使う。
-           *   9/8は使わない。
-           */
-          for (
-            const row of
-            member.weights
-          ) {
-
-            if (
-              row.ymd >
-                mondayYmd
-            ) {
-
-              break;
-            }
-
-
-            latest =
-              row;
-          }
-
-
-          if (!latest) {
-
-            continue;
-          }
-
-
-          startTotal +=
-            member.baseline_kg;
-
-
-          mondayTotal +=
-            latest.kg;
-
-
-          count++;
-        }
-
-
-        return {
-          ymd:
-            mondayYmd,
-
-          start_total_raw:
-            startTotal,
-
-          total_raw:
-            mondayTotal,
-
-          counted:
-            count,
-        };
-      }
-    );
-
-
-  return rawSummaries.map(
+  return mondayYmds.map(
     (
-      row,
+      mondayYmd,
       index
     ) => {
 
-      const previous =
+      const previousMondayYmd =
         index >
           0
-          ? rawSummaries[
+          ? mondayYmds[
               index - 1
             ]
-          : null;
-
-
-      /*
-       * 9/7だけは9/1を比較元にする。
-       *
-       * 9/14以降は前回月曜日を比較元にする。
-       */
-      const weekFromYmd =
-        previous
-          ? previous.ymd
           : BASELINE_YMD;
 
 
-      const weekFromTotal =
-        previous
-          ? previous.total_raw
-          : row.start_total_raw;
+      let totalRaw =
+        0;
+
+
+      let totalCount =
+        0;
+
+
+      let lossRaw =
+        0;
+
+
+      let lossCount =
+        0;
+
+
+      let weekLossRaw =
+        0;
+
+
+      let weekCount =
+        0;
+
+
+      for (
+        const member of
+        prepared
+      ) {
+
+        /*
+         * 最初の記録より前の月曜には
+         * まだ集計対象として参加させない。
+         *
+         * 例：
+         * baseline=9/10
+         * → 9/7は対象外
+         * → 9/14から対象
+         */
+        if (
+          member.baseline_ymd >
+            mondayYmd
+        ) {
+
+          continue;
+        }
+
+
+        const latest =
+          latestAtOrBefore(
+            member.weights,
+            mondayYmd
+          );
+
+
+        if (!latest) {
+
+          continue;
+        }
+
+
+        /* ------------------------------------------------------
+           累計減量
+
+           非公開でも減量差だけは集計する。
+           ------------------------------------------------------ */
+
+        lossRaw +=
+          member.baseline_kg -
+          latest.kg;
+
+
+        lossCount++;
+
+
+        /* ------------------------------------------------------
+           総体重
+
+           実体重公開中だけ。
+           ------------------------------------------------------ */
+
+        if (
+          publicTotalsEnabled &&
+          !member.weight_hidden
+        ) {
+
+          totalRaw +=
+            latest.kg;
+
+
+          totalCount++;
+        }
+
+
+        /* ------------------------------------------------------
+           週次減量
+
+           9/7：
+             基準体重 → 9/7
+
+           9/14以降：
+             原則、前回月曜時点 → 今回月曜
+
+           ただし前回月曜より後に
+           初記録した人は、
+             最初の記録 → 今回月曜
+           ------------------------------------------------------ */
+
+        let weekStart =
+          null;
+
+
+        if (
+          index ===
+            0
+        ) {
+
+          weekStart = {
+            ymd:
+              member.baseline_ymd,
+
+            kg:
+              member.baseline_kg,
+          };
+
+        } else {
+
+          const previous =
+            latestAtOrBefore(
+              member.weights,
+              previousMondayYmd
+            );
+
+
+          if (
+            previous &&
+            member.baseline_ymd <=
+              previousMondayYmd
+          ) {
+
+            weekStart =
+              previous;
+
+          } else if (
+            member.baseline_ymd >
+              previousMondayYmd &&
+            member.baseline_ymd <=
+              mondayYmd
+          ) {
+
+            weekStart = {
+              ymd:
+                member.baseline_ymd,
+
+              kg:
+                member.baseline_kg,
+            };
+          }
+        }
+
+
+        if (
+          weekStart
+        ) {
+
+          weekLossRaw +=
+            weekStart.kg -
+            latest.kg;
+
+
+          weekCount++;
+        }
+      }
 
 
       return {
         ymd:
-          row.ymd,
+          mondayYmd,
 
         total_kg:
-          row.counted
+          totalCount
             ? round1(
-                row.total_raw
+                totalRaw
               )
             : null,
 
-        /*
-         * 9/1からの累計減量
-         */
+        total_count:
+          totalCount,
+
         loss_kg:
-          row.counted
+          lossCount
             ? round1(
-                row.start_total_raw -
-                row.total_raw
+                lossRaw
               )
             : null,
 
-        /*
-         * 直前集計からの減量
-         *
-         * 9/7:
-         *   9/1 → 9/7
-         *
-         * 9/14:
-         *   9/7 → 9/14
-         *
-         * 9/21:
-         *   9/14 → 9/21
-         */
+        loss_count:
+          lossCount,
+
         week_from_ymd:
-          weekFromYmd,
+          previousMondayYmd,
 
         week_loss_kg:
-          row.counted
+          weekCount
             ? round1(
-                weekFromTotal -
-                row.total_raw
+                weekLossRaw
               )
             : null,
 
+        week_count:
+          weekCount,
+
+        /*
+         * 旧UIとの一時的な互換用。
+         *
+         * UI更新後は
+         * total_count / loss_count / week_count
+         * を個別に表示する。
+         */
         counted:
-          row.counted,
+          totalCount,
       };
     }
   );
@@ -961,57 +1021,21 @@ export async function weeklySummaryRoute(
     );
 
 
-  /*
-   * グループ自体が体重非公開なら、
-   * 実体重を使う速報は返さない。
-   */
-  if (
+  const publicTotalsEnabled =
     Number(
       group.show_weight ||
       0
-    ) !==
-      1
-  ) {
-
-    return json(
-      req,
-      {
-        ok:
-          true,
-
-        eligible:
-          true,
-
-        today_ymd:
-          todayYmd,
-
-        today_is_monday:
-          activeMonday,
-
-        baseline_ymd:
-          BASELINE_YMD,
-
-        first_monday_ymd:
-          FIRST_MONDAY_YMD,
-
-        last_monday_ymd:
-          LAST_MONDAY_YMD,
-
-        group: {
-          group_id:
-            group.group_id,
-
-          name:
-            group.name,
-        },
-
-        summaries:
-          [],
-      }
-    );
-  }
+    ) ===
+      1;
 
 
+  /*
+   * 現在このグループに所属している
+   * 利用停止ではないメンバーを取得。
+   *
+   * ブロック関係は集計人数から除外しない。
+   * チームの合計値を閲覧者ごとに変えないため。
+   */
   const rs =
     await env.DB
       .prepare(`
@@ -1031,41 +1055,24 @@ export async function weeklySummaryRoute(
       .all();
 
 
-  const allMembers =
+  const members =
     rs.results ||
     [];
 
 
-  const blocked =
-    await mutualBlockedSet(
-      env,
-      dev
-    );
-
-
-  const hidden =
+  /*
+   * 総体重に含められるかどうかだけ、
+   * 現在の体重公開設定を見る。
+   *
+   * 非公開者も減量差の集計には残す。
+   */
+  const hiddenMembers =
     await hiddenWeightSet(
       env,
-      allMembers.map(
+      members.map(
         row =>
           row.member_id
       )
-    );
-
-
-  const members =
-    allMembers.filter(
-      row =>
-        !blocked.has(
-          String(
-            row.member_id
-          )
-        ) &&
-        !hidden.has(
-          String(
-            row.member_id
-          )
-        )
     );
 
 
@@ -1080,6 +1087,13 @@ export async function weeklySummaryRoute(
       : LAST_MONDAY_YMD;
 
 
+  /*
+   * 公開 / 非公開に関係なく
+   * 全対象メンバーの体重履歴をサーバ側で読む。
+   *
+   * 非公開者についてクライアントへ返すのは
+   * 個別体重ではなく集計済みの減量差だけ。
+   */
   const weightsByDevice =
     await loadWeightsByDevice(
       env,
@@ -1095,7 +1109,9 @@ export async function weeklySummaryRoute(
     buildSummaries(
       members,
       weightsByDevice,
-      mondayYmds
+      mondayYmds,
+      hiddenMembers,
+      publicTotalsEnabled
     );
 
 

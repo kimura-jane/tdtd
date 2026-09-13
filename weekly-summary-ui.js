@@ -30,6 +30,10 @@
    ・9/7だけは前週月曜が存在しないため
      「9/1から」のみ表示する
 
+   ・対象5チームでは、
+     従来の「合計 ○kg ｜ 平均 ○kg/人」は
+     月曜速報と情報が重複するため非表示
+
    ・集計値は /api/weekly-summary から取得
    ============================================================ */
 
@@ -645,6 +649,78 @@
         node =>
           node.remove()
       );
+  }
+
+
+  /*
+   * app.js がランキング見出しへ追加する
+   *
+   *   合計 -10.5kg ｜ 平均 -1.0kg/人
+   *
+   * の行だけを対象5チームで削除する。
+   *
+   * チーム名・スタート日、
+   * スタート総体重・現在総体重は残す。
+   */
+  function removeRedundantLossLine() {
+
+    const rankHead =
+      document.getElementById(
+        'rankHead'
+      );
+
+
+    if (!rankHead) {
+
+      return;
+    }
+
+
+    const children =
+      [
+        ...rankHead.children
+      ];
+
+
+    for (
+      const child of
+      children
+    ) {
+
+      if (
+        child.classList &&
+        child.classList.contains(
+          'member-team-weight-summary'
+        )
+      ) {
+
+        continue;
+      }
+
+
+      const text =
+        String(
+          child.textContent ||
+          ''
+        )
+          .trim();
+
+
+      if (
+        text.startsWith(
+          '合計 '
+        ) &&
+        text.includes(
+          '｜ 平均 '
+        ) &&
+        text.endsWith(
+          '/人'
+        )
+      ) {
+
+        child.remove();
+      }
+    }
   }
 
 
@@ -1371,6 +1447,13 @@
 
       return;
     }
+
+
+    /*
+     * 月曜速報がある対象5チームでは、
+     * 上部の従来「合計・平均」行を削除。
+     */
+    removeRedundantLossLine();
 
 
     try {

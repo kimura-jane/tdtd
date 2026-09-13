@@ -20,6 +20,9 @@ import {
    ・正解は管理画面から手動確定
    ・成績は確定済み問題のみ集計
    ・管理画面から投票者と投票先を確認可能
+   ・投票済みユーザーだけ投票割合を確認可能
+   ・一般ユーザーには投票人数を返さない
+   ・対象5グループ所属者だけ外部WEBリンク表示対象
    ============================================================ */
 
 
@@ -49,6 +52,26 @@ const TEAM_IDS =
       t => t.id
     )
   );
+
+
+/*
+ * 外部WEBへのリンクを表示するグループ。
+ *
+ * グループ名ではなく group_id 固定で判定する。
+ * グループ名を後から変更しても影響しない。
+ */
+const EXTERNAL_WEB_GROUP_IDS =
+  new Set([
+    '84Q8CG58',
+    'AJ6N7AFJ',
+    'T92787Z2',
+    'XGQGRGRV',
+    'C47DTD4C',
+  ]);
+
+
+const EXTERNAL_WEB_URL =
+  'https://tsudatsu-diet.vercel.app';
 
 
 const JST_OFFSET =
@@ -443,6 +466,293 @@ function teamName(
 
 
 /* ============================================================
+   外部WEBリンク対象判定
+   ============================================================ */
+
+function normalizeGroupId(
+  value
+) {
+
+  return String(
+    value ||
+    ''
+  )
+    .toUpperCase()
+    .replace(
+      /[^0-9A-Z]/g,
+      ''
+    );
+}
+
+
+function canViewExternalWeb(
+  dev
+) {
+
+  if (
+    !dev ||
+    !dev.group_id
+  ) {
+
+    return false;
+  }
+
+
+  return EXTERNAL_WEB_GROUP_IDS
+    .has(
+      normalizeGroupId(
+        dev.group_id
+      )
+    );
+}
+
+
+/* ============================================================
+   現在の投票割合
+
+   ・投票済みユーザーにだけ返す
+   ・人数そのものは返さない
+   ・整数%
+   ・丸めても3チーム合計が必ず100%になるようにする
+   ============================================================ */
+
+async function currentVotePercentages(
+  env,
+  roundKey
+) {
+
+  const rs =
+    await env.DB
+      .prepare(`
+        SELECT
+          team_id,
+          COUNT(*) AS c
+
+        FROM vote_predictions
+
+        WHERE round_key=?
+
+        GROUP BY team_id
+      `)
+      .bind(
+        roundKey
+      )
+      .all();
+
+
+  const counts =
+    new Map(
+      TEAMS.map(
+        team => [
+          team.id,
+          0,
+        ]
+      )
+    );
+
+
+  for (
+    const row of
+    (
+      rs.results ||
+      []
+    )
+  ) {
+
+    if (
+      counts.has(
+        row.team_id
+      )
+    ) {
+
+      counts.set(
+        row.team_id,
+        Number(
+          row.c ||
+          0
+        )
+      );
+    }
+  }
+
+
+  const total =
+    TEAMS.reduce(
+      (
+        sum,
+        team
+      ) =>
+        sum +
+        Number(
+          counts.get(
+            team.id
+          ) ||
+          0
+        ),
+      0
+    );
+
+
+  if (
+    total <=
+    0
+  ) {
+
+    return TEAMS.map(
+      team => ({
+        team_id:
+          team.id,
+
+        team_name:
+          team.name,
+
+        percent:
+          0,
+      })
+    );
+  }
+
+
+  /*
+   * まず切り捨て値と小数部分を作る。
+   *
+   * 例:
+   * 33.333...
+   * 33.333...
+   * 33.333...
+   *
+   * ↓
+   *
+   * 33 / 33 / 33
+   * 残り1%を最大小数部分へ割り当てる。
+   */
+  const values =
+    TEAMS.map(
+      (
+        team,
+        index
+      ) => {
+
+        const count =
+          Number(
+            counts.get(
+              team.id
+            ) ||
+            0
+          );
+
+
+        const exact =
+          (
+            count /
+            total
+          ) *
+          100;
+
+
+        const base =
+          Math.floor(
+            exact
+          );
+
+
+        return {
+          index,
+          team,
+          base,
+          fraction:
+            exact -
+            base,
+        };
+      }
+    );
+
+
+  const percentages =
+    values.map(
+      row =>
+        row.base
+    );
+
+
+  let remaining =
+    100 -
+    percentages.reduce(
+      (
+        sum,
+        value
+      ) =>
+        sum +
+        value,
+      0
+    );
+
+
+  const remainderOrder =
+    [...values]
+      .sort(
+        (
+          a,
+          b
+        ) =>
+          (
+            b.fraction -
+            a.fraction
+          ) ||
+          (
+            a.index -
+            b.index
+          )
+      );
+
+
+  let pos =
+    0;
+
+
+  while (
+    remaining >
+    0
+  ) {
+
+    const target =
+      remainderOrder[
+        pos %
+        remainderOrder.length
+      ];
+
+
+    percentages[
+      target.index
+    ]++;
+
+
+    remaining--;
+    pos++;
+  }
+
+
+  return TEAMS.map(
+    (
+      team,
+      index
+    ) => ({
+      team_id:
+        team.id,
+
+      team_name:
+        team.name,
+
+      percent:
+        percentages[
+          index
+        ],
+    })
+  );
+}
+
+
+/* ============================================================
    一般ユーザー認証
    ============================================================ */
 
@@ -583,6 +893,29 @@ async function getCurrent(
       .first();
 
 
+  /*
+   * 投票済みの本人にだけ途中経過を返す。
+   *
+   * 未投票なら集計結果そのものを返さない。
+   */
+  const percentages =
+    vote
+      ? await currentVotePercentages(
+          env,
+          key
+        )
+      : null;
+
+
+  /*
+   * 外部WEBリンクは指定5グループだけ。
+   */
+  const webVisible =
+    canViewExternalWeb(
+      dev
+    );
+
+
   const now =
     Date.now();
 
@@ -655,6 +988,23 @@ async function getCurrent(
                 ),
             }
           : null,
+
+      vote_status:
+        vote
+          ? {
+              percentages,
+            }
+          : null,
+
+      external_web: {
+        visible:
+          webVisible,
+
+        url:
+          webVisible
+            ? EXTERNAL_WEB_URL
+            : null,
+      },
     }
   );
 }

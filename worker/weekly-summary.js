@@ -541,6 +541,18 @@ async function loadWeightsByDevice(
 
 /* ============================================================
    月曜速報を計算
+
+   total_kg
+     その月曜日以前の最新体重の合計
+
+   loss_kg
+     9/1のスタート総体重からの累計減量
+
+   week_loss_kg
+     直前の集計日からの減量
+
+     9/7だけは前の月曜日が無いため
+     9/1 → 9/7 の変化を使う。
    ============================================================ */
 
 function buildSummaries(
@@ -596,84 +608,178 @@ function buildSummaries(
   }
 
 
-  return mondayYmds.map(
-    mondayYmd => {
+  /*
+   * 丸め前の総体重を保持する。
+   *
+   * 前週差を
+   * 「丸めた合計同士の差」
+   * ではなく元データから計算するため。
+   */
+  const rawSummaries =
+    mondayYmds.map(
+      mondayYmd => {
 
-      let startTotal =
-        0;
+        let startTotal =
+          0;
 
-      let mondayTotal =
-        0;
+        let mondayTotal =
+          0;
 
-      let count =
-        0;
-
-
-      for (
-        const member of
-        prepared
-      ) {
-
-        let latest =
-          null;
+        let count =
+          0;
 
 
         for (
-          const row of
-          member.weights
+          const member of
+          prepared
         ) {
 
-          if (
-            row.ymd >
-              mondayYmd
+          let latest =
+            null;
+
+
+          /*
+           * 月曜日当日までで最新の値を採用。
+           *
+           * 例：
+           * 9/5あり
+           * 9/7なし
+           * 9/8あり
+           *
+           * → 9/7速報は9/5を使う。
+           *   9/8は使わない。
+           */
+          for (
+            const row of
+            member.weights
           ) {
 
-            break;
+            if (
+              row.ymd >
+                mondayYmd
+            ) {
+
+              break;
+            }
+
+
+            latest =
+              row;
           }
 
 
-          latest =
-            row;
+          if (!latest) {
+
+            continue;
+          }
+
+
+          startTotal +=
+            member.baseline_kg;
+
+          mondayTotal +=
+            latest.kg;
+
+          count++;
         }
 
 
-        if (!latest) {
+        return {
+          ymd:
+            mondayYmd,
 
-          continue;
-        }
+          start_total_raw:
+            startTotal,
 
+          total_raw:
+            mondayTotal,
 
-        startTotal +=
-          member.baseline_kg;
-
-        mondayTotal +=
-          latest.kg;
-
-        count++;
+          counted:
+            count,
+        };
       }
+    );
+
+
+  return rawSummaries.map(
+    (
+      row,
+      index
+    ) => {
+
+      const previous =
+        index >
+          0
+          ? rawSummaries[
+              index - 1
+            ]
+          : null;
+
+
+      /*
+       * 9/7だけは9/1を比較元にする。
+       *
+       * 9/14以降は前回月曜日を比較元にする。
+       */
+      const weekFromYmd =
+        previous
+          ? previous.ymd
+          : BASELINE_YMD;
+
+
+      const weekFromTotal =
+        previous
+          ? previous.total_raw
+          : row.start_total_raw;
 
 
       return {
         ymd:
-          mondayYmd,
+          row.ymd,
 
         total_kg:
-          count
+          row.counted
             ? round1(
-                mondayTotal
+                row.total_raw
               )
             : null,
 
+        /*
+         * 9/1からの累計減量
+         */
         loss_kg:
-          count
+          row.counted
             ? round1(
-                startTotal -
-                mondayTotal
+                row.start_total_raw -
+                row.total_raw
+              )
+            : null,
+
+        /*
+         * 直前集計からの減量
+         *
+         * 9/7:
+         *   9/1 → 9/7
+         *
+         * 9/14:
+         *   9/7 → 9/14
+         *
+         * 9/21:
+         *   9/14 → 9/21
+         */
+        week_from_ymd:
+          weekFromYmd,
+
+        week_loss_kg:
+          row.counted
+            ? round1(
+                weekFromTotal -
+                row.total_raw
               )
             : null,
 
         counted:
-          count,
+          row.counted,
       };
     }
   );

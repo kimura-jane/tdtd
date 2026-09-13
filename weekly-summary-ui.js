@@ -1,1137 +1,1551 @@
 'use strict';
 
-import {
-  json,
-  bad,
-  round1
-} from './lib.js';
-
-import {
-  hiddenWeightSet
-} from './weight-privacy.js';
-
-
-const TARGET_GROUP_IDS =
-  new Set([
-    '84Q8CG58',
-    'AJ6N7AFJ',
-    'T92787Z2',
-    'XGQGRGRV',
-    'C47DTD4C',
-  ]);
-
-
-const BASELINE_YMD =
-  '2026-09-01';
-
-
-const FIRST_MONDAY_YMD =
-  '2026-09-07';
-
-
-const LAST_MONDAY_YMD =
-  '2026-12-28';
-
-
-const JST_OFFSET =
-  9 * 60 * 60 * 1000;
-
-
 /* ============================================================
-   group_id
+   みんやせ / weekly-summary-ui.js
+
+   対象5チームの月曜速報表示
+   ------------------------------------------------------------
+   ・最新の月曜結果は次の月曜までランキング上に残す
+
+   ・月曜日当日：
+     最新2回分をランキング上に表示
+     例 9/14 → 9/7 + 9/14
+
+   ・火曜〜日曜：
+     最新1回分をランキング上に表示
+     それ以前はランキング下の履歴へ
+
+   ・表示内容：
+     総体重
+     9/1からの累計増減
+     前週月曜からの1週間増減
+
+   ・9/7だけは前週月曜が存在しないため
+     「9/1から」のみ表示する
+
+   ・集計値は /api/weekly-summary から取得
    ============================================================ */
 
-function normalizeGroupId(raw) {
+(() => {
 
-  const id =
-    String(
-      raw ||
-      ''
+  const API =
+    (
+      typeof window !== 'undefined' &&
+      window.MINYASE_API_BASE
+    ) ||
+    '';
+
+
+  const K_DEV =
+    'tsudatsu.device_id.v1';
+
+
+  const TARGET_GROUP_IDS =
+    new Set([
+      '84Q8CG58',
+      'AJ6N7AFJ',
+      'T92787Z2',
+      'XGQGRGRV',
+      'C47DTD4C',
+    ]);
+
+
+  let requestSeq =
+    0;
+
+
+  /* ==========================================================
+     小物
+     ========================================================== */
+
+  function normalizeGroupId(raw) {
+
+    const value =
+      String(
+        raw ||
+        ''
+      )
+        .trim()
+        .toUpperCase()
+        .replace(
+          /[^0-9A-Z]/g,
+          ''
+        );
+
+
+    return /^[0-9A-Z]{8}$/
+      .test(
+        value
+      )
+        ? value
+        : null;
+  }
+
+
+  function num(value) {
+
+    if (
+      value === null ||
+      value === undefined ||
+      value === ''
+    ) {
+
+      return null;
+    }
+
+
+    const n =
+      Number(
+        value
+      );
+
+
+    return Number.isFinite(
+      n
     )
-      .trim()
-      .toUpperCase()
-      .replace(
-        /[^0-9A-Z]/g,
+      ? n
+      : null;
+  }
+
+
+  function kgText(value) {
+
+    const n =
+      num(
+        value
+      );
+
+
+    return n === null
+      ? '—'
+      : n.toFixed(1) +
+        'kg';
+  }
+
+
+  function lossText(value) {
+
+    const n =
+      num(
+        value
+      );
+
+
+    if (
+      n === null
+    ) {
+
+      return '—';
+    }
+
+
+    if (
+      n < 0
+    ) {
+
+      return (
+        Math.abs(
+          n
+        ).toFixed(1) +
+        'kg増量'
+      );
+    }
+
+
+    return (
+      n.toFixed(1) +
+      'kg減量'
+    );
+  }
+
+
+  function dateText(ymd) {
+
+    const m =
+      /^(\d{4})-(\d{2})-(\d{2})$/
+        .exec(
+          String(
+            ymd ||
+            ''
+          )
+        );
+
+
+    if (!m) {
+
+      return String(
+        ymd ||
         ''
       );
+    }
 
 
-  return /^[0-9A-Z]{8}$/
-    .test(
-      id
-    )
-      ? id
-      : null;
-}
-
-
-/* ============================================================
-   JST日付
-   ============================================================ */
-
-function pad2(value) {
-
-  return String(
-    value
-  )
-    .padStart(
-      2,
-      '0'
-    );
-}
-
-
-function todayYmdJST() {
-
-  const d =
-    new Date(
-      Date.now() +
-      JST_OFFSET
-    );
-
-
-  return (
-    d.getUTCFullYear() +
-    '-' +
-    pad2(
-      d.getUTCMonth() +
-      1
-    ) +
-    '-' +
-    pad2(
-      d.getUTCDate()
-    )
-  );
-}
-
-
-function ymdToDay(ymd) {
-
-  const m =
-    /^(\d{4})-(\d{2})-(\d{2})$/
-      .exec(
-        String(
-          ymd ||
-          ''
-        )
-      );
-
-
-  if (!m) {
-
-    return null;
-  }
-
-
-  return Math.floor(
-    Date.UTC(
-      Number(m[1]),
-      Number(m[2]) - 1,
-      Number(m[3])
-    ) /
-    86400000
-  );
-}
-
-
-function dayToYmd(day) {
-
-  const d =
-    new Date(
-      day *
-      86400000
-    );
-
-
-  return (
-    d.getUTCFullYear() +
-    '-' +
-    pad2(
-      d.getUTCMonth() +
-      1
-    ) +
-    '-' +
-    pad2(
-      d.getUTCDate()
-    )
-  );
-}
-
-
-function isMondayYmd(ymd) {
-
-  const day =
-    ymdToDay(
-      ymd
-    );
-
-
-  if (
-    day ===
-      null
-  ) {
-
-    return false;
-  }
-
-
-  return new Date(
-    day *
-    86400000
-  )
-    .getUTCDay() ===
-    1;
-}
-
-
-function isActiveMondayYmd(ymd) {
-
-  return !!(
-    ymd >=
-      FIRST_MONDAY_YMD &&
-    ymd <=
-      LAST_MONDAY_YMD &&
-    isMondayYmd(
-      ymd
-    )
-  );
-}
-
-
-function mondayYmdsThrough(todayYmd) {
-
-  const first =
-    ymdToDay(
-      FIRST_MONDAY_YMD
-    );
-
-
-  const today =
-    ymdToDay(
-      todayYmd
-    );
-
-
-  const last =
-    ymdToDay(
-      LAST_MONDAY_YMD
-    );
-
-
-  if (
-    first ===
-      null ||
-    today ===
-      null ||
-    last ===
-      null
-  ) {
-
-    return [];
-  }
-
-
-  const end =
-    Math.min(
-      today,
-      last
-    );
-
-
-  if (
-    end <
-      first
-  ) {
-
-    return [];
-  }
-
-
-  const result =
-    [];
-
-
-  for (
-    let day = first;
-    day <= end;
-    day += 7
-  ) {
-
-    result.push(
-      dayToYmd(
-        day
+    return (
+      Number(
+        m[2]
+      ) +
+      '/' +
+      Number(
+        m[3]
       )
     );
   }
 
 
-  return result;
-}
+  function currentScope() {
+
+    const active =
+      document.querySelector(
+        '#rankTabs .tab.is-on'
+      );
 
 
-/* ============================================================
-   閲覧権限
-   ============================================================ */
-
-async function canViewGroup(
-  env,
-  dev,
-  groupId
-) {
-
-  if (
-    !dev ||
-    !groupId
-  ) {
-
-    return false;
+    return active &&
+      active.dataset
+        ? String(
+            active.dataset.r ||
+            ''
+          )
+        : '';
   }
 
 
-  if (
-    normalizeGroupId(
-      dev.group_id
-    ) ===
-      groupId
+  function hasWeeklyComparison(
+    summary,
+    baselineYmd
   ) {
+
+    return !!(
+      summary &&
+      summary.week_from_ymd &&
+      summary.week_from_ymd !==
+        baselineYmd
+    );
+  }
+
+
+  /* ==========================================================
+     API
+     ========================================================== */
+
+  async function fetchSummary(groupId) {
+
+    const deviceId =
+      localStorage.getItem(
+        K_DEV
+      ) ||
+      '';
+
+
+    if (!deviceId) {
+
+      throw new Error(
+        'not_registered'
+      );
+    }
+
+
+    let response;
+
+
+    try {
+
+      response =
+        await fetch(
+          API +
+          '/api/weekly-summary?group_id=' +
+          encodeURIComponent(
+            groupId
+          ),
+          {
+            method:
+              'GET',
+
+            headers: {
+              'x-device-id':
+                deviceId,
+            },
+
+            cache:
+              'no-store',
+          }
+        );
+
+    } catch {
+
+      throw new Error(
+        'network_error'
+      );
+    }
+
+
+    let data =
+      {};
+
+
+    try {
+
+      data =
+        await response.json();
+
+    } catch {}
+
+
+    if (
+      !response.ok ||
+      data.ok ===
+        false
+    ) {
+
+      throw new Error(
+        data.error ||
+        'http_' +
+        response.status
+      );
+    }
+
+
+    return data;
+  }
+
+
+  /* ==========================================================
+     CSS
+     ========================================================== */
+
+  function addStyle() {
+
+    if (
+      document.getElementById(
+        'weeklySummaryUiStyle'
+      )
+    ) {
+
+      return;
+    }
+
+
+    const style =
+      document.createElement(
+        'style'
+      );
+
+
+    style.id =
+      'weeklySummaryUiStyle';
+
+
+    style.textContent = `
+.weekly-summary-current{
+  margin:14px 0 13px;
+  padding:14px;
+  border:1px solid rgba(239,88,196,.18);
+  border-radius:19px;
+  background:
+    radial-gradient(
+      circle at 100% 0%,
+      rgba(239,88,196,.10),
+      transparent 38%
+    ),
+    linear-gradient(
+      180deg,
+      #fff 0%,
+      #fffafc 100%
+    );
+  box-shadow:
+    0 5px 18px
+    rgba(82,57,35,.055)
+}
+
+.weekly-summary-current-title{
+  margin:0 0 10px;
+  color:var(--ink,#181614);
+  font-size:15px;
+  font-weight:900;
+  line-height:1.4
+}
+
+.weekly-summary-current-list{
+  display:grid;
+  gap:9px
+}
+
+.weekly-summary-current-row{
+  padding:12px;
+  border:
+    1px solid
+    var(--line2,#f4ede6);
+  border-radius:16px;
+  background:
+    rgba(255,255,255,.90)
+}
+
+.weekly-summary-current-row.is-today{
+  border-color:
+    rgba(239,88,196,.28);
+  background:
+    rgba(255,247,252,.97);
+  box-shadow:
+    0 3px 12px
+    rgba(239,88,196,.055)
+}
+
+.weekly-summary-current-head{
+  display:flex;
+  align-items:center;
+  gap:7px;
+  margin-bottom:9px
+}
+
+.weekly-summary-current-date{
+  color:var(--ink,#181614);
+  font-size:16px;
+  font-weight:900
+}
+
+.weekly-summary-badge{
+  display:inline-flex;
+  align-items:center;
+  min-height:20px;
+  padding:2px 7px;
+  border-radius:999px;
+  background:#ef58c4;
+  color:#fff;
+  font-size:9px;
+  font-weight:900;
+  line-height:1
+}
+
+.weekly-summary-stats{
+  display:grid;
+  grid-template-columns:
+    repeat(2,minmax(0,1fr));
+  gap:7px
+}
+
+.weekly-summary-stat{
+  min-width:0;
+  padding:9px 10px;
+  border:
+    1px solid
+    var(--line2,#f4ede6);
+  border-radius:13px;
+  background:
+    rgba(255,255,255,.82)
+}
+
+.weekly-summary-stat.total{
+  grid-column:1/-1
+}
+
+.weekly-summary-stat.only{
+  grid-column:1/-1
+}
+
+.weekly-summary-stat small{
+  display:block;
+  margin-bottom:2px;
+  color:var(--sub,#7e756d);
+  font-size:10px;
+  font-weight:700;
+  line-height:1.35
+}
+
+.weekly-summary-stat b{
+  display:block;
+  overflow:hidden;
+  color:var(--ink,#181614);
+  font-size:17px;
+  font-variant-numeric:
+    tabular-nums;
+  font-weight:900;
+  line-height:1.35;
+  text-overflow:ellipsis;
+  white-space:nowrap
+}
+
+.weekly-summary-stat.total b{
+  font-size:20px
+}
+
+.weekly-summary-current-count{
+  margin-top:7px;
+  color:var(--sub,#7e756d);
+  font-size:10px;
+  font-weight:700;
+  line-height:1.45
+}
+
+.weekly-summary-history{
+  margin:15px 0 2px;
+  padding:13px 14px;
+  border:
+    1px solid
+    var(--line,#eee5dc);
+  border-radius:18px;
+  background:
+    rgba(255,255,255,.72)
+}
+
+.weekly-summary-history-title{
+  margin:0 0 7px;
+  color:var(--ink,#181614);
+  font-size:13px;
+  font-weight:900
+}
+
+.weekly-summary-history-list{
+  list-style:none;
+  margin:0;
+  padding:0
+}
+
+.weekly-summary-history-row{
+  display:grid;
+  grid-template-columns:
+    54px 1fr;
+  gap:9px;
+  align-items:start;
+  padding:11px 0;
+  border-top:
+    1px solid
+    var(--line2,#f4ede6)
+}
+
+.weekly-summary-history-row:first-child{
+  border-top:0
+}
+
+.weekly-summary-history-date{
+  padding-top:1px;
+  color:var(--ink2,#4b433d);
+  font-size:13px;
+  font-weight:900
+}
+
+.weekly-summary-history-main{
+  min-width:0;
+  color:var(--ink,#181614);
+  font-size:12px;
+  font-variant-numeric:
+    tabular-nums;
+  font-weight:800;
+  line-height:1.55
+}
+
+.weekly-summary-history-line{
+  display:flex;
+  justify-content:space-between;
+  gap:10px;
+  padding:1px 0
+}
+
+.weekly-summary-history-label{
+  color:var(--sub,#7e756d);
+  font-size:10px;
+  font-weight:700
+}
+
+.weekly-summary-history-value{
+  color:var(--ink,#181614);
+  font-size:12px;
+  font-weight:900;
+  text-align:right
+}
+
+.weekly-summary-history-count{
+  display:block;
+  margin-top:4px;
+  color:var(--sub,#7e756d);
+  font-size:9px;
+  font-weight:700
+}
+
+@media(max-width:380px){
+
+  .weekly-summary-stat b{
+    font-size:15px
+  }
+
+  .weekly-summary-stat.total b{
+    font-size:18px
+  }
+
+  .weekly-summary-history-row{
+    grid-template-columns:
+      48px 1fr
+  }
+}
+`;
+
+
+    document.head.appendChild(
+      style
+    );
+  }
+
+
+  /* ==========================================================
+     DOM
+     ========================================================== */
+
+  function clearUi() {
+
+    document
+      .querySelectorAll(
+        '.weekly-summary-current, .weekly-summary-history'
+      )
+      .forEach(
+        node =>
+          node.remove()
+      );
+  }
+
+
+  function makeStat(
+    label,
+    value,
+    className = ''
+  ) {
+
+    const stat =
+      document.createElement(
+        'div'
+      );
+
+
+    stat.className =
+      (
+        'weekly-summary-stat ' +
+        className
+      )
+        .trim();
+
+
+    const small =
+      document.createElement(
+        'small'
+      );
+
+
+    small.textContent =
+      label;
+
+
+    const strong =
+      document.createElement(
+        'b'
+      );
+
+
+    strong.textContent =
+      value;
+
+
+    stat.append(
+      small,
+      strong
+    );
+
+
+    return stat;
+  }
+
+
+  function currentRow(
+    summary,
+    todayYmd,
+    baselineYmd
+  ) {
+
+    const row =
+      document.createElement(
+        'div'
+      );
+
+
+    row.className =
+      'weekly-summary-current-row';
+
+
+    if (
+      summary.ymd ===
+        todayYmd
+    ) {
+
+      row.classList.add(
+        'is-today'
+      );
+    }
+
+
+    const head =
+      document.createElement(
+        'div'
+      );
+
+
+    head.className =
+      'weekly-summary-current-head';
+
+
+    const date =
+      document.createElement(
+        'span'
+      );
+
+
+    date.className =
+      'weekly-summary-current-date';
+
+
+    date.textContent =
+      dateText(
+        summary.ymd
+      );
+
+
+    head.appendChild(
+      date
+    );
+
+
+    if (
+      summary.ymd ===
+        todayYmd
+    ) {
+
+      const badge =
+        document.createElement(
+          'span'
+        );
+
+
+      badge.className =
+        'weekly-summary-badge';
+
+
+      badge.textContent =
+        '速報';
+
+
+      head.appendChild(
+        badge
+      );
+    }
+
+
+    const stats =
+      document.createElement(
+        'div'
+      );
+
+
+    stats.className =
+      'weekly-summary-stats';
+
+
+    stats.appendChild(
+      makeStat(
+        '総体重',
+        kgText(
+          summary.total_kg
+        ),
+        'total'
+      )
+    );
+
+
+    const weekly =
+      hasWeeklyComparison(
+        summary,
+        baselineYmd
+      );
+
+
+    stats.appendChild(
+      makeStat(
+        dateText(
+          baselineYmd
+        ) +
+        'から',
+        lossText(
+          summary.loss_kg
+        ),
+        weekly
+          ? ''
+          : 'only'
+      )
+    );
+
+
+    if (
+      weekly
+    ) {
+
+      stats.appendChild(
+        makeStat(
+          '前週 ' +
+          dateText(
+            summary.week_from_ymd
+          ) +
+          'から',
+          lossText(
+            summary.week_loss_kg
+          )
+        )
+      );
+    }
+
+
+    const count =
+      document.createElement(
+        'div'
+      );
+
+
+    count.className =
+      'weekly-summary-current-count';
+
+
+    count.textContent =
+      '集計対象 ' +
+      Number(
+        summary.counted ||
+        0
+      ) +
+      '人（体重公開中のみ）';
+
+
+    row.append(
+      head,
+      stats,
+      count
+    );
+
+
+    return row;
+  }
+
+
+  function historyLine(
+    labelText,
+    valueText
+  ) {
+
+    const line =
+      document.createElement(
+        'div'
+      );
+
+
+    line.className =
+      'weekly-summary-history-line';
+
+
+    const label =
+      document.createElement(
+        'span'
+      );
+
+
+    label.className =
+      'weekly-summary-history-label';
+
+
+    label.textContent =
+      labelText;
+
+
+    const value =
+      document.createElement(
+        'span'
+      );
+
+
+    value.className =
+      'weekly-summary-history-value';
+
+
+    value.textContent =
+      valueText;
+
+
+    line.append(
+      label,
+      value
+    );
+
+
+    return line;
+  }
+
+
+  function historyRow(
+    summary,
+    baselineYmd
+  ) {
+
+    const item =
+      document.createElement(
+        'li'
+      );
+
+
+    item.className =
+      'weekly-summary-history-row';
+
+
+    const date =
+      document.createElement(
+        'div'
+      );
+
+
+    date.className =
+      'weekly-summary-history-date';
+
+
+    date.textContent =
+      dateText(
+        summary.ymd
+      );
+
+
+    const main =
+      document.createElement(
+        'div'
+      );
+
+
+    main.className =
+      'weekly-summary-history-main';
+
+
+    main.appendChild(
+      historyLine(
+        '総体重',
+        kgText(
+          summary.total_kg
+        )
+      )
+    );
+
+
+    main.appendChild(
+      historyLine(
+        dateText(
+          baselineYmd
+        ) +
+        'から',
+        lossText(
+          summary.loss_kg
+        )
+      )
+    );
+
+
+    if (
+      hasWeeklyComparison(
+        summary,
+        baselineYmd
+      )
+    ) {
+
+      main.appendChild(
+        historyLine(
+          '前週 ' +
+          dateText(
+            summary.week_from_ymd
+          ) +
+          'から',
+          lossText(
+            summary.week_loss_kg
+          )
+        )
+      );
+    }
+
+
+    const count =
+      document.createElement(
+        'span'
+      );
+
+
+    count.className =
+      'weekly-summary-history-count';
+
+
+    count.textContent =
+      '集計対象 ' +
+      Number(
+        summary.counted ||
+        0
+      ) +
+      '人（体重公開中のみ）';
+
+
+    main.appendChild(
+      count
+    );
+
+
+    item.append(
+      date,
+      main
+    );
+
+
+    return item;
+  }
+
+
+  function renderCurrent(
+    data,
+    summaries
+  ) {
+
+    const rankHead =
+      document.getElementById(
+        'rankHead'
+      );
+
+
+    if (!rankHead) {
+
+      return;
+    }
+
+
+    if (
+      !Array.isArray(
+        summaries
+      ) ||
+      !summaries.length
+    ) {
+
+      return;
+    }
+
+
+    const section =
+      document.createElement(
+        'section'
+      );
+
+
+    section.className =
+      'weekly-summary-current';
+
+
+    const title =
+      document.createElement(
+        'h3'
+      );
+
+
+    title.className =
+      'weekly-summary-current-title';
+
+
+    title.textContent =
+      '月曜速報まとめ';
+
+
+    const list =
+      document.createElement(
+        'div'
+      );
+
+
+    list.className =
+      'weekly-summary-current-list';
+
+
+    for (
+      const summary of
+      summaries
+    ) {
+
+      list.appendChild(
+        currentRow(
+          summary,
+          data.today_ymd,
+          data.baseline_ymd
+        )
+      );
+    }
+
+
+    section.append(
+      title,
+      list
+    );
+
+
+    rankHead.insertAdjacentElement(
+      'afterend',
+      section
+    );
+  }
+
+
+  function renderHistory(
+    data,
+    summaries
+  ) {
+
+    const rankList =
+      document.getElementById(
+        'rankList'
+      );
+
+
+    if (!rankList) {
+
+      return;
+    }
+
+
+    const rows =
+      Array.isArray(
+        summaries
+      )
+        ? [...summaries]
+        : [];
+
+
+    if (!rows.length) {
+
+      return;
+    }
+
+
+    rows.sort(
+      (
+        a,
+        b
+      ) =>
+        String(
+          b.ymd ||
+          ''
+        )
+          .localeCompare(
+            String(
+              a.ymd ||
+              ''
+            )
+          )
+    );
+
+
+    const section =
+      document.createElement(
+        'section'
+      );
+
+
+    section.className =
+      'weekly-summary-history';
+
+
+    const title =
+      document.createElement(
+        'h3'
+      );
+
+
+    title.className =
+      'weekly-summary-history-title';
+
+
+    title.textContent =
+      '過去の月曜日履歴';
+
+
+    const list =
+      document.createElement(
+        'ul'
+      );
+
+
+    list.className =
+      'weekly-summary-history-list';
+
+
+    for (
+      const summary of
+      rows
+    ) {
+
+      list.appendChild(
+        historyRow(
+          summary,
+          data.baseline_ymd
+        )
+      );
+    }
+
+
+    section.append(
+      title,
+      list
+    );
+
+
+    rankList.insertAdjacentElement(
+      'afterend',
+      section
+    );
+  }
+
+
+  function renderSummary(data) {
+
+    clearUi();
+
+
+    if (
+      !data ||
+      !Array.isArray(
+        data.summaries
+      ) ||
+      !data.summaries.length
+    ) {
+
+      return;
+    }
+
+
+    /*
+     * APIは古い月曜 → 新しい月曜の順。
+     *
+     * 月曜日当日：
+     *   最新2回を上へ。
+     *
+     * 火曜〜日曜：
+     *   最新1回だけ上へ。
+     *
+     * 残りは全てランキング下の履歴。
+     */
+    const summaries =
+      [...data.summaries];
+
+
+    const currentCount =
+      data.today_is_monday ===
+        true
+        ? Math.min(
+            2,
+            summaries.length
+          )
+        : 1;
+
+
+    const splitIndex =
+      Math.max(
+        0,
+        summaries.length -
+        currentCount
+      );
+
+
+    const historySummaries =
+      summaries.slice(
+        0,
+        splitIndex
+      );
+
+
+    const currentSummaries =
+      summaries.slice(
+        splitIndex
+      );
+
+
+    renderCurrent(
+      data,
+      currentSummaries
+    );
+
+
+    renderHistory(
+      data,
+      historySummaries
+    );
+  }
+
+
+  /* ==========================================================
+     ランキング連動
+     ========================================================== */
+
+  async function updateForRanking(data) {
+
+    const seq =
+      ++requestSeq;
+
+
+    clearUi();
+
+
+    const scope =
+      currentScope();
+
+
+    if (
+      scope !==
+        'mine' &&
+      scope !==
+        'watch'
+    ) {
+
+      return;
+    }
+
+
+    const groupId =
+      normalizeGroupId(
+        data &&
+        data.group &&
+        (
+          data.group.group_id ||
+          data.group.id
+        )
+      );
+
+
+    if (
+      !groupId ||
+      !TARGET_GROUP_IDS.has(
+        groupId
+      )
+    ) {
+
+      return;
+    }
+
+
+    try {
+
+      const result =
+        await fetchSummary(
+          groupId
+        );
+
+
+      if (
+        seq !==
+          requestSeq
+      ) {
+
+        return;
+      }
+
+
+      if (
+        currentScope() !==
+          scope
+      ) {
+
+        return;
+      }
+
+
+      renderSummary(
+        result
+      );
+
+    } catch (error) {
+
+      if (
+        seq !==
+          requestSeq
+      ) {
+
+        return;
+      }
+
+
+      clearUi();
+
+
+      console.warn(
+        'weekly_summary_load_error',
+        error &&
+        error.message
+          ? error.message
+          : error
+      );
+    }
+  }
+
+
+  function patchDrawRank() {
+
+    if (
+      typeof window.drawRank !==
+        'function'
+    ) {
+
+      return false;
+    }
+
+
+    if (
+      window.drawRank
+        .__weeklySummaryPatched
+    ) {
+
+      return true;
+    }
+
+
+    const original =
+      window.drawRank;
+
+
+    const wrapped =
+      data => {
+
+        original(
+          data
+        );
+
+
+        updateForRanking(
+          data
+        );
+      };
+
+
+    Object.assign(
+      wrapped,
+      original
+    );
+
+
+    wrapped.__weeklySummaryPatched =
+      true;
+
+
+    window.drawRank =
+      wrapped;
+
 
     return true;
   }
 
 
-  const row =
-    await env.DB
-      .prepare(`
-        SELECT group_id
-        FROM watching
-        WHERE
-          device_id=?
-          AND group_id=?
-        LIMIT 1
-      `)
-      .bind(
-        dev.device_id,
-        groupId
-      )
-      .first();
+  /* ==========================================================
+     起動
+     ========================================================== */
+
+  function start() {
+
+    addStyle();
 
 
-  return !!row;
-}
+    const hadMemberPatch =
+      !!(
+        window.drawRank &&
+        window.drawRank
+          .__memberDetailPatched
+      );
 
-
-/* ============================================================
-   双方向ブロック
-
-   ランキングと同様、ブロック関係の相手は
-   集計からも除外する。
-   ============================================================ */
-
-async function mutualBlockedSet(
-  env,
-  dev
-) {
-
-  const result =
-    new Set();
-
-
-  const own =
-    await env.DB
-      .prepare(`
-        SELECT blocked_member_id
-        FROM blocks
-        WHERE device_id=?
-      `)
-      .bind(
-        dev.device_id
-      )
-      .all();
-
-
-  for (
-    const row of
-    (
-      own.results ||
-      []
-    )
-  ) {
 
     if (
-      row.blocked_member_id
+      patchDrawRank()
     ) {
 
-      result.add(
-        String(
-          row.blocked_member_id
-        )
-      );
-    }
-  }
-
-
-  const reverse =
-    await env.DB
-      .prepare(`
-        SELECT d.member_id
-
-        FROM blocks b
-
-        JOIN devices d
-          ON d.device_id=b.device_id
-
-        WHERE b.blocked_member_id=?
-      `)
-      .bind(
-        dev.member_id
-      )
-      .all();
-
-
-  for (
-    const row of
-    (
-      reverse.results ||
-      []
-    )
-  ) {
-
-    if (
-      row.member_id
-    ) {
-
-      result.add(
-        String(
-          row.member_id
-        )
-      );
-    }
-  }
-
-
-  return result;
-}
-
-
-/* ============================================================
-   体重履歴
-   ============================================================ */
-
-async function loadWeightsByDevice(
-  env,
-  deviceIds,
-  endYmd
-) {
-
-  const ids =
-    [
-      ...new Set(
-        (
-          Array.isArray(
-            deviceIds
-          )
-            ? deviceIds
-            : []
-        )
-          .map(
-            value =>
-              String(
-                value ||
-                ''
-              )
-                .trim()
-          )
-          .filter(
-            Boolean
-          )
-      )
-    ];
-
-
-  const map =
-    new Map(
-      ids.map(
-        id => [
-          id,
-          []
-        ]
-      )
-    );
-
-
-  if (!ids.length) {
-
-    return map;
-  }
-
-
-  /*
-   * D1の1クエリ100パラメータ上限を超えないよう、
-   * device_id 98件 + 開始日 + 終了日で分割する。
-   */
-  const CHUNK_SIZE =
-    98;
-
-
-  for (
-    let offset = 0;
-    offset < ids.length;
-    offset += CHUNK_SIZE
-  ) {
-
-    const chunk =
-      ids.slice(
-        offset,
-        offset + CHUNK_SIZE
-      );
-
-
-    const ph =
-      chunk
-        .map(
-          () => '?'
-        )
-        .join(',');
-
-
-    const rs =
-      await env.DB
-        .prepare(`
-          SELECT
-            device_id,
-            ymd,
-            kg
-
-          FROM weights
-
-          WHERE
-            device_id IN (${ph})
-            AND ymd>=?
-            AND ymd<=?
-
-          ORDER BY
-            device_id ASC,
-            ymd ASC
-        `)
-        .bind(
-          ...chunk,
-          BASELINE_YMD,
-          endYmd
-        )
-        .all();
-
-
-    for (
-      const row of
-      (
-        rs.results ||
-        []
-      )
-    ) {
-
-      const deviceId =
-        String(
-          row.device_id ||
-          ''
-        );
-
-
-      const ymd =
-        String(
-          row.ymd ||
-          ''
-        );
-
-
-      const kg =
-        Number(
-          row.kg
-        );
-
-
+      /*
+       * member-detail-ui.js が先に読み込まれている場合、
+       * そちらが loadRanking() を予約済みなので重複取得しない。
+       */
       if (
-        !map.has(
-          deviceId
-        ) ||
-        !/^\d{4}-\d{2}-\d{2}$/
-          .test(
-            ymd
-          ) ||
-        !Number.isFinite(
-          kg
-        )
+        !hadMemberPatch &&
+        typeof window.loadRanking ===
+          'function'
       ) {
 
-        continue;
+        setTimeout(
+          () =>
+            window.loadRanking(),
+          0
+        );
       }
 
 
-      map
-        .get(
-          deviceId
-        )
-        .push({
-          ymd,
-          kg,
-        });
-    }
-  }
-
-
-  return map;
-}
-
-
-/* ============================================================
-   月曜速報を計算
-
-   total_kg
-     その月曜日以前の最新体重の合計
-
-   loss_kg
-     9/1のスタート総体重からの累計減量
-
-   week_loss_kg
-     直前の集計日からの減量
-
-     9/7だけは前の月曜日が無いため
-     9/1 → 9/7 の変化を使う。
-   ============================================================ */
-
-function buildSummaries(
-  members,
-  weightsByDevice,
-  mondayYmds
-) {
-
-  const prepared =
-    [];
-
-
-  for (
-    const member of
-    members
-  ) {
-
-    const list =
-      weightsByDevice.get(
-        member.device_id
-      ) ||
-      [];
-
-
-    const baseline =
-      list.find(
-        row =>
-          row.ymd ===
-            BASELINE_YMD
-      );
-
-
-    /*
-     * 9/1の基準値が無い人は、
-     * 総体重と減量幅の母集団を揃えるため集計しない。
-     */
-    if (!baseline) {
-
-      continue;
+      return;
     }
 
 
-    prepared.push({
-      device_id:
-        member.device_id,
-
-      baseline_kg:
-        baseline.kg,
-
-      weights:
-        list,
-    });
-  }
+    let tries =
+      0;
 
 
-  /*
-   * 丸め前の総体重を保持する。
-   *
-   * 前週差を
-   * 「丸めた合計同士の差」
-   * ではなく元データから計算するため。
-   */
-  const rawSummaries =
-    mondayYmds.map(
-      mondayYmd => {
+    const timer =
+      setInterval(
+        () => {
 
-        let startTotal =
-          0;
+          tries++;
 
 
-        let mondayTotal =
-          0;
-
-
-        let count =
-          0;
-
-
-        for (
-          const member of
-          prepared
-        ) {
-
-          let latest =
-            null;
-
-
-          /*
-           * 月曜日当日までで最新の値を採用。
-           *
-           * 例：
-           * 9/5あり
-           * 9/7なし
-           * 9/8あり
-           *
-           * → 9/7速報は9/5を使う。
-           *   9/8は使わない。
-           */
-          for (
-            const row of
-            member.weights
+          if (
+            patchDrawRank()
           ) {
 
+            clearInterval(
+              timer
+            );
+
+
             if (
-              row.ymd >
-                mondayYmd
+              typeof window.loadRanking ===
+                'function'
             ) {
 
-              break;
+              window.loadRanking();
             }
 
 
-            latest =
-              row;
+            return;
           }
 
 
-          if (!latest) {
+          if (
+            tries >=
+              20
+          ) {
 
-            continue;
+            clearInterval(
+              timer
+            );
           }
-
-
-          startTotal +=
-            member.baseline_kg;
-
-
-          mondayTotal +=
-            latest.kg;
-
-
-          count++;
-        }
-
-
-        return {
-          ymd:
-            mondayYmd,
-
-          start_total_raw:
-            startTotal,
-
-          total_raw:
-            mondayTotal,
-
-          counted:
-            count,
-        };
-      }
-    );
-
-
-  return rawSummaries.map(
-    (
-      row,
-      index
-    ) => {
-
-      const previous =
-        index >
-          0
-          ? rawSummaries[
-              index - 1
-            ]
-          : null;
-
-
-      /*
-       * 9/7だけは9/1を比較元にする。
-       *
-       * 9/14以降は前回月曜日を比較元にする。
-       */
-      const weekFromYmd =
-        previous
-          ? previous.ymd
-          : BASELINE_YMD;
-
-
-      const weekFromTotal =
-        previous
-          ? previous.total_raw
-          : row.start_total_raw;
-
-
-      return {
-        ymd:
-          row.ymd,
-
-        total_kg:
-          row.counted
-            ? round1(
-                row.total_raw
-              )
-            : null,
-
-        /*
-         * 9/1からの累計減量
-         */
-        loss_kg:
-          row.counted
-            ? round1(
-                row.start_total_raw -
-                row.total_raw
-              )
-            : null,
-
-        /*
-         * 直前集計からの減量
-         *
-         * 9/7:
-         *   9/1 → 9/7
-         *
-         * 9/14:
-         *   9/7 → 9/14
-         *
-         * 9/21:
-         *   9/14 → 9/21
-         */
-        week_from_ymd:
-          weekFromYmd,
-
-        week_loss_kg:
-          row.counted
-            ? round1(
-                weekFromTotal -
-                row.total_raw
-              )
-            : null,
-
-        counted:
-          row.counted,
-      };
-    }
-  );
-}
-
-
-/* ============================================================
-   API
-
-   GET /api/weekly-summary?group_id=XXXXXXXX
-   ============================================================ */
-
-export async function weeklySummaryRoute(
-  req,
-  env,
-  dev,
-  url,
-  p,
-  m
-) {
-
-  if (
-    p !==
-      '/api/weekly-summary'
-  ) {
-
-    return null;
-  }
-
-
-  if (
-    m !==
-      'GET'
-  ) {
-
-    return bad(
-      req,
-      'method_not_allowed',
-      405
-    );
-  }
-
-
-  const groupId =
-    normalizeGroupId(
-      url.searchParams.get(
-        'group_id'
-      )
-    );
-
-
-  if (!groupId) {
-
-    return bad(
-      req,
-      'bad_code'
-    );
-  }
-
-
-  if (
-    !TARGET_GROUP_IDS.has(
-      groupId
-    )
-  ) {
-
-    return bad(
-      req,
-      'weekly_summary_not_enabled',
-      404
-    );
-  }
-
-
-  if (
-    !await canViewGroup(
-      env,
-      dev,
-      groupId
-    )
-  ) {
-
-    return bad(
-      req,
-      'not_watching',
-      403
-    );
-  }
-
-
-  const group =
-    await env.DB
-      .prepare(`
-        SELECT
-          group_id,
-          name,
-          show_weight
-
-        FROM groups
-
-        WHERE group_id=?
-      `)
-      .bind(
-        groupId
-      )
-      .first();
-
-
-  if (!group) {
-
-    return bad(
-      req,
-      'group_not_found',
-      404
-    );
-  }
-
-
-  const todayYmd =
-    todayYmdJST();
-
-
-  const mondayYmds =
-    mondayYmdsThrough(
-      todayYmd
-    );
-
-
-  const activeMonday =
-    isActiveMondayYmd(
-      todayYmd
-    );
-
-
-  /*
-   * グループ自体が体重非公開なら、
-   * 実体重を使う速報は返さない。
-   */
-  if (
-    Number(
-      group.show_weight ||
-      0
-    ) !==
-      1
-  ) {
-
-    return json(
-      req,
-      {
-        ok:
-          true,
-
-        eligible:
-          true,
-
-        today_ymd:
-          todayYmd,
-
-        today_is_monday:
-          activeMonday,
-
-        baseline_ymd:
-          BASELINE_YMD,
-
-        first_monday_ymd:
-          FIRST_MONDAY_YMD,
-
-        last_monday_ymd:
-          LAST_MONDAY_YMD,
-
-        group: {
-          group_id:
-            group.group_id,
-
-          name:
-            group.name,
         },
-
-        summaries:
-          [],
-      }
-    );
+        100
+      );
   }
 
 
-  const rs =
-    await env.DB
-      .prepare(`
-        SELECT
-          device_id,
-          member_id
+  if (
+    document.readyState ===
+      'loading'
+  ) {
 
-        FROM devices
-
-        WHERE
-          group_id=?
-          AND banned=0
-      `)
-      .bind(
-        groupId
-      )
-      .all();
-
-
-  const allMembers =
-    rs.results ||
-    [];
-
-
-  const blocked =
-    await mutualBlockedSet(
-      env,
-      dev
+    document.addEventListener(
+      'DOMContentLoaded',
+      start,
+      {
+        once:
+          true,
+      }
     );
 
+  } else {
 
-  const hidden =
-    await hiddenWeightSet(
-      env,
-      allMembers.map(
-        row =>
-          row.member_id
-      )
-    );
+    start();
+  }
 
-
-  const members =
-    allMembers.filter(
-      row =>
-        !blocked.has(
-          String(
-            row.member_id
-          )
-        ) &&
-        !hidden.has(
-          String(
-            row.member_id
-          )
-        )
-    );
-
-
-  /*
-   * 12/28以降の体重は
-   * 月曜速報では一切必要ない。
-   */
-  const weightEndYmd =
-    todayYmd <
-      LAST_MONDAY_YMD
-      ? todayYmd
-      : LAST_MONDAY_YMD;
-
-
-  const weightsByDevice =
-    await loadWeightsByDevice(
-      env,
-      members.map(
-        row =>
-          row.device_id
-      ),
-      weightEndYmd
-    );
-
-
-  const summaries =
-    buildSummaries(
-      members,
-      weightsByDevice,
-      mondayYmds
-    );
-
-
-  return json(
-    req,
-    {
-      ok:
-        true,
-
-      eligible:
-        true,
-
-      today_ymd:
-        todayYmd,
-
-      today_is_monday:
-        activeMonday,
-
-      baseline_ymd:
-        BASELINE_YMD,
-
-      first_monday_ymd:
-        FIRST_MONDAY_YMD,
-
-      last_monday_ymd:
-        LAST_MONDAY_YMD,
-
-      group: {
-        group_id:
-          group.group_id,
-
-        name:
-          group.name,
-      },
-
-      summaries,
-    }
-  );
-}
+})();

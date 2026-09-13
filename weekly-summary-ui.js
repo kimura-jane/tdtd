@@ -16,9 +16,16 @@
      それ以前はランキング下の履歴へ
 
    ・表示内容：
-     総体重
-     9/1からの累計増減
-     前週月曜からの1週間増減
+     総体重 + 総体重の対象人数
+     9/1からの累計増減 + 減量集計人数
+     この1週間の増減 + 週次集計人数
+
+   ・総体重：
+     現在、実体重を公開している人だけ
+
+   ・減量：
+     9/1の記録、
+     または9/1以降の最初の記録を基準に集計
 
    ・9/7だけは前週月曜が存在しないため
      「9/1から」のみ表示する
@@ -155,6 +162,45 @@
     return (
       n.toFixed(1) +
       'kg減量'
+    );
+  }
+
+
+  function countText(value) {
+
+    const n =
+      Number(
+        value
+      );
+
+
+    return (
+      Number.isFinite(
+        n
+      ) &&
+      n >=
+        0
+    )
+      ? Math.trunc(
+          n
+        ) +
+        '人'
+      : '0人';
+  }
+
+
+  function valueWithCount(
+    value,
+    count
+  ) {
+
+    return (
+      value +
+      '（' +
+      countText(
+        count
+      ) +
+      '）'
     );
   }
 
@@ -748,8 +794,11 @@
     stats.appendChild(
       makeStat(
         '総体重',
-        kgText(
-          summary.total_kg
+        valueWithCount(
+          kgText(
+            summary.total_kg
+          ),
+          summary.total_count
         ),
         'total'
       )
@@ -769,8 +818,11 @@
           baselineYmd
         ) +
         'から',
-        lossText(
-          summary.loss_kg
+        valueWithCount(
+          lossText(
+            summary.loss_kg
+          ),
+          summary.loss_count
         ),
         weekly
           ? ''
@@ -785,13 +837,12 @@
 
       stats.appendChild(
         makeStat(
-          '前週 ' +
-          dateText(
-            summary.week_from_ymd
-          ) +
-          'から',
-          lossText(
-            summary.week_loss_kg
+          'この1週間',
+          valueWithCount(
+            lossText(
+              summary.week_loss_kg
+            ),
+            summary.week_count
           )
         )
       );
@@ -809,12 +860,7 @@
 
 
     count.textContent =
-      '集計対象 ' +
-      Number(
-        summary.counted ||
-        0
-      ) +
-      '人（体重公開中のみ）';
+      '※総体重は体重公開中のみ。減量は9/1以降の初回記録を基準に集計。';
 
 
     row.append(
@@ -925,8 +971,11 @@
     main.appendChild(
       historyLine(
         '総体重',
-        kgText(
-          summary.total_kg
+        valueWithCount(
+          kgText(
+            summary.total_kg
+          ),
+          summary.total_count
         )
       )
     );
@@ -938,8 +987,11 @@
           baselineYmd
         ) +
         'から',
-        lossText(
-          summary.loss_kg
+        valueWithCount(
+          lossText(
+            summary.loss_kg
+          ),
+          summary.loss_count
         )
       )
     );
@@ -954,13 +1006,12 @@
 
       main.appendChild(
         historyLine(
-          '前週 ' +
-          dateText(
-            summary.week_from_ymd
-          ) +
-          'から',
-          lossText(
-            summary.week_loss_kg
+          'この1週間',
+          valueWithCount(
+            lossText(
+              summary.week_loss_kg
+            ),
+            summary.week_count
           )
         )
       );
@@ -978,12 +1029,7 @@
 
 
     count.textContent =
-      '集計対象 ' +
-      Number(
-        summary.counted ||
-        0
-      ) +
-      '人（体重公開中のみ）';
+      '総体重は体重公開中のみ';
 
 
     main.appendChild(

@@ -25,6 +25,12 @@
     server_error: 'サーバーエラーが発生しました',
   };
 
+  const TEAM_COLOR = {
+    tsudamomo: '#d8a91d',
+    sakomitsu: '#4f9ec5',
+    gotomei: '#58a76a',
+  };
+
   let currentData = null;
   let loadingCurrent = false;
   let loadingHistory = false;
@@ -264,6 +270,115 @@
         white-space:pre-line;
       }
 
+      .vote-status{
+        margin:14px 0 0;
+        padding:15px;
+        border:1px solid #eee6dd;
+        border-radius:18px;
+        background:linear-gradient(180deg,#fff 0%,#fdfaf6 100%);
+      }
+
+      .vote-status-head{
+        display:flex;
+        align-items:flex-end;
+        justify-content:space-between;
+        gap:10px;
+        margin-bottom:13px;
+      }
+
+      .vote-status-title{
+        margin:0;
+        font-size:15px;
+        font-weight:900;
+      }
+
+      .vote-status-note{
+        margin:0;
+        color:#948a80;
+        font-size:10px;
+        font-weight:700;
+        white-space:nowrap;
+      }
+
+      .vote-status-body{
+        display:grid;
+        grid-template-columns:minmax(126px, 42%) 1fr;
+        gap:16px;
+        align-items:center;
+      }
+
+      .vote-donut{
+        position:relative;
+        width:min(100%, 154px);
+        aspect-ratio:1;
+        justify-self:center;
+        border-radius:50%;
+        background:#eee8e1;
+        box-shadow:
+          0 10px 26px rgba(67,54,43,.08),
+          inset 0 0 0 1px rgba(255,255,255,.9);
+      }
+
+      .vote-donut::after{
+        content:"";
+        position:absolute;
+        inset:24%;
+        border-radius:50%;
+        background:#fffdfb;
+        box-shadow:
+          0 2px 12px rgba(67,54,43,.07),
+          inset 0 0 0 1px rgba(238,230,221,.85);
+      }
+
+      .vote-donut-center{
+        position:absolute;
+        z-index:1;
+        inset:30%;
+        display:flex;
+        align-items:center;
+        justify-content:center;
+        text-align:center;
+        color:#746b63;
+        font-size:11px;
+        font-weight:900;
+        line-height:1.35;
+      }
+
+      .vote-status-legend{
+        display:grid;
+        gap:9px;
+      }
+
+      .vote-legend-row{
+        display:grid;
+        grid-template-columns:12px 1fr auto;
+        gap:8px;
+        align-items:center;
+        min-width:0;
+      }
+
+      .vote-legend-dot{
+        width:10px;
+        height:10px;
+        border-radius:50%;
+      }
+
+      .vote-legend-name{
+        overflow:hidden;
+        color:#4f4944;
+        font-size:13px;
+        font-weight:800;
+        text-overflow:ellipsis;
+        white-space:nowrap;
+      }
+
+      .vote-legend-percent{
+        color:#2f2b28;
+        font-size:16px;
+        font-variant-numeric:tabular-nums;
+        font-weight:900;
+      }
+
       .vote-msg{
         min-height:1.5em;
         margin:9px 0 0;
@@ -276,6 +391,118 @@
 
       .vote-msg.ng{
         color:#c0392b;
+      }
+
+      .vote-web-card{
+        overflow:hidden;
+        padding:0;
+      }
+
+      .vote-web-link{
+        display:block;
+        overflow:hidden;
+        border-radius:inherit;
+        background:#fff;
+        color:inherit;
+        text-decoration:none;
+        transition:transform .15s ease, box-shadow .15s ease;
+        -webkit-tap-highlight-color:transparent;
+      }
+
+      .vote-web-link:active{
+        transform:scale(.99);
+        box-shadow:0 4px 14px rgba(70,57,45,.05);
+      }
+
+      .vote-web-visual{
+        position:relative;
+        overflow:hidden;
+        min-height:118px;
+        padding:19px 20px 18px;
+        background:
+          radial-gradient(circle at 88% 20%, rgba(255,255,255,.74) 0 34px, transparent 35px),
+          radial-gradient(circle at 78% 100%, rgba(255,255,255,.34) 0 62px, transparent 63px),
+          linear-gradient(135deg,rgba(255,181,78,.34) 0%,rgba(255,111,145,.24) 54%,rgba(216,77,243,.18) 100%);
+      }
+
+      .vote-web-kicker{
+        position:relative;
+        z-index:1;
+        margin-bottom:7px;
+        color:#a05f7f;
+        font-size:10px;
+        font-weight:900;
+        letter-spacing:.12em;
+      }
+
+      .vote-web-title{
+        position:relative;
+        z-index:1;
+        max-width:78%;
+        color:#302a25;
+        font-size:21px;
+        font-weight:900;
+        line-height:1.2;
+        letter-spacing:.01em;
+      }
+
+      .vote-web-badge{
+        position:absolute;
+        right:18px;
+        bottom:16px;
+        display:flex;
+        width:44px;
+        height:44px;
+        align-items:center;
+        justify-content:center;
+        border-radius:15px;
+        background:rgba(255,255,255,.84);
+        color:#c9489e;
+        font-size:22px;
+        font-weight:900;
+        box-shadow:0 6px 18px rgba(65,88,70,.12);
+        backdrop-filter:blur(4px);
+      }
+
+      .vote-web-meta{
+        display:grid;
+        grid-template-columns:1fr auto;
+        gap:12px;
+        align-items:center;
+        padding:13px 15px 14px;
+      }
+
+      .vote-web-copy{
+        min-width:0;
+      }
+
+      .vote-web-copy b{
+        display:block;
+        margin-bottom:3px;
+        color:#35302c;
+        font-size:14px;
+      }
+
+      .vote-web-copy span{
+        display:block;
+        overflow:hidden;
+        color:#91877e;
+        font-size:11px;
+        text-overflow:ellipsis;
+        white-space:nowrap;
+      }
+
+      .vote-web-arrow{
+        display:flex;
+        width:31px;
+        height:31px;
+        align-items:center;
+        justify-content:center;
+        border-radius:50%;
+        background:#f3eee7;
+        color:#6c6259;
+        font-size:17px;
+        font-weight:900;
       }
 
       .vote-score{
@@ -353,6 +580,21 @@
 
       .vote-wrong{
         color:#bc4b40;
+      }
+
+      @media (max-width:390px){
+        .vote-status-body{
+          grid-template-columns:116px 1fr;
+          gap:12px;
+        }
+
+        .vote-legend-name{
+          font-size:12px;
+        }
+
+        .vote-legend-percent{
+          font-size:15px;
+        }
       }
     `;
 
@@ -443,6 +685,39 @@
       ></div>
 
       <div
+        class="vote-status"
+        id="voteStatus"
+        hidden
+      >
+        <div class="vote-status-head">
+          <h3 class="vote-status-title">
+            現在の投票状況
+          </h3>
+          <p class="vote-status-note">
+            投票済みの人だけ表示
+          </p>
+        </div>
+
+        <div class="vote-status-body">
+          <div
+            class="vote-donut"
+            id="voteDonut"
+            role="img"
+            aria-label="現在の投票割合"
+          >
+            <div class="vote-donut-center">
+              投票者内<br>割合
+            </div>
+          </div>
+
+          <div
+            class="vote-status-legend"
+            id="voteStatusLegend"
+          ></div>
+        </div>
+      </div>
+
+      <div
         class="vote-msg"
         id="voteMsg"
       ></div>
@@ -460,6 +735,87 @@
 
 
   /* ==========================================================
+     グループページ 外部WEBカード
+     ========================================================== */
+
+  function buildExternalWebCard() {
+
+    if (
+      document.getElementById(
+        'voteExternalWebCard'
+      )
+    ) {
+      return;
+    }
+
+    const view =
+      document.getElementById(
+        'view-group'
+      );
+
+    if (!view) return;
+
+    const card =
+      document.createElement('section');
+
+    card.className =
+      'card vote-web-card';
+
+    card.id =
+      'voteExternalWebCard';
+
+    card.hidden = true;
+
+    card.innerHTML = `
+      <a
+        class="vote-web-link"
+        id="voteExternalWebLink"
+        href="#"
+        target="_blank"
+        rel="noopener noreferrer"
+        aria-label="つだつダイエット部の詳しい情報を見る"
+      >
+        <div class="vote-web-visual">
+          <div class="vote-web-kicker">
+            TSUDATSU DIET CLUB
+          </div>
+
+          <div class="vote-web-title">
+            みんなの減量状況を<br>
+            もっと詳しく
+          </div>
+
+          <div class="vote-web-badge">
+            ↗
+          </div>
+        </div>
+
+        <div class="vote-web-meta">
+          <div class="vote-web-copy">
+            <b>今の詳しい情報はこちら</b>
+            <span>tsudatsu-diet.vercel.app</span>
+          </div>
+
+          <div class="vote-web-arrow">
+            ›
+          </div>
+        </div>
+      </a>
+    `;
+
+    const first =
+      view.firstElementChild;
+
+    if (first) {
+      view.insertBefore(
+        card,
+        first
+      );
+    } else {
+      view.appendChild(card);
+    }
+  }
+     /* ==========================================================
      マイページ 成績カード
      ========================================================== */
 
@@ -537,6 +893,228 @@
     n.className =
       'vote-msg ' +
       (ok ? 'ok' : 'ng');
+  }
+
+
+  function renderVoteStatus(data) {
+
+    const box =
+      document.getElementById(
+        'voteStatus'
+      );
+
+    const donut =
+      document.getElementById(
+        'voteDonut'
+      );
+
+    const legend =
+      document.getElementById(
+        'voteStatusLegend'
+      );
+
+    if (
+      !box ||
+      !donut ||
+      !legend
+    ) {
+      return;
+    }
+
+    const rows =
+      data &&
+      data.voted &&
+      data.vote_status &&
+      Array.isArray(
+        data.vote_status.percentages
+      )
+        ? data.vote_status.percentages
+        : [];
+
+    if (!rows.length) {
+
+      box.hidden = true;
+      legend.innerHTML = '';
+      donut.style.background =
+        '#eee8e1';
+
+      return;
+    }
+
+    let cursor = 0;
+
+    const segments = [];
+
+    for (const row of rows) {
+
+      const percent =
+        Math.max(
+          0,
+          Math.min(
+            100,
+            Number(
+              row.percent ||
+              0
+            )
+          )
+        );
+
+      const color =
+        TEAM_COLOR[
+          row.team_id
+        ] ||
+        '#bbb3aa';
+
+      const start =
+        cursor;
+
+      const end =
+        cursor +
+        percent;
+
+      segments.push(
+        color +
+        ' ' +
+        start +
+        '% ' +
+        end +
+        '%'
+      );
+
+      cursor = end;
+    }
+
+    donut.style.background =
+      'conic-gradient(' +
+      segments.join(',') +
+      ')';
+
+    donut.setAttribute(
+      'aria-label',
+      rows
+        .map(
+          row =>
+            row.team_name +
+            ' ' +
+            row.percent +
+            '%'
+        )
+        .join('、')
+    );
+
+    legend.innerHTML = '';
+
+    for (const row of rows) {
+
+      const item =
+        document.createElement('div');
+
+      item.className =
+        'vote-legend-row';
+
+      const dot =
+        document.createElement('span');
+
+      dot.className =
+        'vote-legend-dot';
+
+      dot.style.background =
+        TEAM_COLOR[
+          row.team_id
+        ] ||
+        '#bbb3aa';
+
+
+      const name =
+        document.createElement('span');
+
+      name.className =
+        'vote-legend-name';
+
+      name.textContent =
+        row.team_name ||
+        '';
+
+
+      const percent =
+        document.createElement('strong');
+
+      percent.className =
+        'vote-legend-percent';
+
+      percent.textContent =
+        String(
+          Number(
+            row.percent ||
+            0
+          )
+        ) +
+        '%';
+
+
+      item.append(
+        dot,
+        name,
+        percent
+      );
+
+      legend.appendChild(
+        item
+      );
+    }
+
+    box.hidden = false;
+  }
+
+
+  function renderExternalWeb(data) {
+
+    const card =
+      document.getElementById(
+        'voteExternalWebCard'
+      );
+
+    const link =
+      document.getElementById(
+        'voteExternalWebLink'
+      );
+
+    if (
+      !card ||
+      !link
+    ) {
+      return;
+    }
+
+    const external =
+      data &&
+      data.external_web;
+
+    const visible =
+      !!(
+        external &&
+        external.visible &&
+        typeof external.url ===
+          'string' &&
+        /^https:\/\//i.test(
+          external.url
+        )
+      );
+
+    if (!visible) {
+
+      card.hidden = true;
+      link.removeAttribute(
+        'href'
+      );
+
+      return;
+    }
+
+    link.href =
+      external.url;
+
+    card.hidden = false;
   }
 
 
@@ -635,6 +1213,14 @@
         current.textContent = '';
       }
     }
+
+    renderVoteStatus(
+      data
+    );
+
+    renderExternalWeb(
+      data
+    );
   }
 
 
@@ -946,6 +1532,7 @@
 
     addStyle();
     buildVoteCard();
+    buildExternalWebCard();
     buildScoreCard();
 
     /*
@@ -981,7 +1568,10 @@
 
         if (!btn) return;
 
-        if (btn.dataset.v === 'log') {
+        if (
+          btn.dataset.v === 'log' ||
+          btn.dataset.v === 'group'
+        ) {
 
           setTimeout(
             loadCurrent,

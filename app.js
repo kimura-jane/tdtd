@@ -4745,6 +4745,8 @@ function currentRange() {
       `${fmtJpFull(keys[0])} 〜`
   };
 }
+
+
 /* ============================================================
    グラフ
    ============================================================ */
@@ -5606,6 +5608,9 @@ function drawHist() {
     !keys.length
   ) {
 
+    delete el.hist.dataset.expanded;
+
+
     el.hist.innerHTML =
       `<li class="empty">${
         cache.ready
@@ -5618,10 +5623,28 @@ function drawHist() {
   }
 
 
+  const previewCount =
+    5;
+
+
+  const expanded =
+    el.hist.dataset.expanded ===
+      '1';
+
+
+  const visibleCount =
+    expanded
+      ? keys.length
+      : Math.min(
+          previewCount,
+          keys.length
+        );
+
+
   for (
     let i = 0;
     i <
-      keys.length;
+      visibleCount;
     i++
   ) {
 
@@ -5635,6 +5658,13 @@ function drawHist() {
       ];
 
 
+    /*
+     * 折りたたまれている6件目以降も含めて
+     * 前回値を参照する。
+     *
+     * そのため5件目の増減値も、
+     * 6件目との比較で正しく表示される。
+     */
     const previous =
       keys[
         i +
@@ -5857,6 +5887,96 @@ function drawHist() {
     el.hist.appendChild(
       li
     );
+  }
+
+
+  /*
+   * 6件以上あるときだけ
+   * 開閉ボタンを表示する。
+   */
+  if (
+    keys.length >
+      previewCount
+  ) {
+
+    const more =
+      document.createElement(
+        'li'
+      );
+
+
+    /*
+     * empty を付けることで、
+     * 履歴1行固定CSSの5列レイアウト対象から除外する。
+     */
+    more.className =
+      'empty hist-toggle';
+
+
+    const button =
+      document.createElement(
+        'button'
+      );
+
+
+    button.type =
+      'button';
+
+
+    button.setAttribute(
+      'aria-expanded',
+      expanded
+        ? 'true'
+        : 'false'
+    );
+
+
+    button.textContent =
+      expanded
+        ? '履歴を閉じる'
+        : (
+            '過去の履歴をもっと見る（残り' +
+            (
+              keys.length -
+              previewCount
+            ) +
+            '件）'
+          );
+
+
+    button.onclick =
+      () => {
+
+        if (
+          el.hist.dataset.expanded ===
+            '1'
+        ) {
+
+          delete el.hist.dataset.expanded;
+
+        } else {
+
+          el.hist.dataset.expanded =
+            '1';
+        }
+
+
+        drawHist();
+      };
+
+
+    more.appendChild(
+      button
+    );
+
+
+    el.hist.appendChild(
+      more
+    );
+
+  } else {
+
+    delete el.hist.dataset.expanded;
   }
 }
 

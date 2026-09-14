@@ -468,8 +468,7 @@
 
 .weekly-summary-stats{
   display:grid;
-  grid-template-columns:
-    repeat(2,minmax(0,1fr));
+  grid-template-columns:1fr;
   gap:7px
 }
 
@@ -503,15 +502,13 @@
 
 .weekly-summary-stat b{
   display:block;
-  overflow:hidden;
   color:var(--ink,#181614);
   font-size:17px;
   font-variant-numeric:
     tabular-nums;
   font-weight:900;
   line-height:1.35;
-  text-overflow:ellipsis;
-  white-space:nowrap
+  white-space:normal
 }
 
 .weekly-summary-stat.total b{

@@ -4,7 +4,7 @@
 #
 # Bundle ID: com.minyase.app
 # Apple ID: 6808256800
-# App Store Version: 1.0.3
+# App Store Version: 1.0.4
 # iPhone専用
 #
 # 2026-09-13
@@ -64,7 +64,7 @@ workflows:
 
         APP_STORE_APPLE_ID: 6808256800
 
-        APP_VERSION: "1.0.3"
+        APP_VERSION: "1.0.4"
 
 
     scripts:

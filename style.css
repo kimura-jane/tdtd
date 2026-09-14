@@ -2010,6 +2010,62 @@ canvas{
 
 
 /* ========================================
+   History responsive safety
+   ======================================== */
+
+@media (max-width:480px){
+
+  .hist li:not(.empty){
+    display:grid;
+    grid-template-columns:
+      minmax(0,1fr)
+      auto
+      auto;
+    gap:10px 10px;
+    align-items:center;
+  }
+
+  .hist .d{
+    grid-column:1;
+    grid-row:1;
+    min-width:0;
+    white-space:nowrap;
+  }
+
+  .hist .k{
+    grid-column:2;
+    grid-row:1;
+    white-space:nowrap;
+  }
+
+  .hist .diff{
+    grid-column:3;
+    grid-row:1;
+    width:auto;
+    min-width:48px;
+    white-space:nowrap;
+  }
+
+  .hist button{
+    grid-row:2;
+    white-space:nowrap;
+  }
+
+  .hist button:first-of-type{
+    grid-column:2;
+  }
+
+  .hist button:last-of-type{
+    grid-column:3;
+  }
+
+  .hist .empty{
+    display:flex;
+  }
+}
+
+
+/* ========================================
    Responsive
    ======================================== */
 

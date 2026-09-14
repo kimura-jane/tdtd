@@ -2015,52 +2015,69 @@ canvas{
 
 @media (max-width:480px){
 
-  .hist li:not(.empty){
+  #hist li:not(.empty){
     display:grid;
     grid-template-columns:
-      minmax(0,1fr)
-      auto
-      auto;
-    gap:10px 10px;
+      max-content
+      max-content
+      max-content
+      max-content
+      max-content;
+    justify-content:space-between;
+    gap:6px;
     align-items:center;
   }
 
-  .hist .d{
-    grid-column:1;
-    grid-row:1;
+  #hist .d{
     min-width:0;
+    font-size:11.5px;
     white-space:nowrap;
   }
 
-  .hist .k{
-    grid-column:2;
-    grid-row:1;
+  #hist .k{
+    font-size:15px;
     white-space:nowrap;
   }
 
-  .hist .diff{
-    grid-column:3;
-    grid-row:1;
+  #hist .diff{
     width:auto;
-    min-width:48px;
+    min-width:34px;
+    font-size:11.5px;
     white-space:nowrap;
   }
 
-  .hist button{
-    grid-row:2;
+  #hist button{
+    min-width:0;
+    padding:8px 8px;
+    border-radius:13px;
+    font-size:11.5px;
+    line-height:1.2;
     white-space:nowrap;
   }
+}
 
-  .hist button:first-of-type{
-    grid-column:2;
+@media (max-width:340px){
+
+  #hist li:not(.empty){
+    gap:4px;
   }
 
-  .hist button:last-of-type{
-    grid-column:3;
+  #hist .d{
+    font-size:10.5px;
   }
 
-  .hist .empty{
-    display:flex;
+  #hist .k{
+    font-size:14px;
+  }
+
+  #hist .diff{
+    min-width:30px;
+    font-size:10.5px;
+  }
+
+  #hist button{
+    padding:7px 6px;
+    font-size:10.5px;
   }
 }
 

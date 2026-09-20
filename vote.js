@@ -216,6 +216,32 @@
   }
 
 
+  function targetMonthDayText(ymd) {
+
+    if (!ymd) {
+      return '';
+    }
+
+
+    const [
+      ,
+      m,
+      d
+    ] =
+      ymd
+        .split('-')
+        .map(Number);
+
+
+    return (
+      m +
+      '月' +
+      d +
+      '日'
+    );
+  }
+
+
   function deadlineText(ms) {
 
     if (!ms) {
@@ -914,8 +940,11 @@
 
 
     card.innerHTML = `
-      <h2 class="vote-title">
-        来月の減量王チームを予想
+      <h2
+        class="vote-title"
+        id="voteTitle"
+      >
+        優秀チームを予想
       </h2>
 
       <p
@@ -1633,6 +1662,12 @@
       data.round;
 
 
+    const title =
+      document.getElementById(
+        'voteTitle'
+      );
+
+
     const question =
       document.getElementById(
         'voteQuestion'
@@ -1655,6 +1690,16 @@
       document.getElementById(
         'voteCurrent'
       );
+
+
+    if (title) {
+
+      title.textContent =
+        targetMonthDayText(
+          round.target_date
+        ) +
+        'の優秀チームを予想';
+    }
 
 
     if (question) {

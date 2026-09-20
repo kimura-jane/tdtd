@@ -12,7 +12,8 @@ import {
    毎月のチーム予想クイズ
    ------------------------------------------------------------
    ・毎月15日 23:59:59 JST 締切
-   ・翌月1日の1位チームを予想
+   ・次回の毎月1日の1位チームを予想
+   ・15日締切後は翌々月1日の問題へ切り替える
    ・つだもも / さこみつ / ゴトめい
    ・1メンバー1票
    ・締切までは変更可
@@ -93,11 +94,6 @@ async function ensureTables(env) {
   }
 
 
-  /*
-   * 月ごとの問題。
-   *
-   * winner_team は管理画面から確定する。
-   */
   await env.DB
     .prepare(`
       CREATE TABLE IF NOT EXISTS vote_rounds (
@@ -113,15 +109,6 @@ async function ensureTables(env) {
     .run();
 
 
-  /*
-   * 個人の投票履歴。
-   *
-   * device_id ではなく member_id で保存する。
-   * 機種変更でdevice_idが変わっても履歴が残る。
-   *
-   * 同じ問題には1人1件。
-   * 投票変更時は同じ行をUPDATEする。
-   */
   await env.DB
     .prepare(`
       CREATE TABLE IF NOT EXISTS vote_predictions (
@@ -237,14 +224,19 @@ function jstEpoch(
 
 
 /*
- * 現在の月から
- * 「翌月1日」の問題キーを作る。
+ * 現在受付中の投票ラウンドを返す。
  *
- * 2026/09
+ * 2026/09/01〜09/15
  *   → 2026-10
+ *   → 10/1時点の1位を予想
  *
- * 2026/12
- *   → 2027-01
+ * 2026/09/16〜10/15
+ *   → 2026-11
+ *   → 11/1時点の1位を予想
+ *
+ * 2026/10/16〜11/15
+ *   → 2026-12
+ *   → 12/1時点の1位を予想
  */
 function currentRoundKey(
   now = Date.now()
@@ -259,14 +251,19 @@ function currentRoundKey(
 
 
   let month =
-    p.month + 1;
+    p.month +
+    (
+      p.day <= 15
+        ? 1
+        : 2
+    );
 
 
-  if (month > 12) {
+  while (
+    month > 12
+  ) {
 
-    month =
-      1;
-
+    month -= 12;
     year++;
   }
 
@@ -509,11 +506,6 @@ function canViewExternalWeb(
 
 /* ============================================================
    現在の投票割合
-
-   ・投票済みユーザーにだけ返す
-   ・人数そのものは返さない
-   ・整数%
-   ・丸めても3チーム合計が必ず100%になるようにする
    ============================================================ */
 
 async function currentVotePercentages(
@@ -613,19 +605,6 @@ async function currentVotePercentages(
   }
 
 
-  /*
-   * まず切り捨て値と小数部分を作る。
-   *
-   * 例:
-   * 33.333...
-   * 33.333...
-   * 33.333...
-   *
-   * ↓
-   *
-   * 33 / 33 / 33
-   * 残り1%を最大小数部分へ割り当てる。
-   */
   const values =
     TEAMS.map(
       (
@@ -869,12 +848,6 @@ async function getCurrent(
       .first();
 
 
-  /*
-   * member_id で現在の投票を取得。
-   *
-   * アプリ再起動後も
-   * 「投票済み」「投票先」が復元される。
-   */
   const vote =
     await env.DB
       .prepare(`
@@ -893,11 +866,6 @@ async function getCurrent(
       .first();
 
 
-  /*
-   * 投票済みの本人にだけ途中経過を返す。
-   *
-   * 未投票なら集計結果そのものを返さない。
-   */
   const percentages =
     vote
       ? await currentVotePercentages(
@@ -907,9 +875,6 @@ async function getCurrent(
       : null;
 
 
-  /*
-   * 外部WEBリンクは指定5グループだけ。
-   */
   const webVisible =
     canViewExternalWeb(
       dev
@@ -1074,12 +1039,6 @@ async function saveVote(
     Date.now();
 
 
-  /*
-   * 初回は INSERT。
-   *
-   * 変更時は team_id と updated_at だけ更新する。
-   * voted_at は初回投票日時として残す。
-   */
   await env.DB
     .prepare(`
       INSERT INTO vote_predictions
@@ -1154,12 +1113,6 @@ async function getHistory(
   );
 
 
-  /*
-   * LIMITを付けない。
-   *
-   * このmember_idが投票した
-   * 全履歴を新しい順に返す。
-   */
   const rs =
     await env.DB
       .prepare(`
@@ -1260,13 +1213,6 @@ async function getHistory(
     );
 
 
-  /*
-   * 正解数はDBへ別保存しない。
-   *
-   * 正解確定済み履歴から毎回計算することで、
-   * 管理画面から正解を後で訂正しても
-   * 自動で正解数が直る。
-   */
   const completed =
     rows.filter(
       r =>
@@ -1716,9 +1662,6 @@ async function adminVoters(
   }
 
 
-  /*
-   * roundが無ければ作成。
-   */
   await ensureRound(
     env,
     roundKey
@@ -1738,12 +1681,6 @@ async function adminVoters(
       .first();
 
 
-  /*
-   * devicesをLEFT JOINして
-   * 現在のニックネームも表示する。
-   *
-   * 投票履歴そのものはmember_idで保持されている。
-   */
   const rs =
     await env.DB
       .prepare(`
@@ -1949,9 +1886,6 @@ async function adminSetResult(
     );
 
 
-  /*
-   * 結果日前は正解確定できない。
-   */
   if (
     Date.now() <
     meta.targetAt
@@ -2050,9 +1984,6 @@ export async function adminVoteRoute(
   );
 
 
-  /*
-   * 月別集計
-   */
   if (
     p ===
       '/api/admin/vote/rounds' &&
@@ -2068,9 +1999,6 @@ export async function adminVoteRoute(
   }
 
 
-  /*
-   * 誰がどこに投票したか
-   */
   if (
     p ===
       '/api/admin/vote/voters' &&
@@ -2086,9 +2014,6 @@ export async function adminVoteRoute(
   }
 
 
-  /*
-   * 正解確定・変更
-   */
   if (
     p ===
       '/api/admin/vote/result' &&
@@ -2130,10 +2055,6 @@ export async function cleanupVotesForMember(
   );
 
 
-  /*
-   * ユーザーが「利用データを削除」を実行した場合のみ
-   * 個人の予想履歴も削除する。
-   */
   await env.DB
     .prepare(`
       DELETE FROM vote_predictions

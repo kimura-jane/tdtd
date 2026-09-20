@@ -662,10 +662,36 @@ workflows:
               -showBuildSettings \
               2>/dev/null \
             | awk \
-              -F ' = ' \
-              '/IPHONEOS_DEPLOYMENT_TARGET/ {
-                print $2;
-                exit
+              -F ' = ' '
+              {
+                key = $1
+                value = $2
+
+                gsub(
+                  /^[[:space:]]+|[[:space:]]+$/,
+                  "",
+                  key
+                )
+
+                gsub(
+                  /^[[:space:]]+|[[:space:]]+$/,
+                  "",
+                  value
+                )
+
+                gsub(
+                  /^"|"$/,
+                  "",
+                  value
+                )
+
+                if (
+                  key == "IPHONEOS_DEPLOYMENT_TARGET" &&
+                  value ~ /^[0-9]+([.][0-9]+)*$/
+                ) {
+                  print value
+                  exit
+                }
               }'
 
           )"
@@ -849,7 +875,7 @@ workflows:
           PY
 
 
-          ACTUAL=$(
+          ACTUAL="$(
 
             xcodebuild \
               -project ios/App/App.xcodeproj \
@@ -858,13 +884,39 @@ workflows:
               -showBuildSettings \
               2>/dev/null \
             | awk \
-              -F ' = ' \
-              '/TARGETED_DEVICE_FAMILY/ {
-                print $2;
-                exit
+              -F ' = ' '
+              {
+                key = $1
+                value = $2
+
+                gsub(
+                  /^[[:space:]]+|[[:space:]]+$/,
+                  "",
+                  key
+                )
+
+                gsub(
+                  /^[[:space:]]+|[[:space:]]+$/,
+                  "",
+                  value
+                )
+
+                gsub(
+                  /^"|"$/,
+                  "",
+                  value
+                )
+
+                if (
+                  key == "TARGETED_DEVICE_FAMILY" &&
+                  value ~ /^[0-9]+([,][0-9]+)*$/
+                ) {
+                  print value
+                  exit
+                }
               }'
 
-          )
+          )"
 
 
           echo "TARGETED_DEVICE_FAMILY=$ACTUAL"

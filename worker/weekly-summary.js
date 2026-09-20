@@ -1395,46 +1395,107 @@ function topEntry(
 }
 
 
+function sortTopRows(rows) {
+
+  return rows
+    .sort(
+      (
+        a,
+        b
+      ) => {
+
+        const lossDiff =
+          Number(
+            b.loss_kg
+          ) -
+          Number(
+            a.loss_kg
+          );
+
+
+        if (
+          lossDiff !==
+            0
+        ) {
+
+          return lossDiff;
+        }
+
+
+        const teamDiff =
+          String(
+            a.team_id
+          )
+            .localeCompare(
+              String(
+                b.team_id
+              )
+            );
+
+
+        if (
+          teamDiff !==
+            0
+        ) {
+
+          return teamDiff;
+        }
+
+
+        return String(
+          a.nickname
+        )
+          .localeCompare(
+            String(
+              b.nickname
+            ),
+            'ja'
+          );
+      }
+    )
+    .slice(
+      0,
+      5
+    );
+}
+
+
 function buildCompetitionTop5(
   preparedMembers,
-  officialYmds
+  officialYmds,
+  mondayYmds
 ) {
 
-  if (
-    !officialYmds.length
-  ) {
-
-    return {
-      official_ymd:
-        null,
-
-      previous_official_ymd:
-        null,
-
-      cumulative:
-        [],
-
-      weekly:
-        [],
-    };
-  }
-
-
-  const officialYmd =
-    officialYmds[
-      officialYmds.length -
-      1
-    ];
-
-
-  const previousOfficialYmd =
-    officialYmds.length >
-      1
+  const cumulativeYmd =
+    officialYmds.length
       ? officialYmds[
           officialYmds.length -
-          2
+          1
         ]
       : null;
+
+
+  const weeklyYmd =
+    mondayYmds.length
+      ? mondayYmds[
+          mondayYmds.length -
+          1
+        ]
+      : null;
+
+
+  const weekFromYmd =
+    mondayYmds.length >
+      1
+      ? mondayYmds[
+          mondayYmds.length -
+          2
+        ]
+      : (
+          weeklyYmd
+            ? BASELINE_YMD
+            : null
+        );
 
 
   const cumulative =
@@ -1458,48 +1519,67 @@ function buildCompetitionTop5(
     }
 
 
-    const latest =
-      latestAtOrBefore(
-        member.weights,
-        officialYmd
-      );
-
-
-    if (!latest) {
-
-      continue;
-    }
-
-
-    cumulative.push(
-      topEntry(
-        member,
-        member.baseline_kg -
-        latest.kg
-      )
-    );
-
-
     if (
-      previousOfficialYmd
+      cumulativeYmd
     ) {
 
-      const previous =
+      const latest =
         latestAtOrBefore(
           member.weights,
-          previousOfficialYmd
+          cumulativeYmd
         );
 
 
       if (
-        previous
+        latest
+      ) {
+
+        cumulative.push(
+          topEntry(
+            member,
+            member.baseline_kg -
+            latest.kg
+          )
+        );
+      }
+    }
+
+
+    if (
+      weeklyYmd &&
+      weekFromYmd
+    ) {
+
+      const latestMonday =
+        latestAtOrBefore(
+          member.weights,
+          weeklyYmd
+        );
+
+
+      const previousMonday =
+        weekFromYmd ===
+          BASELINE_YMD
+          ? exactAt(
+              member.weights,
+              BASELINE_YMD
+            )
+          : latestAtOrBefore(
+              member.weights,
+              weekFromYmd
+            );
+
+
+      if (
+        latestMonday &&
+        previousMonday
       ) {
 
         weekly.push(
           topEntry(
             member,
-            previous.kg -
-            latest.kg
+            previousMonday.kg -
+            latestMonday.kg
           )
         );
       }
@@ -1507,84 +1587,23 @@ function buildCompetitionTop5(
   }
 
 
-  const sortRows =
-    rows =>
-      rows
-        .sort(
-          (
-            a,
-            b
-          ) => {
-
-            const lossDiff =
-              Number(
-                b.loss_kg
-              ) -
-              Number(
-                a.loss_kg
-              );
-
-
-            if (
-              lossDiff !==
-                0
-            ) {
-
-              return lossDiff;
-            }
-
-
-            const teamDiff =
-              String(
-                a.team_id
-              )
-                .localeCompare(
-                  String(
-                    b.team_id
-                  )
-                );
-
-
-            if (
-              teamDiff !==
-                0
-            ) {
-
-              return teamDiff;
-            }
-
-
-            return String(
-              a.nickname
-            )
-              .localeCompare(
-                String(
-                  b.nickname
-                ),
-                'ja'
-              );
-          }
-        )
-        .slice(
-          0,
-          5
-        );
-
-
   return {
     official_ymd:
-      officialYmd,
+      cumulativeYmd,
 
-    previous_official_ymd:
-      previousOfficialYmd,
+    weekly_ymd:
+      weeklyYmd,
+
+    week_from_ymd:
+      weekFromYmd,
 
     cumulative:
-      sortRows(
+      sortTopRows(
         cumulative
       ),
 
     weekly:
-      sortRows(
+      sortTopRows(
         weekly
       ),
   };
@@ -1675,6 +1694,13 @@ function buildMissingOfficials(
     }
 
 
+    /*
+     * 月曜日の未入力：
+     * 次の月曜日になるまで残す。
+     *
+     * 毎月1日の未入力：
+     * 全員が入力するまで残す。
+     */
     if (
       !monthStart &&
       monday &&
@@ -1834,6 +1860,12 @@ async function clubSummaryRoute(
     );
 
 
+  const mondayYmds =
+    mondayYmdsThrough(
+      todayYmd
+    );
+
+
   const teams =
     buildCompetitionPoints(
       preparedMembers,
@@ -1844,7 +1876,8 @@ async function clubSummaryRoute(
   const top5 =
     buildCompetitionTop5(
       preparedMembers,
-      officialYmds
+      officialYmds,
+      mondayYmds
     );
 
 

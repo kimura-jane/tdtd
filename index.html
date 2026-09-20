@@ -38,7 +38,7 @@
 
 
 <!-- =========================================================
-     1.0.5 グループ画面レイアウト補正
+     1.0.5 グループ画面 / 公式記録補正
      ========================================================= -->
 
 <style>
@@ -57,8 +57,6 @@
 /*
  * 外部WEBリンク → 投票
  * をグループ画面の必ず最後にする。
- *
- * DOM上の追加タイミングには依存しない。
  */
 #view-group.is-on > #voteExternalWebCard{
   order:10000;
@@ -70,8 +68,7 @@
 
 
 /*
- * グラフ見出し左側は、
- * 切替ボタンの幅を奪わない範囲で縮められるようにする。
+ * グラフ見出し左側。
  */
 .club-section-head > div:first-child{
   min-width:0;
@@ -79,8 +76,7 @@
 
 
 /*
- * 「月 / 全期間」を必ず横書きにする。
- * 横幅が狭くても1文字ずつ縦に折り返さない。
+ * 「月 / 全期間」を横書き固定。
  */
 .club-chart-switch{
   width:max-content;
@@ -101,6 +97,85 @@
   text-orientation:mixed !important;
 }
 
+
+/* ============================================================
+   本人向け 公式記録未入力
+   ============================================================ */
+
+#officialMissingCard{
+  overflow:hidden;
+  margin-top:0;
+  border:
+    1px solid
+    rgba(239,88,196,.20);
+  background:
+    radial-gradient(
+      circle at 100% 0%,
+      rgba(255,181,78,.18),
+      transparent 42%
+    ),
+    linear-gradient(
+      145deg,
+      rgba(255,252,247,.98) 0%,
+      rgba(255,246,251,.98) 100%
+    );
+}
+
+.official-missing-kicker{
+  display:inline-flex;
+  align-items:center;
+  gap:5px;
+  margin:0 0 7px;
+  color:#b44d8c;
+  font-size:10px;
+  font-weight:900;
+  letter-spacing:.08em;
+}
+
+.official-missing-title{
+  margin:0;
+  color:var(--ink,#181614);
+  font-size:18px;
+  font-weight:900;
+  line-height:1.4;
+}
+
+.official-missing-copy{
+  margin:7px 0 0;
+  color:var(--sub,#7e756d);
+  font-size:12px;
+  font-weight:700;
+  line-height:1.7;
+}
+
+.official-missing-dates{
+  display:flex;
+  flex-wrap:wrap;
+  gap:6px;
+  margin:12px 0 14px;
+}
+
+.official-missing-date{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  min-height:29px;
+  padding:5px 9px;
+  border:
+    1px solid
+    rgba(239,88,196,.15);
+  border-radius:999px;
+  background:#fff;
+  color:#8b4c71;
+  font-size:11px;
+  font-variant-numeric:tabular-nums;
+  font-weight:900;
+}
+
+#officialMissingOpen{
+  width:100%;
+}
+
 </style>
 
 </head>
@@ -111,9 +186,10 @@
 
 <header class="hd">
 
-  <p class="brand-en">
-    MINYASE
-  </p>
+  <p
+    class="brand-en"
+    aria-hidden="true"
+  ></p>
 
   <h1 class="brand">
     みんやせ
@@ -1340,6 +1416,676 @@ window.MINYASE_API_BASE =
 <script src="./notify.js?v=20260905c"></script>
 
 <script src="./vote.js?v=20260920b"></script>
+
+
+<!-- =========================================================
+     本人向け 公式記録未入力
+     ========================================================= -->
+
+<script>
+
+(() => {
+
+  const PARTICIPANT_GROUPS =
+    new Set([
+      'C47DTD4C',
+      'XGQGRGRV',
+      'T92787Z2',
+    ]);
+
+
+  const DEVICE_KEY =
+    'tsudatsu.device_id.v1';
+
+
+  let loading =
+    false;
+
+
+  let currentMissing =
+    [];
+
+
+  function deviceId() {
+
+    return (
+      localStorage.getItem(
+        DEVICE_KEY
+      ) ||
+      ''
+    );
+  }
+
+
+  async function request(path) {
+
+    const did =
+      deviceId();
+
+
+    if (!did) {
+
+      throw new Error(
+        'no_device'
+      );
+    }
+
+
+    const response =
+      await fetch(
+        window.MINYASE_API_BASE +
+        path,
+        {
+          method:
+            'GET',
+
+          headers: {
+            'x-device-id':
+              did,
+          },
+
+          cache:
+            'no-store',
+        }
+      );
+
+
+    let data =
+      {};
+
+
+    try {
+
+      data =
+        await response.json();
+
+    } catch {}
+
+
+    if (
+      !response.ok ||
+      data.ok === false
+    ) {
+
+      throw new Error(
+        data.error ||
+        (
+          'http_' +
+          response.status
+        )
+      );
+    }
+
+
+    return data;
+  }
+
+
+  function shortDate(ymd) {
+
+    const match =
+      /^(\d{4})-(\d{2})-(\d{2})$/
+        .exec(
+          String(
+            ymd ||
+            ''
+          )
+        );
+
+
+    if (!match) {
+
+      return ymd;
+    }
+
+
+    return (
+      Number(
+        match[2]
+      ) +
+      '/' +
+      Number(
+        match[3]
+      )
+    );
+  }
+
+
+  function removeCard() {
+
+    const card =
+      document.getElementById(
+        'officialMissingCard'
+      );
+
+
+    if (card) {
+
+      card.remove();
+    }
+
+
+    currentMissing =
+      [];
+  }
+
+
+  function ensureCard() {
+
+    let card =
+      document.getElementById(
+        'officialMissingCard'
+      );
+
+
+    if (card) {
+
+      return card;
+    }
+
+
+    const view =
+      document.getElementById(
+        'view-log'
+      );
+
+
+    if (!view) {
+
+      return null;
+    }
+
+
+    card =
+      document.createElement(
+        'section'
+      );
+
+
+    card.id =
+      'officialMissingCard';
+
+    card.className =
+      'card';
+
+
+    /*
+     * 記録画面の一番上に置く。
+     */
+    view.insertBefore(
+      card,
+      view.firstElementChild
+    );
+
+
+    return card;
+  }
+
+
+  function render(missing) {
+
+    currentMissing =
+      Array.isArray(
+        missing
+      )
+        ? missing
+        : [];
+
+
+    if (
+      !currentMissing.length
+    ) {
+
+      removeCard();
+
+      return;
+    }
+
+
+    const card =
+      ensureCard();
+
+
+    if (!card) {
+
+      return;
+    }
+
+
+    const dates =
+      currentMissing
+        .map(
+          ymd => `
+            <span class="official-missing-date">
+              ${shortDate(ymd)}
+            </span>
+          `
+        )
+        .join('');
+
+
+    card.innerHTML = `
+      <p class="official-missing-kicker">
+        つだつダイエット部
+      </p>
+
+      <h2 class="official-missing-title">
+        公式記録が未入力です
+      </h2>
+
+      <p class="official-missing-copy">
+        下の日付の体重がまだ入力されていません。
+        大会の正しい集計のため、過去の分も入力してください。
+        入力するまでこのお知らせは表示されます。
+      </p>
+
+      <div class="official-missing-dates">
+        ${dates}
+      </div>
+
+      <button
+        class="primary"
+        id="officialMissingOpen"
+        type="button"
+      >
+        未入力分を入力する
+      </button>
+    `;
+
+
+    const button =
+      document.getElementById(
+        'officialMissingOpen'
+      );
+
+
+    if (button) {
+
+      button.addEventListener(
+        'click',
+        openOldestMissing
+      );
+    }
+  }
+
+
+  function openOldestMissing() {
+
+    const target =
+      currentMissing[0];
+
+
+    if (!target) {
+
+      return;
+    }
+
+
+    const logTab =
+      document.querySelector(
+        '.tabbtn[data-v="log"]'
+      );
+
+
+    if (
+      logTab &&
+      !logTab.classList.contains(
+        'is-on'
+      )
+    ) {
+
+      logTab.click();
+    }
+
+
+    setTimeout(
+      () => {
+
+        const box =
+          document.getElementById(
+            'pastBox'
+          );
+
+
+        const open =
+          document.getElementById(
+            'openPast'
+          );
+
+
+        const ymd =
+          document.getElementById(
+            'pastYmd'
+          );
+
+
+        const kg =
+          document.getElementById(
+            'pastKg'
+          );
+
+
+        if (
+          box &&
+          box.hidden &&
+          open
+        ) {
+
+          open.click();
+        }
+
+
+        if (ymd) {
+
+          ymd.value =
+            target;
+        }
+
+
+        if (kg) {
+
+          kg.value =
+            '';
+
+          kg.focus();
+        }
+
+
+        if (box) {
+
+          box.scrollIntoView({
+            behavior:
+              'smooth',
+
+            block:
+              'center',
+          });
+        }
+
+      },
+      80
+    );
+  }
+
+
+  async function refresh() {
+
+    if (loading) {
+
+      return;
+    }
+
+
+    const did =
+      deviceId();
+
+
+    if (!did) {
+
+      return;
+    }
+
+
+    loading =
+      true;
+
+
+    try {
+
+      /*
+       * 自分が3つの競技チームのどれかを確認。
+       * ②③の観戦チームでは表示しない。
+       */
+      const ranking =
+        await request(
+          '/api/ranking?scope=mine'
+        );
+
+
+      const groupId =
+        ranking &&
+        ranking.group &&
+        typeof ranking.group
+          .group_id ===
+          'string'
+          ? ranking.group
+              .group_id
+              .trim()
+              .toUpperCase()
+          : '';
+
+
+      if (
+        !PARTICIPANT_GROUPS.has(
+          groupId
+        )
+      ) {
+
+        removeCard();
+
+        return;
+      }
+
+
+      const [
+        club,
+        weightsData
+      ] =
+        await Promise.all([
+          request(
+            '/api/weekly-summary?club=1'
+          ),
+
+          request(
+            '/api/weights'
+          ),
+        ]);
+
+
+      const officials =
+        Array.isArray(
+          club.official_ymds
+        )
+          ? club.official_ymds
+          : [];
+
+
+      const weights =
+        Array.isArray(
+          weightsData.weights
+        )
+          ? weightsData.weights
+          : [];
+
+
+      const recorded =
+        new Set(
+          weights
+            .map(
+              row =>
+                row &&
+                typeof row.ymd ===
+                  'string'
+                  ? row.ymd
+                  : ''
+            )
+            .filter(
+              Boolean
+            )
+        );
+
+
+      /*
+       * 月曜日も毎月1日も、
+       * 過去分を期限切れにしない。
+       *
+       * exactな日付の体重が存在するまで残す。
+       */
+      const missing =
+        officials
+          .filter(
+            ymd =>
+              typeof ymd ===
+                'string' &&
+              !recorded.has(
+                ymd
+              )
+          )
+          .sort();
+
+
+      render(
+        missing
+      );
+
+
+    } catch (_) {
+
+      /*
+       * 起動直後のregister前や一時的な通信失敗では
+       * 既存表示を勝手に消さない。
+       */
+
+    } finally {
+
+      loading =
+        false;
+    }
+  }
+
+
+  function scheduleRefresh() {
+
+    setTimeout(
+      refresh,
+      650
+    );
+
+
+    setTimeout(
+      refresh,
+      1600
+    );
+  }
+
+
+  function start() {
+
+    /*
+     * register完了待ち。
+     */
+    setTimeout(
+      refresh,
+      1600
+    );
+
+
+    setTimeout(
+      refresh,
+      4300
+    );
+
+
+    /*
+     * 過去体重 / 今日の体重を保存したあとは
+     * APIへ再確認。
+     *
+     * 保存失敗ならrecordが増えないので
+     * お知らせはそのまま残る。
+     */
+    document.addEventListener(
+      'click',
+      event => {
+
+        const button =
+          event.target.closest(
+            '#savePast, #saveToday'
+          );
+
+
+        if (!button) {
+
+          return;
+        }
+
+
+        scheduleRefresh();
+      }
+    );
+
+
+    /*
+     * 記録画面へ戻った時にも最新状態を確認。
+     */
+    document.addEventListener(
+      'click',
+      event => {
+
+        const tab =
+          event.target.closest(
+            '.tabbtn[data-v]'
+          );
+
+
+        if (
+          tab &&
+          tab.dataset.v ===
+            'log'
+        ) {
+
+          setTimeout(
+            refresh,
+            120
+          );
+        }
+      }
+    );
+
+
+    /*
+     * アプリへ戻ってきた時も更新。
+     */
+    document.addEventListener(
+      'visibilitychange',
+      () => {
+
+        if (
+          document.visibilityState ===
+            'visible'
+        ) {
+
+          setTimeout(
+            refresh,
+            150
+          );
+        }
+      }
+    );
+  }
+
+
+  if (
+    document.readyState ===
+      'loading'
+  ) {
+
+    document.addEventListener(
+      'DOMContentLoaded',
+      start,
+      {
+        once:
+          true,
+      }
+    );
+
+  } else {
+
+    start();
+  }
+
+})();
+
+</script>
 
 
 <!-- =========================================================

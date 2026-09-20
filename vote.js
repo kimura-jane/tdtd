@@ -319,6 +319,8 @@
         color:#6d665f;
         font-size:13px;
         line-height:1.7;
+        line-break:strict;
+        text-wrap:pretty;
       }
 
       .vote-deadline{
@@ -360,21 +362,25 @@
         margin:0;
       }
 
+      .vote-choice.is-selected,
       .vote-choice:has(input:checked){
         transform:translateY(-1px);
         box-shadow:0 5px 14px rgba(0,0,0,.06);
       }
 
+      .vote-choice.tsudamomo.is-selected,
       .vote-choice.tsudamomo:has(input:checked){
         border-color:#d8a91d;
         background:#fffaf0;
       }
 
+      .vote-choice.sakomitsu.is-selected,
       .vote-choice.sakomitsu:has(input:checked){
         border-color:#4f9ec5;
         background:#f3faff;
       }
 
+      .vote-choice.gotomei.is-selected,
       .vote-choice.gotomei:has(input:checked){
         border-color:#58a76a;
         background:#f4fbf5;
@@ -413,6 +419,8 @@
         font-size:13px;
         line-height:1.6;
         white-space:pre-line;
+        line-break:strict;
+        text-wrap:pretty;
       }
 
       .vote-status{
@@ -430,9 +438,10 @@
 
       .vote-status-head{
         display:flex;
+        flex-wrap:wrap;
         align-items:flex-end;
         justify-content:space-between;
-        gap:10px;
+        gap:6px 10px;
         margin-bottom:13px;
       }
 
@@ -447,7 +456,9 @@
         color:#948a80;
         font-size:10px;
         font-weight:700;
-        white-space:nowrap;
+        white-space:normal;
+        line-break:strict;
+        text-wrap:pretty;
       }
 
       .vote-status-body{
@@ -472,9 +483,21 @@
           rgba(255,255,255,.9);
       }
 
+      @supports not (aspect-ratio:1){
+        .vote-donut::before{
+          content:"";
+          display:block;
+          padding-top:100%;
+        }
+      }
+
       .vote-donut::after{
         content:"";
         position:absolute;
+        top:24%;
+        right:24%;
+        bottom:24%;
+        left:24%;
         inset:24%;
         border-radius:50%;
         background:#fffdfb;
@@ -488,6 +511,10 @@
       .vote-donut-center{
         position:absolute;
         z-index:1;
+        top:30%;
+        right:30%;
+        bottom:30%;
+        left:30%;
         inset:30%;
         display:flex;
         align-items:center;
@@ -835,18 +862,6 @@
     }
 
 
-    /*
-     * appendChild は既存要素なら「移動」になる。
-     *
-     * 他のJSが後からグループ画面へカードを追加しても
-     * 常に
-     *
-     * WEBリンク
-     * ↓
-     * 投票
-     *
-     * を最後へ戻す。
-     */
     view.appendChild(
       web
     );
@@ -903,6 +918,44 @@
 
 
   /* ==========================================================
+     投票選択状態
+     iOS 15.4未満では :has() が使えないため
+     classでも選択状態を表現する
+     ========================================================== */
+
+  function syncVoteChoiceState() {
+
+    const radios =
+      [
+        ...document.querySelectorAll(
+          'input[name="minyaseVote"]'
+        )
+      ];
+
+
+    for (
+      const radio of
+      radios
+    ) {
+
+      const choice =
+        radio.closest(
+          '.vote-choice'
+        );
+
+
+      if (choice) {
+
+        choice.classList.toggle(
+          'is-selected',
+          radio.checked
+        );
+      }
+    }
+  }
+
+
+  /* ==========================================================
      グループページ 投票カード
      ========================================================== */
 
@@ -940,6 +993,7 @@
 
     card.id =
       'voteCard';
+
 
     /*
      * 対象5グループ所属者であることを
@@ -1125,6 +1179,27 @@
         submitVote
       );
     }
+
+
+    card.addEventListener(
+      'change',
+      event => {
+
+        const radio =
+          event.target.closest(
+            'input[name="minyaseVote"]'
+          );
+
+
+        if (!radio) {
+
+          return;
+        }
+
+
+        syncVoteChoiceState();
+      }
+    );
   }
 
 
@@ -1268,6 +1343,7 @@
 
     card.id =
       'voteScoreCard';
+
 
     /*
      * 対象5グループ所属者であることを
@@ -1429,6 +1505,79 @@
           ? 'ok'
           : 'ng'
       );
+  }
+
+
+  /*
+   * POST中に通信エラーやloadCurrentの多重実行が起きても、
+   * 「投票中…」のまま固まらないようにする。
+   */
+  function restoreVoteSubmitButton() {
+
+    const btn =
+      document.getElementById(
+        'voteSubmit'
+      );
+
+
+    const card =
+      document.getElementById(
+        'voteCard'
+      );
+
+
+    if (
+      !btn ||
+      (
+        card &&
+        card.hidden
+      )
+    ) {
+
+      return;
+    }
+
+
+    const round =
+      currentData &&
+      currentData.round
+        ? currentData.round
+        : null;
+
+
+    if (!round) {
+
+      btn.disabled =
+        false;
+
+      btn.textContent =
+        'このチームに投票';
+
+      return;
+    }
+
+
+    btn.disabled =
+      !round.open;
+
+
+    if (!round.open) {
+
+      btn.textContent =
+        '今月の投票は締め切りました';
+
+    } else if (
+      currentData.vote
+    ) {
+
+      btn.textContent =
+        '予想を変更する';
+
+    } else {
+
+      btn.textContent =
+        'このチームに投票';
+    }
   }
 
 
@@ -1837,6 +1986,9 @@
             radio.value
         );
     }
+
+
+    syncVoteChoiceState();
 
 
     if (submit) {
@@ -2386,6 +2538,10 @@
 
 
       await loadCurrent();
+
+    } finally {
+
+      restoreVoteSubmitButton();
     }
   }
 
@@ -2408,10 +2564,6 @@
     buildVoteCard();
 
 
-    /*
-     * 他のUIが後から追加されても
-     * この2枚を最下部へ戻す。
-     */
     placeGroupBottomCards();
 
     observeGroupBottomCards();

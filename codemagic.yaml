@@ -4,10 +4,10 @@
 #
 # Bundle ID: com.minyase.app
 # Apple ID: 6808256800
-# App Store Version: 1.0.4
+# App Store Version: 1.0.5
 # iPhone専用
 #
-# 2026-09-13
+# 2026-09-20
 # ・Node / npm 固定
 # ・Xcode固定
 # ・Capacitor依存をpackage.jsonで固定
@@ -15,6 +15,8 @@
 # ・lockfile未作成時は生成後npm ci
 # ・member-detail-ui.js をビルド対象として検証
 # ・weekly-summary-ui.js をビルド対象として検証
+# ・club-ui.js をビルド対象として検証
+# ・watch-switch-ui.js をビルド対象として検証
 # ・operator-ui.js をビルド対象として検証
 # ・iOSアプリの対応言語を日本語に固定
 # ・完成したIPAの日本語設定を再検証
@@ -64,7 +66,7 @@ workflows:
 
         APP_STORE_APPLE_ID: 6808256800
 
-        APP_VERSION: "1.0.4"
+        APP_VERSION: "1.0.5"
 
 
     scripts:
@@ -361,6 +363,10 @@ workflows:
 
           weekly-summary-ui.js
 
+          club-ui.js
+
+          watch-switch-ui.js
+
           operator-ui.js
 
           leader.js
@@ -477,6 +483,8 @@ workflows:
             app.js \
             member-detail-ui.js \
             weekly-summary-ui.js \
+            club-ui.js \
+            watch-switch-ui.js \
             operator-ui.js \
             leader.js \
             tsuda-fx.js \

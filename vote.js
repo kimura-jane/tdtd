@@ -13,27 +13,51 @@
       window.MINYASE_API_BASE
     ) || '';
 
-  const K_DEV = 'tsudatsu.device_id.v1';
+  const K_DEV =
+    'tsudatsu.device_id.v1';
 
   const ERR = {
-    vote_closed: '今月の投票は締め切りました',
-    bad_team: 'チームを選んでください',
-    bad_device_id: '端末IDを確認できませんでした',
-    not_registered: 'アプリの読み込みがまだ完了していません',
-    banned: 'このアカウントは利用できません',
-    network_error: '通信できませんでした',
-    server_error: 'サーバーエラーが発生しました',
+    vote_closed:
+      '今月の投票は締め切りました',
+
+    bad_team:
+      'チームを選んでください',
+
+    bad_device_id:
+      '端末IDを確認できませんでした',
+
+    not_registered:
+      'アプリの読み込みがまだ完了していません',
+
+    banned:
+      'このアカウントは利用できません',
+
+    network_error:
+      '通信できませんでした',
+
+    server_error:
+      'サーバーエラーが発生しました',
   };
 
   const TEAM_COLOR = {
-    tsudamomo: '#d8a91d',
-    sakomitsu: '#4f9ec5',
-    gotomei: '#58a76a',
+    tsudamomo:
+      '#d8a91d',
+
+    sakomitsu:
+      '#4f9ec5',
+
+    gotomei:
+      '#58a76a',
   };
 
-  let currentData = null;
-  let loadingCurrent = false;
-  let loadingHistory = false;
+  let currentData =
+    null;
+
+  let loadingCurrent =
+    false;
+
+  let loadingHistory =
+    false;
 
 
   /* ==========================================================
@@ -41,70 +65,118 @@
      ========================================================== */
 
   function deviceId() {
-    return localStorage.getItem(K_DEV) || '';
+
+    return localStorage.getItem(
+      K_DEV
+    ) || '';
   }
 
-  async function api(path, options = {}) {
 
-    const did = deviceId();
+  async function api(
+    path,
+    options = {}
+  ) {
+
+    const did =
+      deviceId();
+
 
     if (!did) {
-      throw new Error('not_registered');
+
+      throw new Error(
+        'not_registered'
+      );
     }
+
 
     let res;
 
+
     try {
 
-      res = await fetch(
-        API + path,
-        {
-          method: options.method || 'GET',
+      res =
+        await fetch(
+          API + path,
+          {
+            method:
+              options.method ||
+              'GET',
 
-          headers: {
-            'content-type': 'application/json',
-            'x-device-id': did,
-          },
+            headers: {
+              'content-type':
+                'application/json',
 
-          body:
-            options.body !== undefined
-              ? JSON.stringify(options.body)
-              : undefined,
+              'x-device-id':
+                did,
+            },
 
-          cache: 'no-store',
-        }
-      );
+            body:
+              options.body !==
+                undefined
+                ? JSON.stringify(
+                    options.body
+                  )
+                : undefined,
+
+            cache:
+              'no-store',
+          }
+        );
 
     } catch (_) {
-      throw new Error('network_error');
+
+      throw new Error(
+        'network_error'
+      );
     }
+
 
     let data = {};
 
+
     try {
-      data = await res.json();
+
+      data =
+        await res.json();
+
     } catch {}
 
-    if (!res.ok || data.ok === false) {
+
+    if (
+      !res.ok ||
+      data.ok === false
+    ) {
+
       throw new Error(
         data.error ||
-        ('http_' + res.status)
+        (
+          'http_' +
+          res.status
+        )
       );
     }
+
 
     return data;
   }
 
+
   function emsg(e) {
 
     const code =
-      e && e.message
+      e &&
+      e.message
         ? e.message
         : 'unknown_error';
 
+
     return (
       ERR[code] ||
-      'エラー（' + code + '）'
+      (
+        'エラー（' +
+        code +
+        '）'
+      )
     );
   }
 
@@ -115,32 +187,62 @@
 
   function targetText(ymd) {
 
-    if (!ymd) return '';
+    if (!ymd) {
+      return '';
+    }
 
-    const [y, m, d] =
-      ymd.split('-').map(Number);
+
+    const [
+      y,
+      m,
+      d
+    ] =
+      ymd
+        .split('-')
+        .map(Number);
+
 
     return (
-      y + '年' +
-      m + '月' +
-      d + '日'
+      y +
+      '年' +
+      m +
+      '月' +
+      d +
+      '日'
     );
   }
 
+
   function deadlineText(ms) {
 
-    if (!ms) return '';
+    if (!ms) {
+      return '';
+    }
 
-    return new Date(Number(ms))
+
+    return new Date(
+      Number(ms)
+    )
       .toLocaleString(
         'ja-JP',
         {
-          timeZone: 'Asia/Tokyo',
-          month: 'numeric',
-          day: 'numeric',
-          hour: '2-digit',
-          minute: '2-digit',
-          hourCycle: 'h23',
+          timeZone:
+            'Asia/Tokyo',
+
+          month:
+            'numeric',
+
+          day:
+            'numeric',
+
+          hour:
+            '2-digit',
+
+          minute:
+            '2-digit',
+
+          hourCycle:
+            'h23',
         }
       );
   }
@@ -152,14 +254,25 @@
 
   function addStyle() {
 
-    if (document.getElementById('voteStyle')) {
+    if (
+      document.getElementById(
+        'voteStyle'
+      )
+    ) {
+
       return;
     }
 
-    const s =
-      document.createElement('style');
 
-    s.id = 'voteStyle';
+    const s =
+      document.createElement(
+        'style'
+      );
+
+
+    s.id =
+      'voteStyle';
+
 
     s.textContent = `
       .vote-title{
@@ -275,7 +388,12 @@
         padding:15px;
         border:1px solid #eee6dd;
         border-radius:18px;
-        background:linear-gradient(180deg,#fff 0%,#fdfaf6 100%);
+        background:
+          linear-gradient(
+            180deg,
+            #fff 0%,
+            #fdfaf6 100%
+          );
       }
 
       .vote-status-head{
@@ -302,21 +420,24 @@
 
       .vote-status-body{
         display:grid;
-        grid-template-columns:minmax(126px, 42%) 1fr;
+        grid-template-columns:
+          minmax(126px,42%) 1fr;
         gap:16px;
         align-items:center;
       }
 
       .vote-donut{
         position:relative;
-        width:min(100%, 154px);
+        width:min(100%,154px);
         aspect-ratio:1;
         justify-self:center;
         border-radius:50%;
         background:#eee8e1;
         box-shadow:
-          0 10px 26px rgba(67,54,43,.08),
-          inset 0 0 0 1px rgba(255,255,255,.9);
+          0 10px 26px
+          rgba(67,54,43,.08),
+          inset 0 0 0 1px
+          rgba(255,255,255,.9);
       }
 
       .vote-donut::after{
@@ -326,8 +447,10 @@
         border-radius:50%;
         background:#fffdfb;
         box-shadow:
-          0 2px 12px rgba(67,54,43,.07),
-          inset 0 0 0 1px rgba(238,230,221,.85);
+          0 2px 12px
+          rgba(67,54,43,.07),
+          inset 0 0 0 1px
+          rgba(238,230,221,.85);
       }
 
       .vote-donut-center{
@@ -351,7 +474,8 @@
 
       .vote-legend-row{
         display:grid;
-        grid-template-columns:12px 1fr auto;
+        grid-template-columns:
+          12px 1fr auto;
         gap:8px;
         align-items:center;
         min-width:0;
@@ -375,7 +499,8 @@
       .vote-legend-percent{
         color:#2f2b28;
         font-size:16px;
-        font-variant-numeric:tabular-nums;
+        font-variant-numeric:
+          tabular-nums;
         font-weight:900;
       }
 
@@ -405,13 +530,18 @@
         background:#fff;
         color:inherit;
         text-decoration:none;
-        transition:transform .15s ease, box-shadow .15s ease;
-        -webkit-tap-highlight-color:transparent;
+        transition:
+          transform .15s ease,
+          box-shadow .15s ease;
+        -webkit-tap-highlight-color:
+          transparent;
       }
 
       .vote-web-link:active{
         transform:scale(.99);
-        box-shadow:0 4px 14px rgba(70,57,45,.05);
+        box-shadow:
+          0 4px 14px
+          rgba(70,57,45,.05);
       }
 
       .vote-web-visual{
@@ -420,9 +550,24 @@
         min-height:118px;
         padding:19px 20px 18px;
         background:
-          radial-gradient(circle at 88% 20%, rgba(255,255,255,.74) 0 34px, transparent 35px),
-          radial-gradient(circle at 78% 100%, rgba(255,255,255,.34) 0 62px, transparent 63px),
-          linear-gradient(135deg,rgba(255,181,78,.34) 0%,rgba(255,111,145,.24) 54%,rgba(216,77,243,.18) 100%);
+          radial-gradient(
+            circle at 88% 20%,
+            rgba(255,255,255,.74)
+            0 34px,
+            transparent 35px
+          ),
+          radial-gradient(
+            circle at 78% 100%,
+            rgba(255,255,255,.34)
+            0 62px,
+            transparent 63px
+          ),
+          linear-gradient(
+            135deg,
+            rgba(255,181,78,.34) 0%,
+            rgba(255,111,145,.24) 54%,
+            rgba(216,77,243,.18) 100%
+          );
       }
 
       .vote-web-kicker{
@@ -456,17 +601,21 @@
         align-items:center;
         justify-content:center;
         border-radius:15px;
-        background:rgba(255,255,255,.84);
+        background:
+          rgba(255,255,255,.84);
         color:#c9489e;
         font-size:22px;
         font-weight:900;
-        box-shadow:0 6px 18px rgba(65,88,70,.12);
+        box-shadow:
+          0 6px 18px
+          rgba(65,88,70,.12);
         backdrop-filter:blur(4px);
       }
 
       .vote-web-meta{
         display:grid;
-        grid-template-columns:1fr auto;
+        grid-template-columns:
+          1fr auto;
         gap:12px;
         align-items:center;
         padding:13px 15px 14px;
@@ -541,7 +690,8 @@
         gap:10px;
         align-items:flex-start;
         padding:10px 0;
-        border-top:1px solid #eee8e1;
+        border-top:
+          1px solid #eee8e1;
         font-size:13px;
       }
 
@@ -582,9 +732,11 @@
         color:#bc4b40;
       }
 
-      @media (max-width:390px){
+      @media(max-width:390px){
+
         .vote-status-body{
-          grid-template-columns:116px 1fr;
+          grid-template-columns:
+            116px 1fr;
           gap:12px;
         }
 
@@ -598,77 +750,137 @@
       }
     `;
 
-    document.head.appendChild(s);
+
+    document.head
+      .appendChild(s);
   }
 
 
   /* ==========================================================
-     トップページ 投票カード
+     グループページ 投票カード
      ========================================================== */
 
   function buildVoteCard() {
 
-    if (document.getElementById('voteCard')) {
+    if (
+      document.getElementById(
+        'voteCard'
+      )
+    ) {
+
       return;
     }
 
-    const view =
-      document.getElementById('view-log');
 
-    if (!view) return;
+    const view =
+      document.getElementById(
+        'view-group'
+      );
+
+
+    if (!view) {
+      return;
+    }
+
 
     const card =
-      document.createElement('section');
+      document.createElement(
+        'section'
+      );
 
-    card.className = 'card';
-    card.id = 'voteCard';
+
+    card.className =
+      'card';
+
+    card.id =
+      'voteCard';
+
 
     card.innerHTML = `
       <h2 class="vote-title">
         来月の減量王チームを予想
       </h2>
 
-      <p class="vote-lead" id="voteQuestion">
+      <p
+        class="vote-lead"
+        id="voteQuestion"
+      >
         読み込み中…
       </p>
 
-      <div class="vote-deadline" id="voteDeadline">
+      <div
+        class="vote-deadline"
+        id="voteDeadline"
+      >
         —
       </div>
 
       <div class="vote-teams">
 
-        <label class="vote-choice tsudamomo">
+        <label
+          class="vote-choice tsudamomo"
+        >
           <input
             type="radio"
             name="minyaseVote"
             value="tsudamomo"
           >
-          <span class="vote-team-dot tsudamomo"></span>
-          <span class="vote-team-name">つだもも</span>
+
+          <span
+            class="vote-team-dot tsudamomo"
+          ></span>
+
+          <span
+            class="vote-team-name"
+          >
+            つだもも
+          </span>
         </label>
 
-        <label class="vote-choice sakomitsu">
+
+        <label
+          class="vote-choice sakomitsu"
+        >
           <input
             type="radio"
             name="minyaseVote"
             value="sakomitsu"
           >
-          <span class="vote-team-dot sakomitsu"></span>
-          <span class="vote-team-name">さこみつ</span>
+
+          <span
+            class="vote-team-dot sakomitsu"
+          ></span>
+
+          <span
+            class="vote-team-name"
+          >
+            さこみつ
+          </span>
         </label>
 
-        <label class="vote-choice gotomei">
+
+        <label
+          class="vote-choice gotomei"
+        >
           <input
             type="radio"
             name="minyaseVote"
             value="gotomei"
           >
-          <span class="vote-team-dot gotomei"></span>
-          <span class="vote-team-name">ゴトめい</span>
+
+          <span
+            class="vote-team-dot gotomei"
+          ></span>
+
+          <span
+            class="vote-team-name"
+          >
+            ゴトめい
+          </span>
         </label>
 
       </div>
+
 
       <button
         class="primary"
@@ -678,44 +890,59 @@
         このチームに投票
       </button>
 
+
       <div
         class="vote-current"
         id="voteCurrent"
         hidden
       ></div>
 
+
       <div
         class="vote-status"
         id="voteStatus"
         hidden
       >
+
         <div class="vote-status-head">
+
           <h3 class="vote-status-title">
             現在の投票状況
           </h3>
+
           <p class="vote-status-note">
             投票済みの人だけ表示
           </p>
+
         </div>
 
+
         <div class="vote-status-body">
+
           <div
             class="vote-donut"
             id="voteDonut"
             role="img"
             aria-label="現在の投票割合"
           >
+
             <div class="vote-donut-center">
-              投票者内<br>割合
+              投票者内<br>
+              割合
             </div>
+
           </div>
+
 
           <div
             class="vote-status-legend"
             id="voteStatusLegend"
           ></div>
+
         </div>
+
       </div>
+
 
       <div
         class="vote-msg"
@@ -723,14 +950,25 @@
       ></div>
     `;
 
-    view.appendChild(card);
 
-    document
-      .getElementById('voteSubmit')
-      .addEventListener(
+    view.appendChild(
+      card
+    );
+
+
+    const submit =
+      document.getElementById(
+        'voteSubmit'
+      );
+
+
+    if (submit) {
+
+      submit.addEventListener(
         'click',
         submitVote
       );
+    }
   }
 
 
@@ -745,18 +983,27 @@
         'voteExternalWebCard'
       )
     ) {
+
       return;
     }
+
 
     const view =
       document.getElementById(
         'view-group'
       );
 
-    if (!view) return;
+
+    if (!view) {
+      return;
+    }
+
 
     const card =
-      document.createElement('section');
+      document.createElement(
+        'section'
+      );
+
 
     card.className =
       'card vote-web-card';
@@ -764,7 +1011,9 @@
     card.id =
       'voteExternalWebCard';
 
-    card.hidden = true;
+    card.hidden =
+      true;
+
 
     card.innerHTML = `
       <a
@@ -775,7 +1024,9 @@
         rel="noopener noreferrer"
         aria-label="つだつダイエット部の詳しい情報を見る"
       >
+
         <div class="vote-web-visual">
+
           <div class="vote-web-kicker">
             TSUDATSU DIET CLUB
           </div>
@@ -788,53 +1039,85 @@
           <div class="vote-web-badge">
             ↗
           </div>
+
         </div>
 
+
         <div class="vote-web-meta">
+
           <div class="vote-web-copy">
-            <b>今の詳しい情報はこちら</b>
-            <span>tsudatsu-diet.vercel.app</span>
+
+            <b>
+              今の詳しい情報はこちら
+            </b>
+
+            <span>
+              tsudatsu-diet.vercel.app
+            </span>
+
           </div>
+
 
           <div class="vote-web-arrow">
             ›
           </div>
+
         </div>
+
       </a>
     `;
 
-    const first =
-      view.firstElementChild;
 
-    if (first) {
-      view.insertBefore(
-        card,
-        first
-      );
-    } else {
-      view.appendChild(card);
-    }
+    /*
+     * グループページの下部へ配置。
+     * このあと投票カードをappendするので
+     * 表示順は「WEB → 投票」になる。
+     */
+    view.appendChild(
+      card
+    );
   }
-     /* ==========================================================
+
+
+  /* ==========================================================
      マイページ 成績カード
      ========================================================== */
 
   function buildScoreCard() {
 
-    if (document.getElementById('voteScoreCard')) {
+    if (
+      document.getElementById(
+        'voteScoreCard'
+      )
+    ) {
+
       return;
     }
 
-    const view =
-      document.getElementById('view-my');
 
-    if (!view) return;
+    const view =
+      document.getElementById(
+        'view-my'
+      );
+
+
+    if (!view) {
+      return;
+    }
+
 
     const card =
-      document.createElement('section');
+      document.createElement(
+        'section'
+      );
 
-    card.className = 'card';
-    card.id = 'voteScoreCard';
+
+    card.className =
+      'card';
+
+    card.id =
+      'voteScoreCard';
+
 
     card.innerHTML = `
       <h2 class="h2">
@@ -842,8 +1125,19 @@
       </h2>
 
       <div class="vote-score">
-        <strong id="voteScoreTotal">0</strong>問中
-        <strong id="voteScoreCorrect">0</strong>問正解
+
+        <strong
+          id="voteScoreTotal"
+        >
+          0
+        </strong>問中
+
+        <strong
+          id="voteScoreCorrect"
+        >
+          0
+        </strong>問正解
+
       </div>
 
       <p
@@ -863,16 +1157,25 @@
       ></ul>
     `;
 
+
     const first =
-      view.querySelector('.card');
+      view.querySelector(
+        '.card'
+      );
+
 
     if (first) {
+
       first.insertAdjacentElement(
         'afterend',
         card
       );
+
     } else {
-      view.appendChild(card);
+
+      view.appendChild(
+        card
+      );
     }
   }
 
@@ -881,18 +1184,33 @@
      表示
      ========================================================== */
 
-  function setVoteMessage(text, ok) {
+  function setVoteMessage(
+    text,
+    ok
+  ) {
 
     const n =
-      document.getElementById('voteMsg');
+      document.getElementById(
+        'voteMsg'
+      );
 
-    if (!n) return;
 
-    n.textContent = text || '';
+    if (!n) {
+      return;
+    }
+
+
+    n.textContent =
+      text || '';
+
 
     n.className =
       'vote-msg ' +
-      (ok ? 'ok' : 'ng');
+      (
+        ok
+          ? 'ok'
+          : 'ng'
+      );
   }
 
 
@@ -903,49 +1221,69 @@
         'voteStatus'
       );
 
+
     const donut =
       document.getElementById(
         'voteDonut'
       );
+
 
     const legend =
       document.getElementById(
         'voteStatusLegend'
       );
 
+
     if (
       !box ||
       !donut ||
       !legend
     ) {
+
       return;
     }
+
 
     const rows =
       data &&
       data.voted &&
       data.vote_status &&
       Array.isArray(
-        data.vote_status.percentages
+        data.vote_status
+          .percentages
       )
-        ? data.vote_status.percentages
+        ? data.vote_status
+            .percentages
         : [];
+
 
     if (!rows.length) {
 
-      box.hidden = true;
-      legend.innerHTML = '';
+      box.hidden =
+        true;
+
+      legend.innerHTML =
+        '';
+
       donut.style.background =
         '#eee8e1';
 
       return;
     }
 
-    let cursor = 0;
 
-    const segments = [];
+    let cursor =
+      0;
 
-    for (const row of rows) {
+
+    const segments =
+      [];
+
+
+    for (
+      const row of
+      rows
+    ) {
 
       const percent =
         Math.max(
@@ -959,18 +1297,22 @@
           )
         );
 
+
       const color =
         TEAM_COLOR[
           row.team_id
         ] ||
         '#bbb3aa';
 
+
       const start =
         cursor;
+
 
       const end =
         cursor +
         percent;
+
 
       segments.push(
         color +
@@ -981,13 +1323,17 @@
         '%'
       );
 
-      cursor = end;
+
+      cursor =
+        end;
     }
+
 
     donut.style.background =
       'conic-gradient(' +
       segments.join(',') +
       ')';
+
 
     donut.setAttribute(
       'aria-label',
@@ -1002,21 +1348,35 @@
         .join('、')
     );
 
-    legend.innerHTML = '';
 
-    for (const row of rows) {
+    legend.innerHTML =
+      '';
+
+
+    for (
+      const row of
+      rows
+    ) {
 
       const item =
-        document.createElement('div');
+        document.createElement(
+          'div'
+        );
+
 
       item.className =
         'vote-legend-row';
 
+
       const dot =
-        document.createElement('span');
+        document.createElement(
+          'span'
+        );
+
 
       dot.className =
         'vote-legend-dot';
+
 
       dot.style.background =
         TEAM_COLOR[
@@ -1026,10 +1386,14 @@
 
 
       const name =
-        document.createElement('span');
+        document.createElement(
+          'span'
+        );
+
 
       name.className =
         'vote-legend-name';
+
 
       name.textContent =
         row.team_name ||
@@ -1037,10 +1401,14 @@
 
 
       const percent =
-        document.createElement('strong');
+        document.createElement(
+          'strong'
+        );
+
 
       percent.className =
         'vote-legend-percent';
+
 
       percent.textContent =
         String(
@@ -1058,37 +1426,47 @@
         percent
       );
 
+
       legend.appendChild(
         item
       );
     }
 
-    box.hidden = false;
+
+    box.hidden =
+      false;
   }
 
 
-  function renderExternalWeb(data) {
+  function renderExternalWeb(
+    data
+  ) {
 
     const card =
       document.getElementById(
         'voteExternalWebCard'
       );
 
+
     const link =
       document.getElementById(
         'voteExternalWebLink'
       );
 
+
     if (
       !card ||
       !link
     ) {
+
       return;
     }
+
 
     const external =
       data &&
       data.external_web;
+
 
     const visible =
       !!(
@@ -1101,96 +1479,151 @@
         )
       );
 
+
     if (!visible) {
 
-      card.hidden = true;
+      card.hidden =
+        true;
+
+
       link.removeAttribute(
         'href'
       );
 
+
       return;
     }
+
 
     link.href =
       external.url;
 
-    card.hidden = false;
+
+    card.hidden =
+      false;
   }
 
 
-  function renderCurrent(data) {
+  function renderCurrent(
+    data
+  ) {
 
-    currentData = data;
+    currentData =
+      data;
 
-    const round = data.round;
+
+    const round =
+      data.round;
+
 
     const question =
-      document.getElementById('voteQuestion');
+      document.getElementById(
+        'voteQuestion'
+      );
+
 
     const deadline =
-      document.getElementById('voteDeadline');
+      document.getElementById(
+        'voteDeadline'
+      );
+
 
     const submit =
-      document.getElementById('voteSubmit');
+      document.getElementById(
+        'voteSubmit'
+      );
+
 
     const current =
-      document.getElementById('voteCurrent');
+      document.getElementById(
+        'voteCurrent'
+      );
+
 
     if (question) {
+
       question.textContent =
-        targetText(round.target_date) +
+        targetText(
+          round.target_date
+        ) +
         '時点で、一番減量しているのはどのチーム？';
     }
 
+
     if (deadline) {
+
       deadline.textContent =
         '投票締切：' +
-        deadlineText(round.deadline_at);
+        deadlineText(
+          round.deadline_at
+        );
     }
+
 
     const radios =
       [
-        ...document.querySelectorAll(
-          'input[name="minyaseVote"]'
-        )
+        ...document
+          .querySelectorAll(
+            'input[name="minyaseVote"]'
+          )
       ];
 
-    for (const radio of radios) {
+
+    for (
+      const radio of
+      radios
+    ) {
 
       radio.disabled =
         !round.open;
 
+
       radio.checked =
         !!(
           data.vote &&
-          data.vote.team_id === radio.value
+          data.vote.team_id ===
+            radio.value
         );
     }
+
 
     if (submit) {
 
       submit.disabled =
         !round.open;
 
-      if (!round.open) {
+
+      if (
+        !round.open
+      ) {
+
         submit.textContent =
           '今月の投票は締め切りました';
 
-      } else if (data.vote) {
+      } else if (
+        data.vote
+      ) {
+
         submit.textContent =
           '予想を変更する';
 
       } else {
+
         submit.textContent =
           'このチームに投票';
       }
     }
 
+
     if (current) {
 
-      if (data.vote) {
+      if (
+        data.vote
+      ) {
 
-        current.hidden = false;
+        current.hidden =
+          false;
+
 
         current.textContent =
           '投票済み　あなたの予想：' +
@@ -1209,14 +1642,19 @@
 
       } else {
 
-        current.hidden = true;
-        current.textContent = '';
+        current.hidden =
+          true;
+
+        current.textContent =
+          '';
       }
     }
+
 
     renderVoteStatus(
       data
     );
+
 
     renderExternalWeb(
       data
@@ -1224,41 +1662,59 @@
   }
 
 
-  function renderHistory(data) {
+  function renderHistory(
+    data
+  ) {
 
     const correct =
       document.getElementById(
         'voteScoreCorrect'
       );
 
+
     const total =
       document.getElementById(
         'voteScoreTotal'
       );
+
 
     const rate =
       document.getElementById(
         'voteScoreRate'
       );
 
+
     const list =
       document.getElementById(
         'voteHistory'
       );
 
+
     if (correct) {
+
       correct.textContent =
-        String(data.stats.correct || 0);
+        String(
+          data.stats.correct ||
+          0
+        );
     }
 
+
     if (total) {
+
       total.textContent =
-        String(data.stats.answered || 0);
+        String(
+          data.stats.answered ||
+          0
+        );
     }
+
 
     if (rate) {
 
-      if (data.stats.answered) {
+      if (
+        data.stats.answered
+      ) {
 
         rate.textContent =
           '正解率 ' +
@@ -1272,21 +1728,28 @@
       }
     }
 
-    if (!list) return;
 
-    list.innerHTML = '';
+    if (!list) {
+      return;
+    }
 
-    /*
-     * 全履歴を表示する。
-     * slice() は使わない。
-     */
+
+    list.innerHTML =
+      '';
+
+
     const rows =
-      data.history || [];
+      data.history ||
+      [];
+
 
     if (!rows.length) {
 
       const li =
-        document.createElement('li');
+        document.createElement(
+          'li'
+        );
+
 
       li.innerHTML = `
         <div class="vote-history-main">
@@ -1296,31 +1759,61 @@
         </div>
       `;
 
-      list.appendChild(li);
+
+      list.appendChild(
+        li
+      );
+
+
       return;
     }
 
-    for (const row of rows) {
+
+    for (
+      const row of
+      rows
+    ) {
 
       const li =
-        document.createElement('li');
+        document.createElement(
+          'li'
+        );
 
-      let mark = '…';
-      let cls = 'vote-pending';
-      let detail = '結果待ち';
 
-      if (row.finalized) {
+      let mark =
+        '…';
 
-        if (row.correct) {
+      let cls =
+        'vote-pending';
 
-          mark = '○';
-          cls = 'vote-correct';
-          detail = '正解';
+      let detail =
+        '結果待ち';
+
+
+      if (
+        row.finalized
+      ) {
+
+        if (
+          row.correct
+        ) {
+
+          mark =
+            '○';
+
+          cls =
+            'vote-correct';
+
+          detail =
+            '正解';
 
         } else {
 
-          mark = '×';
-          cls = 'vote-wrong';
+          mark =
+            '×';
+
+          cls =
+            'vote-wrong';
 
           detail =
             '不正解　正解：' +
@@ -1328,36 +1821,58 @@
         }
       }
 
+
       const markEl =
-        document.createElement('div');
+        document.createElement(
+          'div'
+        );
+
 
       markEl.className =
-        'vote-history-mark ' + cls;
+        'vote-history-mark ' +
+        cls;
 
-      markEl.textContent = mark;
+
+      markEl.textContent =
+        mark;
 
 
       const main =
-        document.createElement('div');
+        document.createElement(
+          'div'
+        );
+
 
       main.className =
         'vote-history-main';
 
 
       const title =
-        document.createElement('b');
+        document.createElement(
+          'b'
+        );
+
 
       title.textContent =
-        targetText(row.target_date) +
+        targetText(
+          row.target_date
+        ) +
         '　予想：' +
         row.team_name;
 
 
       const sub =
-        document.createElement('span');
+        document.createElement(
+          'span'
+        );
 
-      sub.className = cls;
-      sub.textContent = detail;
+
+      sub.className =
+        cls;
+
+
+      sub.textContent =
+        detail;
 
 
       main.append(
@@ -1365,12 +1880,16 @@
         sub
       );
 
+
       li.append(
         markEl,
         main
       );
 
-      list.appendChild(li);
+
+      list.appendChild(
+        li
+      );
     }
   }
 
@@ -1381,9 +1900,17 @@
 
   async function loadCurrent() {
 
-    if (loadingCurrent) return;
+    if (
+      loadingCurrent
+    ) {
 
-    loadingCurrent = true;
+      return;
+    }
+
+
+    loadingCurrent =
+      true;
+
 
     try {
 
@@ -1392,7 +1919,11 @@
           '/api/vote/current'
         );
 
-      renderCurrent(data);
+
+      renderCurrent(
+        data
+      );
+
 
       setVoteMessage(
         '',
@@ -1414,16 +1945,25 @@
 
     } finally {
 
-      loadingCurrent = false;
+      loadingCurrent =
+        false;
     }
   }
 
 
   async function loadHistory() {
 
-    if (loadingHistory) return;
+    if (
+      loadingHistory
+    ) {
 
-    loadingHistory = true;
+      return;
+    }
+
+
+    loadingHistory =
+      true;
+
 
     try {
 
@@ -1432,15 +1972,21 @@
           '/api/vote/history'
         );
 
-      renderHistory(data);
+
+      renderHistory(
+        data
+      );
 
     } catch (_) {
+
       /*
-       * 起動直後はregister前の場合がある。
+       * 起動直後は
+       * register前の場合がある。
        */
     } finally {
 
-      loadingHistory = false;
+      loadingHistory =
+        false;
     }
   }
 
@@ -1461,13 +2007,16 @@
         false
       );
 
+
       return;
     }
+
 
     const checked =
       document.querySelector(
         'input[name="minyaseVote"]:checked'
       );
+
 
     if (!checked) {
 
@@ -1476,18 +2025,26 @@
         false
       );
 
+
       return;
     }
+
 
     const btn =
       document.getElementById(
         'voteSubmit'
       );
 
+
     if (btn) {
-      btn.disabled = true;
-      btn.textContent = '投票中…';
+
+      btn.disabled =
+        true;
+
+      btn.textContent =
+        '投票中…';
     }
+
 
     try {
 
@@ -1495,13 +2052,16 @@
         await api(
           '/api/vote/current',
           {
-            method: 'POST',
+            method:
+              'POST',
 
             body: {
-              team_id: checked.value,
+              team_id:
+                checked.value,
             },
           }
         );
+
 
       setVoteMessage(
         data.team_name +
@@ -1509,7 +2069,9 @@
         true
       );
 
+
       await loadCurrent();
+
       await loadHistory();
 
     } catch (e) {
@@ -1518,6 +2080,7 @@
         emsg(e),
         false
       );
+
 
       await loadCurrent();
     }
@@ -1531,31 +2094,53 @@
   function start() {
 
     addStyle();
-    buildVoteCard();
+
+
+    /*
+     * グループページ下部の並び
+     *
+     * WEBリンク
+     * ↓
+     * 投票
+     */
     buildExternalWebCard();
+
+    buildVoteCard();
+
+
     buildScoreCard();
+
 
     /*
      * app.js のregister完了待ち。
      */
     setTimeout(
       () => {
+
         loadCurrent();
+
         loadHistory();
+
       },
       1800
     );
 
+
     setTimeout(
       () => {
+
         loadCurrent();
+
         loadHistory();
+
       },
       4500
     );
 
+
     /*
-     * タブを開いた時に最新状態へ更新。
+     * タブを開いた時に
+     * 最新状態へ更新。
      */
     document.addEventListener(
       'click',
@@ -1566,11 +2151,15 @@
             '.tabbtn[data-v]'
           );
 
-        if (!btn) return;
+
+        if (!btn) {
+          return;
+        }
+
 
         if (
-          btn.dataset.v === 'log' ||
-          btn.dataset.v === 'group'
+          btn.dataset.v ===
+            'group'
         ) {
 
           setTimeout(
@@ -1579,7 +2168,11 @@
           );
         }
 
-        if (btn.dataset.v === 'my') {
+
+        if (
+          btn.dataset.v ===
+            'my'
+        ) {
 
           setTimeout(
             loadHistory,
@@ -1592,14 +2185,16 @@
 
 
   if (
-    document.readyState === 'loading'
+    document.readyState ===
+      'loading'
   ) {
 
     document.addEventListener(
       'DOMContentLoaded',
       start,
       {
-        once: true,
+        once:
+          true,
       }
     );
 

@@ -1220,17 +1220,30 @@ function prepareCompetitionMembers(
         [];
 
 
+      /*
+       * 大会の基準体重も既存の月曜速報と同じ。
+       *
+       * 9/1ちょうどの記録があればそれ。
+       * 無ければ9/1以降の最初の計測を基準にする。
+       *
+       * loadWeightsByDevice() は9/1以降だけを
+       * 日付昇順で取得しているため、先頭が基準になる。
+       */
       const baseline =
-        exactAt(
-          weights,
-          BASELINE_YMD
-        );
+        weights.length
+          ? weights[0]
+          : null;
 
 
       return {
         ...member,
 
         weights,
+
+        baseline_ymd:
+          baseline
+            ? baseline.ymd
+            : null,
 
         baseline_kg:
           baseline
@@ -1289,6 +1302,15 @@ function buildCompetitionPoints(
               const member of
               teamMembers
             ) {
+
+              if (
+                member.baseline_ymd >
+                  ymd
+              ) {
+
+                continue;
+              }
+
 
               const latest =
                 latestAtOrBefore(
@@ -1520,7 +1542,9 @@ function buildCompetitionTop5(
 
 
     if (
-      cumulativeYmd
+      cumulativeYmd &&
+      member.baseline_ymd <=
+        cumulativeYmd
     ) {
 
       const latest =
@@ -1547,7 +1571,9 @@ function buildCompetitionTop5(
 
     if (
       weeklyYmd &&
-      weekFromYmd
+      weekFromYmd &&
+      member.baseline_ymd <=
+        weeklyYmd
     ) {
 
       const latestMonday =
@@ -1557,28 +1583,58 @@ function buildCompetitionTop5(
         );
 
 
-      const previousMonday =
-        weekFromYmd ===
-          BASELINE_YMD
-          ? exactAt(
-              member.weights,
-              BASELINE_YMD
-            )
-          : latestAtOrBefore(
-              member.weights,
-              weekFromYmd
-            );
+      let weekStart =
+        null;
+
+
+      if (
+        member.baseline_ymd <=
+          weekFromYmd
+      ) {
+
+        weekStart =
+          latestAtOrBefore(
+            member.weights,
+            weekFromYmd
+          );
+
+
+      } else if (
+        member.baseline_ymd >
+          weekFromYmd &&
+        member.baseline_ymd <=
+          weeklyYmd
+      ) {
+
+        /*
+         * 前回月曜日より後に初計測した人は、
+         * その初計測値を週間の起点にする。
+         *
+         * 例：
+         * 9/1未入力
+         * 9/3が初計測
+         * ↓
+         * 9/7週間TOP5は9/3→9/7で計算。
+         */
+        weekStart = {
+          ymd:
+            member.baseline_ymd,
+
+          kg:
+            member.baseline_kg,
+        };
+      }
 
 
       if (
         latestMonday &&
-        previousMonday
+        weekStart
       ) {
 
         weekly.push(
           topEntry(
             member,
-            previousMonday.kg -
+            weekStart.kg -
             latestMonday.kg
           )
         );

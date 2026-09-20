@@ -98,6 +98,22 @@
 }
 
 
+/*
+ * 注意書き・説明文の日本語を、
+ * できるだけ自然な位置で折り返す。
+ *
+ * text-wrap:pretty 非対応ブラウザでは
+ * この指定だけ無視される。
+ */
+.note,
+.official-missing-copy,
+.watch-switch-note{
+  line-break:strict;
+  overflow-wrap:break-word;
+  text-wrap:pretty;
+}
+
+
 /* ============================================================
    本人向け 公式記録未入力
    ============================================================ */
@@ -697,7 +713,7 @@
     </h2>
 
     <p class="note">
-      参加コードを入れると「他チーム」タブでそのチームのランキングを見られます。
+      登録済みの他チームを、ここから切り替えられます。
     </p>
 
     <div class="past-row">
@@ -819,8 +835,7 @@
       </label>
 
       <p class="note">
-        オンでも各参加者は
-        「非公開（増減量のみ）」を選べます。
+        オンでも各参加者は「非公開（増減量のみ）」を選べます。
         オフにすると全員が増減量のみになり、
         あとからグループの公開設定は変更できません。
       </p>
@@ -1176,9 +1191,9 @@
 
 
     <p class="note">
-      体重記録、目標体重、ニックネーム、
-      プロフィール画像、グループの所属、
-      体重公開設定、外部WEB連携への同意や未送信データなど、
+      体重記録、目標体重、ニックネーム、プロフィール画像、
+      グループの所属、体重公開設定、
+      外部WEB連携への同意や未送信データなど、
       通常の利用データを削除します。
       取り消せません。
     </p>
@@ -1211,8 +1226,7 @@
     <p class="note">
       禁止事項、通報とブロック、
       プロフィール画像の確認、
-      体重データの共有範囲、
-      外部WEB連携、
+      体重データの共有範囲、外部WEB連携、
       保存・削除方法について確認できます。
     </p>
 
@@ -1241,9 +1255,8 @@
 
 
     <p class="note">
-      不具合のご報告、
-      違反行為のご連絡、
-      データ削除や外部WEB連携データに関するご相談は
+      不具合のご報告、違反行為のご連絡、
+      データ削除や外部WEB連携データに関するご相談は、
       下記へお送りください。
       メンバーIDを添えていただけると調査が早く進みます。
     </p>
@@ -1288,8 +1301,7 @@
 
 
     <p class="note">
-      ドラッグで位置、
-      スライダーかピンチで大きさを調整します。
+      ドラッグで位置、スライダーかピンチで大きさを調整します。
     </p>
 
 
@@ -1415,7 +1427,7 @@ window.MINYASE_API_BASE =
 
 <script src="./notify.js?v=20260905c"></script>
 
-<script src="./vote.js?v=20260920d"></script>
+<script src="./vote.js?v=20260920e"></script>
 
 
 <!-- =========================================================
@@ -1609,9 +1621,6 @@ window.MINYASE_API_BASE =
       'card';
 
 
-    /*
-     * 記録画面の一番上に置く。
-     */
     view.insertBefore(
       card,
       view.firstElementChild
@@ -1832,10 +1841,6 @@ window.MINYASE_API_BASE =
 
     try {
 
-      /*
-       * 自分が3つの競技チームのどれかを確認。
-       * ②③の観戦チームでは表示しない。
-       */
       const ranking =
         await request(
           '/api/ranking?scope=mine'
@@ -1915,12 +1920,6 @@ window.MINYASE_API_BASE =
         );
 
 
-      /*
-       * 月曜日も毎月1日も、
-       * 過去分を期限切れにしない。
-       *
-       * exactな日付の体重が存在するまで残す。
-       */
       const missing =
         officials
           .filter(
@@ -1940,11 +1939,6 @@ window.MINYASE_API_BASE =
 
 
     } catch (_) {
-
-      /*
-       * 起動直後のregister前や一時的な通信失敗では
-       * 既存表示を勝手に消さない。
-       */
 
     } finally {
 
@@ -1971,9 +1965,6 @@ window.MINYASE_API_BASE =
 
   function start() {
 
-    /*
-     * register完了待ち。
-     */
     setTimeout(
       refresh,
       1600
@@ -1986,13 +1977,6 @@ window.MINYASE_API_BASE =
     );
 
 
-    /*
-     * 過去体重 / 今日の体重を保存したあとは
-     * APIへ再確認。
-     *
-     * 保存失敗ならrecordが増えないので
-     * お知らせはそのまま残る。
-     */
     document.addEventListener(
       'click',
       event => {
@@ -2014,9 +1998,6 @@ window.MINYASE_API_BASE =
     );
 
 
-    /*
-     * 記録画面へ戻った時にも最新状態を確認。
-     */
     document.addEventListener(
       'click',
       event => {
@@ -2042,9 +2023,6 @@ window.MINYASE_API_BASE =
     );
 
 
-    /*
-     * アプリへ戻ってきた時も更新。
-     */
     document.addEventListener(
       'visibilitychange',
       () => {

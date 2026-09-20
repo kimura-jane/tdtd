@@ -3,13 +3,12 @@
 /* ============================================================
    みんやせ / watch-switch-ui.js
 
-   「他のチームを見る」下部ボタンを
-   登録済みチームの切り替え専用にする。
+   他チーム操作の役割分離
 
-   ・新規追加 → 上部の「＋追加」
-   ・登録済み切替 → 下部ボタン
+   ・登録済みチームの切り替え → 上部
+   ・新しい他チームの追加 → 下部
    ・登録0〜1チーム → 切替ボタン無効
-   ・登録2チーム以上 → 選択シート表示
+   ・登録2チーム以上 → 切替シート表示
    ============================================================ */
 
 (() => {
@@ -25,7 +24,15 @@
      DOM
      ========================================================== */
 
-  function button() {
+  function switchButton() {
+
+    return document.getElementById(
+      'addWatch'
+    );
+  }
+
+
+  function addButton() {
 
     return document.getElementById(
       'addWatch2'
@@ -41,7 +48,7 @@
   }
 
 
-  function box() {
+  function addBox() {
 
     return document.getElementById(
       'watchAddBox'
@@ -157,17 +164,9 @@
 
 
     style.textContent = `
-      #addWatch2:disabled{
+      #addWatch:disabled{
         opacity:.42;
         cursor:default;
-      }
-
-      .watch-switch-note{
-        margin:8px 0 0;
-        color:var(--sub,#7e756d);
-        font-size:11px;
-        font-weight:700;
-        line-height:1.55;
       }
 
       .watch-switch-backdrop{
@@ -298,75 +297,66 @@
 
 
   /* ==========================================================
-     下部カード表示更新
+     表示更新
      ========================================================== */
 
-  function ensureNote() {
+  function updateAddArea() {
 
-    const root =
-      box();
+    const btn =
+      addButton();
 
 
-    if (!root) {
+    if (btn) {
 
-      return null;
+      btn.textContent =
+        '＋追加';
     }
 
 
-    let note =
-      document.getElementById(
-        'watchSwitchNote'
+    const box =
+      addBox();
+
+
+    if (!box) {
+
+      return;
+    }
+
+
+    const title =
+      box.querySelector(
+        '.h2'
+      );
+
+
+    if (title) {
+
+      title.textContent =
+        '他のチームを追加';
+    }
+
+
+    const note =
+      box.querySelector(
+        '.note'
       );
 
 
     if (note) {
 
-      return note;
+      note.textContent =
+        '参加コードを入力して、新しい他チームを登録できます。';
     }
-
-
-    note =
-      document.createElement(
-        'p'
-      );
-
-
-    note.id =
-      'watchSwitchNote';
-
-    note.className =
-      'watch-switch-note';
-
-
-    const row =
-      root.querySelector(
-        '.past-row'
-      );
-
-
-    if (row) {
-
-      row.insertAdjacentElement(
-        'beforebegin',
-        note
-      );
-
-    } else {
-
-      root.appendChild(
-        note
-      );
-    }
-
-
-    return note;
   }
 
 
   function update() {
 
+    updateAddArea();
+
+
     const btn =
-      button();
+      switchButton();
 
 
     if (!btn) {
@@ -375,12 +365,8 @@
     }
 
 
-    /*
-     * app.js が設定している
-     * 「＋チームを追加」を切替専用へ変更。
-     */
     btn.textContent =
-      '他のチームに切り替える';
+      '切り替え';
 
 
     const teams =
@@ -397,56 +383,6 @@
         ? 'true'
         : 'false'
     );
-
-
-    const note =
-      ensureNote();
-
-
-    if (!note) {
-
-      return;
-    }
-
-
-    if (
-      teams.length === 0
-    ) {
-
-      note.textContent =
-        'まだ他チームは登録されていません。新しいチームは「他チーム」タブの「＋追加」から登録できます。';
-
-
-    } else if (
-      teams.length === 1
-    ) {
-
-      note.textContent =
-        '登録中：' +
-        teams[0].name +
-        '。別のチームを追加すると、ここから表示先を切り替えられます。';
-
-
-    } else {
-
-      const current =
-        currentTeam();
-
-
-      note.textContent =
-        (
-          current
-            ? (
-                '選択中：' +
-                current.name +
-                ' ／ '
-              )
-            : ''
-        ) +
-        '登録済み' +
-        teams.length +
-        'チーム。新しいチームの追加は「他チーム」タブの「＋追加」からできます。';
-    }
   }
 
 
@@ -501,10 +437,6 @@
     );
 
 
-    /*
-     * 現在どのランキングタブにいても
-     * 「他チーム」へ移動する。
-     */
     const tab =
       watchTab();
 
@@ -538,6 +470,7 @@
     ) {
 
       update();
+
       return;
     }
 
@@ -829,11 +762,14 @@
 
 
     const btn =
-      button();
+      switchButton();
 
 
     const sel =
       select();
+
+
+    updateAddArea();
 
 
     if (
@@ -846,8 +782,10 @@
 
 
     /*
-     * app.js の #addWatch2.onclick より先に捕まえて、
-     * 下部ボタンでは「追加」を起動させない。
+     * app.js の #addWatch.onclick は
+     * 「追加」を開くため、
+     * 上部ボタンだけこちらで先に捕まえて
+     * 「切り替え」専用にする。
      */
     btn.addEventListener(
       'click',
@@ -888,7 +826,7 @@
 
     /*
      * app.js の loadWatching() が
-     * selectのoptionを作り直した時にも追従。
+     * optionを作り直した時にも追従。
      */
     observer =
       new MutationObserver(
@@ -912,6 +850,18 @@
 
 
     update();
+
+
+    setTimeout(
+      update,
+      800
+    );
+
+
+    setTimeout(
+      update,
+      2200
+    );
   }
 
 

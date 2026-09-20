@@ -20,6 +20,9 @@
     vote_closed:
       '今月の投票は締め切りました',
 
+    vote_not_available:
+      'この投票は大会対象グループ専用です',
+
     bad_team:
       'チームを選んでください',
 
@@ -938,6 +941,13 @@
     card.id =
       'voteCard';
 
+    /*
+     * 対象5グループ所属者であることを
+     * APIで確認できるまでは表示しない。
+     */
+    card.hidden =
+      true;
+
 
     card.innerHTML = `
       <h2
@@ -1259,6 +1269,13 @@
     card.id =
       'voteScoreCard';
 
+    /*
+     * 対象5グループ所属者であることを
+     * APIで確認できるまでは表示しない。
+     */
+    card.hidden =
+      true;
+
 
     card.innerHTML = `
       <h2 class="h2">
@@ -1324,6 +1341,66 @@
   /* ==========================================================
      表示
      ========================================================== */
+
+  function hideVoteUi() {
+
+    currentData =
+      null;
+
+
+    const vote =
+      document.getElementById(
+        'voteCard'
+      );
+
+
+    if (vote) {
+
+      vote.hidden =
+        true;
+    }
+
+
+    const score =
+      document.getElementById(
+        'voteScoreCard'
+      );
+
+
+    if (score) {
+
+      score.hidden =
+        true;
+    }
+
+
+    const web =
+      document.getElementById(
+        'voteExternalWebCard'
+      );
+
+
+    if (web) {
+
+      web.hidden =
+        true;
+    }
+
+
+    const link =
+      document.getElementById(
+        'voteExternalWebLink'
+      );
+
+
+    if (link) {
+
+      link.removeAttribute(
+        'href'
+      );
+    }
+  }
+
 
   function setVoteMessage(
     text,
@@ -1658,6 +1735,19 @@
       data;
 
 
+    const card =
+      document.getElementById(
+        'voteCard'
+      );
+
+
+    if (card) {
+
+      card.hidden =
+        false;
+    }
+
+
     const round =
       data.round;
 
@@ -1830,6 +1920,19 @@
   function renderHistory(
     data
   ) {
+
+    const card =
+      document.getElementById(
+        'voteScoreCard'
+      );
+
+
+    if (card) {
+
+      card.hidden =
+        false;
+    }
+
 
     const correct =
       document.getElementById(
@@ -2098,6 +2201,18 @@
     } catch (e) {
 
       if (
+        e &&
+        e.message ===
+          'vote_not_available'
+      ) {
+
+        hideVoteUi();
+
+        return;
+      }
+
+
+      if (
         e.message !==
         'not_registered'
       ) {
@@ -2142,12 +2257,23 @@
         data
       );
 
-    } catch (_) {
+    } catch (e) {
+
+      if (
+        e &&
+        e.message ===
+          'vote_not_available'
+      ) {
+
+        hideVoteUi();
+      }
+
 
       /*
        * 起動直後は
        * register前の場合がある。
        */
+
     } finally {
 
       loadingHistory =
@@ -2241,6 +2367,18 @@
 
     } catch (e) {
 
+      if (
+        e &&
+        e.message ===
+          'vote_not_available'
+      ) {
+
+        hideVoteUi();
+
+        return;
+      }
+
+
       setVoteMessage(
         emsg(e),
         false
@@ -2263,6 +2401,7 @@
 
     /*
      * WEB → 投票 の順で作成。
+     * 対象確認が取れるまでは hidden。
      */
     buildExternalWebCard();
 

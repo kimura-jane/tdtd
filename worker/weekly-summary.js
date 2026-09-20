@@ -21,6 +21,42 @@ const TARGET_GROUP_IDS =
   ]);
 
 
+const COMPETITION_TEAMS = [
+  {
+    team_id: 'tsudamomo',
+    group_id: 'C47DTD4C',
+    name: 'つだもも',
+    short: 'つ',
+    color: '#d8a91d',
+  },
+  {
+    team_id: 'sakomitsu',
+    group_id: 'XGQGRGRV',
+    name: 'さこみつ',
+    short: 'さ',
+    color: '#4f9ec5',
+  },
+  {
+    team_id: 'gotomei',
+    group_id: 'T92787Z2',
+    name: 'ゴトめい',
+    short: 'ゴ',
+    color: '#58a76a',
+  },
+];
+
+
+const TEAM_BY_GROUP_ID =
+  new Map(
+    COMPETITION_TEAMS.map(
+      team => [
+        team.group_id,
+        team
+      ]
+    )
+  );
+
+
 const BASELINE_YMD =
   '2026-09-01';
 
@@ -31,6 +67,10 @@ const FIRST_MONDAY_YMD =
 
 const LAST_MONDAY_YMD =
   '2026-12-28';
+
+
+const CAMPAIGN_END_YMD =
+  '2026-12-31';
 
 
 const JST_OFFSET =
@@ -184,6 +224,18 @@ function isMondayYmd(ymd) {
 }
 
 
+function isMonthStartYmd(ymd) {
+
+  return /^\d{4}-\d{2}-01$/
+    .test(
+      String(
+        ymd ||
+        ''
+      )
+    );
+}
+
+
 function isActiveMondayYmd(ymd) {
 
   return !!(
@@ -269,6 +321,183 @@ function mondayYmdsThrough(todayYmd) {
 }
 
 
+function officialYmdsThrough(todayYmd) {
+
+  const first =
+    ymdToDay(
+      BASELINE_YMD
+    );
+
+
+  const today =
+    ymdToDay(
+      todayYmd
+    );
+
+
+  const last =
+    ymdToDay(
+      CAMPAIGN_END_YMD
+    );
+
+
+  if (
+    first ===
+      null ||
+    today ===
+      null ||
+    last ===
+      null
+  ) {
+
+    return [];
+  }
+
+
+  const end =
+    Math.min(
+      today,
+      last
+    );
+
+
+  if (
+    end <
+      first
+  ) {
+
+    return [];
+  }
+
+
+  const result =
+    [];
+
+
+  for (
+    let day = first;
+    day <= end;
+    day++
+  ) {
+
+    const ymd =
+      dayToYmd(
+        day
+      );
+
+
+    if (
+      isMondayYmd(
+        ymd
+      ) ||
+      isMonthStartYmd(
+        ymd
+      )
+    ) {
+
+      result.push(
+        ymd
+      );
+    }
+  }
+
+
+  return result;
+}
+
+
+function nextOfficialYmd(todayYmd) {
+
+  const today =
+    ymdToDay(
+      todayYmd
+    );
+
+
+  const last =
+    ymdToDay(
+      CAMPAIGN_END_YMD
+    );
+
+
+  if (
+    today ===
+      null ||
+    last ===
+      null ||
+    today >
+      last
+  ) {
+
+    return null;
+  }
+
+
+  for (
+    let day = today;
+    day <= last;
+    day++
+  ) {
+
+    const ymd =
+      dayToYmd(
+        day
+      );
+
+
+    if (
+      isMondayYmd(
+        ymd
+      ) ||
+      isMonthStartYmd(
+        ymd
+      )
+    ) {
+
+      return ymd;
+    }
+  }
+
+
+  return null;
+}
+
+
+function daysBetween(
+  fromYmd,
+  toYmd
+) {
+
+  const from =
+    ymdToDay(
+      fromYmd
+    );
+
+
+  const to =
+    ymdToDay(
+      toYmd
+    );
+
+
+  if (
+    from ===
+      null ||
+    to ===
+      null
+  ) {
+
+    return null;
+  }
+
+
+  return (
+    to -
+    from
+  );
+}
+
+
 /* ============================================================
    閲覧権限
    ============================================================ */
@@ -317,6 +546,24 @@ async function canViewGroup(
 
 
   return !!row;
+}
+
+
+function canViewClub(dev) {
+
+  const groupId =
+    normalizeGroupId(
+      dev &&
+      dev.group_id
+    );
+
+
+  return !!(
+    groupId &&
+    TARGET_GROUP_IDS.has(
+      groupId
+    )
+  );
 }
 
 
@@ -372,10 +619,6 @@ async function loadWeightsByDevice(
   }
 
 
-  /*
-   * D1の1クエリ100パラメータ上限を超えないよう、
-   * device_id 98件 + 開始日 + 終了日で分割する。
-   */
   const CHUNK_SIZE =
     98;
 
@@ -490,7 +733,7 @@ async function loadWeightsByDevice(
 
 
 /* ============================================================
-   指定日以前の最新体重
+   指定日以前 / 指定日の体重
    ============================================================ */
 
 function latestAtOrBefore(
@@ -531,49 +774,48 @@ function latestAtOrBefore(
 }
 
 
+function exactAt(
+  list,
+  ymd
+) {
+
+  for (
+    const row of
+    (
+      Array.isArray(
+        list
+      )
+        ? list
+        : []
+    )
+  ) {
+
+    if (
+      row.ymd ===
+        ymd
+    ) {
+
+      return row;
+    }
+
+
+    if (
+      row.ymd >
+        ymd
+    ) {
+
+      break;
+    }
+  }
+
+
+  return null;
+}
+
+
 /* ============================================================
    月曜速報を計算
-
-   基準体重
-   ------------------------------------------------------------
-   ・9/1に記録があれば9/1
-   ・9/1に記録が無ければ
-     9/1以降の最初の記録
-
-   例：
-   最初の記録が9/10なら
-   9/7速報には入らない。
-   9/14速報から対象になる。
-
-
-   total_kg / total_count
-   ------------------------------------------------------------
-   実体重を公開しているメンバーだけ。
-
-   現在非公開のメンバーは、
-   過去の総体重からも除外する。
-
-
-   loss_kg / loss_count
-   ------------------------------------------------------------
-   公開・非公開に関係なく、
-   基準体重からの減量差だけを集計する。
-
-   個人の実体重は返さない。
-
-
-   week_loss_kg / week_count
-   ------------------------------------------------------------
-   前回月曜から今回月曜までの減量差。
-
-   前回月曜より後に初記録した新規対象者は、
-   その人の最初の記録を週次の比較元にする。
-
-
-   ブロック
-   ------------------------------------------------------------
-   チーム全体の公式集計値なので、
-   閲覧者ごとのブロック関係では母数を変えない。
+   既存仕様は変更しない
    ============================================================ */
 
 function buildSummaries(
@@ -600,16 +842,6 @@ function buildSummaries(
       [];
 
 
-    /*
-     * loadWeightsByDevice() は
-     * 9/1以降を日付昇順で返す。
-     *
-     * したがって先頭が、
-     * その人の基準体重。
-     *
-     * 9/1に記録があれば9/1。
-     * 無ければ9/1以降の最初の記録。
-     */
     const baseline =
       list.length
         ? list[0]
@@ -662,7 +894,8 @@ function buildSummaries(
         index >
           0
           ? mondayYmds[
-              index - 1
+              index -
+              1
             ]
           : BASELINE_YMD;
 
@@ -696,15 +929,6 @@ function buildSummaries(
         prepared
       ) {
 
-        /*
-         * 最初の記録より前の月曜には
-         * まだ集計対象として参加させない。
-         *
-         * 例：
-         * baseline=9/10
-         * → 9/7は対象外
-         * → 9/14から対象
-         */
         if (
           member.baseline_ymd >
             mondayYmd
@@ -727,12 +951,6 @@ function buildSummaries(
         }
 
 
-        /* ------------------------------------------------------
-           累計減量
-
-           非公開でも減量差だけは集計する。
-           ------------------------------------------------------ */
-
         lossRaw +=
           member.baseline_kg -
           latest.kg;
@@ -740,12 +958,6 @@ function buildSummaries(
 
         lossCount++;
 
-
-        /* ------------------------------------------------------
-           総体重
-
-           実体重公開中だけ。
-           ------------------------------------------------------ */
 
         if (
           publicTotalsEnabled &&
@@ -759,20 +971,6 @@ function buildSummaries(
           totalCount++;
         }
 
-
-        /* ------------------------------------------------------
-           週次減量
-
-           9/7：
-             基準体重 → 9/7
-
-           9/14以降：
-             原則、前回月曜時点 → 今回月曜
-
-           ただし前回月曜より後に
-           初記録した人は、
-             最初の記録 → 今回月曜
-           ------------------------------------------------------ */
 
         let weekStart =
           null;
@@ -791,6 +989,7 @@ function buildSummaries(
               member.baseline_kg,
           };
 
+
         } else {
 
           const previous =
@@ -808,6 +1007,7 @@ function buildSummaries(
 
             weekStart =
               previous;
+
 
           } else if (
             member.baseline_ymd >
@@ -878,13 +1078,6 @@ function buildSummaries(
         week_count:
           weekCount,
 
-        /*
-         * 旧UIとの一時的な互換用。
-         *
-         * UI更新後は
-         * total_count / loss_count / week_count
-         * を個別に表示する。
-         */
         counted:
           totalCount,
       };
@@ -894,9 +1087,834 @@ function buildSummaries(
 
 
 /* ============================================================
+   つだつダイエット部 大会データ
+   ============================================================ */
+
+async function loadCompetitionMembers(
+  env
+) {
+
+  const groupIds =
+    COMPETITION_TEAMS.map(
+      team =>
+        team.group_id
+    );
+
+
+  const ph =
+    groupIds
+      .map(
+        () => '?'
+      )
+      .join(',');
+
+
+  const rs =
+    await env.DB
+      .prepare(`
+        SELECT
+          device_id,
+          member_id,
+          nickname,
+          group_id
+
+        FROM devices
+
+        WHERE
+          group_id IN (${ph})
+          AND banned=0
+
+        ORDER BY
+          group_id ASC,
+          member_id ASC
+      `)
+      .bind(
+        ...groupIds
+      )
+      .all();
+
+
+  return (
+    rs.results ||
+    []
+  )
+    .map(
+      row => {
+
+        const groupId =
+          normalizeGroupId(
+            row.group_id
+          );
+
+
+        const team =
+          TEAM_BY_GROUP_ID.get(
+            groupId
+          );
+
+
+        if (
+          !team
+        ) {
+
+          return null;
+        }
+
+
+        return {
+          device_id:
+            String(
+              row.device_id ||
+              ''
+            ),
+
+          member_id:
+            String(
+              row.member_id ||
+              ''
+            ),
+
+          nickname:
+            String(
+              row.nickname ||
+              ''
+            ).trim() ||
+            '名前未設定',
+
+          group_id:
+            groupId,
+
+          team_id:
+            team.team_id,
+
+          team_name:
+            team.name,
+
+          team_short:
+            team.short,
+
+          team_color:
+            team.color,
+        };
+      }
+    )
+    .filter(
+      Boolean
+    );
+}
+
+
+function prepareCompetitionMembers(
+  members,
+  weightsByDevice,
+  hiddenMembers
+) {
+
+  return members.map(
+    member => {
+
+      const weights =
+        weightsByDevice.get(
+          member.device_id
+        ) ||
+        [];
+
+
+      const baseline =
+        exactAt(
+          weights,
+          BASELINE_YMD
+        );
+
+
+      return {
+        ...member,
+
+        weights,
+
+        baseline_kg:
+          baseline
+            ? baseline.kg
+            : null,
+
+        has_baseline:
+          !!baseline,
+
+        weight_hidden:
+          hiddenMembers.has(
+            member.member_id
+          ),
+      };
+    }
+  );
+}
+
+
+function buildCompetitionPoints(
+  preparedMembers,
+  officialYmds
+) {
+
+  return COMPETITION_TEAMS.map(
+    team => {
+
+      const allTeamMembers =
+        preparedMembers.filter(
+          member =>
+            member.group_id ===
+              team.group_id
+        );
+
+
+      const teamMembers =
+        allTeamMembers.filter(
+          member =>
+            member.has_baseline
+        );
+
+
+      const points =
+        officialYmds.map(
+          ymd => {
+
+            let lossRaw =
+              0;
+
+
+            let counted =
+              0;
+
+
+            for (
+              const member of
+              teamMembers
+            ) {
+
+              const latest =
+                latestAtOrBefore(
+                  member.weights,
+                  ymd
+                );
+
+
+              if (!latest) {
+
+                continue;
+              }
+
+
+              lossRaw +=
+                member.baseline_kg -
+                latest.kg;
+
+
+              counted++;
+            }
+
+
+            return {
+              ymd,
+
+              loss_kg:
+                counted
+                  ? round1(
+                      lossRaw
+                    )
+                  : null,
+
+              counted,
+            };
+          }
+        );
+
+
+      return {
+        team_id:
+          team.team_id,
+
+        group_id:
+          team.group_id,
+
+        name:
+          team.name,
+
+        short:
+          team.short,
+
+        color:
+          team.color,
+
+        member_count:
+          allTeamMembers.length,
+
+        baseline_count:
+          teamMembers.length,
+
+        points,
+      };
+    }
+  );
+}
+
+
+function topEntry(
+  member,
+  lossKg
+) {
+
+  return {
+    member_id:
+      member.member_id,
+
+    nickname:
+      member.nickname,
+
+    group_id:
+      member.group_id,
+
+    team_id:
+      member.team_id,
+
+    team_name:
+      member.team_name,
+
+    team_short:
+      member.team_short,
+
+    team_color:
+      member.team_color,
+
+    weight_hidden:
+      member.weight_hidden,
+
+    loss_kg:
+      round1(
+        lossKg
+      ),
+  };
+}
+
+
+function buildCompetitionTop5(
+  preparedMembers,
+  officialYmds
+) {
+
+  if (
+    !officialYmds.length
+  ) {
+
+    return {
+      official_ymd:
+        null,
+
+      previous_official_ymd:
+        null,
+
+      cumulative:
+        [],
+
+      weekly:
+        [],
+    };
+  }
+
+
+  const officialYmd =
+    officialYmds[
+      officialYmds.length -
+      1
+    ];
+
+
+  const previousOfficialYmd =
+    officialYmds.length >
+      1
+      ? officialYmds[
+          officialYmds.length -
+          2
+        ]
+      : null;
+
+
+  const cumulative =
+    [];
+
+
+  const weekly =
+    [];
+
+
+  for (
+    const member of
+    preparedMembers
+  ) {
+
+    if (
+      !member.has_baseline
+    ) {
+
+      continue;
+    }
+
+
+    const latest =
+      latestAtOrBefore(
+        member.weights,
+        officialYmd
+      );
+
+
+    if (!latest) {
+
+      continue;
+    }
+
+
+    cumulative.push(
+      topEntry(
+        member,
+        member.baseline_kg -
+        latest.kg
+      )
+    );
+
+
+    if (
+      previousOfficialYmd
+    ) {
+
+      const previous =
+        latestAtOrBefore(
+          member.weights,
+          previousOfficialYmd
+        );
+
+
+      if (
+        previous
+      ) {
+
+        weekly.push(
+          topEntry(
+            member,
+            previous.kg -
+            latest.kg
+          )
+        );
+      }
+    }
+  }
+
+
+  const sortRows =
+    rows =>
+      rows
+        .sort(
+          (
+            a,
+            b
+          ) => {
+
+            const lossDiff =
+              Number(
+                b.loss_kg
+              ) -
+              Number(
+                a.loss_kg
+              );
+
+
+            if (
+              lossDiff !==
+                0
+            ) {
+
+              return lossDiff;
+            }
+
+
+            const teamDiff =
+              String(
+                a.team_id
+              )
+                .localeCompare(
+                  String(
+                    b.team_id
+                  )
+                );
+
+
+            if (
+              teamDiff !==
+                0
+            ) {
+
+              return teamDiff;
+            }
+
+
+            return String(
+              a.nickname
+            )
+              .localeCompare(
+                String(
+                  b.nickname
+                ),
+                'ja'
+              );
+          }
+        )
+        .slice(
+          0,
+          5
+        );
+
+
+  return {
+    official_ymd:
+      officialYmd,
+
+    previous_official_ymd:
+      previousOfficialYmd,
+
+    cumulative:
+      sortRows(
+        cumulative
+      ),
+
+    weekly:
+      sortRows(
+        weekly
+      ),
+  };
+}
+
+
+function mondayWindowStillOpen(
+  officialYmd,
+  todayYmd
+) {
+
+  if (
+    !isMondayYmd(
+      officialYmd
+    )
+  ) {
+
+    return false;
+  }
+
+
+  const officialDay =
+    ymdToDay(
+      officialYmd
+    );
+
+
+  const todayDay =
+    ymdToDay(
+      todayYmd
+    );
+
+
+  if (
+    officialDay ===
+      null ||
+    todayDay ===
+      null
+  ) {
+
+    return false;
+  }
+
+
+  return (
+    todayDay >=
+      officialDay &&
+    todayDay <
+      officialDay +
+      7
+  );
+}
+
+
+function buildMissingOfficials(
+  preparedMembers,
+  officialYmds,
+  todayYmd
+) {
+
+  const result =
+    [];
+
+
+  for (
+    const ymd of
+    officialYmds
+  ) {
+
+    const monthStart =
+      isMonthStartYmd(
+        ymd
+      );
+
+
+    const monday =
+      isMondayYmd(
+        ymd
+      );
+
+
+    if (
+      !monthStart &&
+      !monday
+    ) {
+
+      continue;
+    }
+
+
+    if (
+      !monthStart &&
+      monday &&
+      !mondayWindowStillOpen(
+        ymd,
+        todayYmd
+      )
+    ) {
+
+      continue;
+    }
+
+
+    const missing =
+      [];
+
+
+    for (
+      const member of
+      preparedMembers
+    ) {
+
+      if (
+        exactAt(
+          member.weights,
+          ymd
+        )
+      ) {
+
+        continue;
+      }
+
+
+      missing.push({
+        member_id:
+          member.member_id,
+
+        nickname:
+          member.nickname,
+
+        group_id:
+          member.group_id,
+
+        team_id:
+          member.team_id,
+
+        team_name:
+          member.team_name,
+
+        team_short:
+          member.team_short,
+
+        team_color:
+          member.team_color,
+      });
+    }
+
+
+    if (
+      !missing.length
+    ) {
+
+      continue;
+    }
+
+
+    result.push({
+      ymd,
+
+      kind:
+        monthStart
+          ? 'month_start'
+          : 'monday',
+
+      missing_count:
+        missing.length,
+
+      members:
+        missing,
+    });
+  }
+
+
+  return result;
+}
+
+
+async function clubSummaryRoute(
+  req,
+  env,
+  dev
+) {
+
+  if (
+    !canViewClub(
+      dev
+    )
+  ) {
+
+    return bad(
+      req,
+      'club_summary_not_enabled',
+      403
+    );
+  }
+
+
+  const todayYmd =
+    todayYmdJST();
+
+
+  const weightEndYmd =
+    todayYmd <
+      CAMPAIGN_END_YMD
+      ? todayYmd
+      : CAMPAIGN_END_YMD;
+
+
+  const members =
+    await loadCompetitionMembers(
+      env
+    );
+
+
+  const hiddenMembers =
+    await hiddenWeightSet(
+      env,
+      members.map(
+        member =>
+          member.member_id
+      )
+    );
+
+
+  const weightsByDevice =
+    await loadWeightsByDevice(
+      env,
+      members.map(
+        member =>
+          member.device_id
+      ),
+      weightEndYmd
+    );
+
+
+  const preparedMembers =
+    prepareCompetitionMembers(
+      members,
+      weightsByDevice,
+      hiddenMembers
+    );
+
+
+  const officialYmds =
+    officialYmdsThrough(
+      todayYmd
+    );
+
+
+  const teams =
+    buildCompetitionPoints(
+      preparedMembers,
+      officialYmds
+    );
+
+
+  const top5 =
+    buildCompetitionTop5(
+      preparedMembers,
+      officialYmds
+    );
+
+
+  const missing =
+    buildMissingOfficials(
+      preparedMembers,
+      officialYmds,
+      todayYmd
+    );
+
+
+  const nextOfficial =
+    nextOfficialYmd(
+      todayYmd
+    );
+
+
+  return json(
+    req,
+    {
+      ok:
+        true,
+
+      eligible:
+        true,
+
+      mode:
+        'club',
+
+      title:
+        'つだつダイエット部',
+
+      today_ymd:
+        todayYmd,
+
+      baseline_ymd:
+        BASELINE_YMD,
+
+      campaign_end_ymd:
+        CAMPAIGN_END_YMD,
+
+      next_official_ymd:
+        nextOfficial,
+
+      next_official_days:
+        nextOfficial
+          ? daysBetween(
+              todayYmd,
+              nextOfficial
+            )
+          : null,
+
+      official_ymds:
+        officialYmds,
+
+      teams,
+
+      top5,
+
+      missing,
+    }
+  );
+}
+
+
+/* ============================================================
    API
 
    GET /api/weekly-summary?group_id=XXXXXXXX
+   GET /api/weekly-summary?club=1
    ============================================================ */
 
 export async function weeklySummaryRoute(
@@ -926,6 +1944,21 @@ export async function weeklySummaryRoute(
       req,
       'method_not_allowed',
       405
+    );
+  }
+
+
+  if (
+    url.searchParams.get(
+      'club'
+    ) ===
+      '1'
+  ) {
+
+    return await clubSummaryRoute(
+      req,
+      env,
+      dev
     );
   }
 
@@ -1029,13 +2062,6 @@ export async function weeklySummaryRoute(
       1;
 
 
-  /*
-   * 現在このグループに所属している
-   * 利用停止ではないメンバーを取得。
-   *
-   * ブロック関係は集計人数から除外しない。
-   * チームの合計値を閲覧者ごとに変えないため。
-   */
   const rs =
     await env.DB
       .prepare(`
@@ -1060,12 +2086,6 @@ export async function weeklySummaryRoute(
     [];
 
 
-  /*
-   * 総体重に含められるかどうかだけ、
-   * 現在の体重公開設定を見る。
-   *
-   * 非公開者も減量差の集計には残す。
-   */
   const hiddenMembers =
     await hiddenWeightSet(
       env,
@@ -1076,10 +2096,6 @@ export async function weeklySummaryRoute(
     );
 
 
-  /*
-   * 12/28以降の体重は
-   * 月曜速報では一切必要ない。
-   */
   const weightEndYmd =
     todayYmd <
       LAST_MONDAY_YMD
@@ -1087,13 +2103,6 @@ export async function weeklySummaryRoute(
       : LAST_MONDAY_YMD;
 
 
-  /*
-   * 公開 / 非公開に関係なく
-   * 全対象メンバーの体重履歴をサーバ側で読む。
-   *
-   * 非公開者についてクライアントへ返すのは
-   * 個別体重ではなく集計済みの減量差だけ。
-   */
   const weightsByDevice =
     await loadWeightsByDevice(
       env,

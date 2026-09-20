@@ -59,6 +59,9 @@
   let loadingHistory =
     false;
 
+  let groupOrderObserver =
+    null;
+
 
   /* ==========================================================
      API
@@ -757,6 +760,120 @@
 
 
   /* ==========================================================
+     グループページ 最下部固定
+     ========================================================== */
+
+  function placeGroupBottomCards() {
+
+    const view =
+      document.getElementById(
+        'view-group'
+      );
+
+
+    const web =
+      document.getElementById(
+        'voteExternalWebCard'
+      );
+
+
+    const vote =
+      document.getElementById(
+        'voteCard'
+      );
+
+
+    if (
+      !view ||
+      !web ||
+      !vote
+    ) {
+
+      return;
+    }
+
+
+    const alreadyBottom =
+      web.parentElement === view &&
+      vote.parentElement === view &&
+      web.nextElementSibling === vote &&
+      vote.nextElementSibling === null;
+
+
+    if (alreadyBottom) {
+
+      return;
+    }
+
+
+    /*
+     * appendChild は既存要素なら「移動」になる。
+     *
+     * 他のJSが後からグループ画面へカードを追加しても
+     * 常に
+     *
+     * WEBリンク
+     * ↓
+     * 投票
+     *
+     * を最後へ戻す。
+     */
+    view.appendChild(
+      web
+    );
+
+
+    view.appendChild(
+      vote
+    );
+  }
+
+
+  function observeGroupBottomCards() {
+
+    if (
+      groupOrderObserver
+    ) {
+
+      return;
+    }
+
+
+    const view =
+      document.getElementById(
+        'view-group'
+      );
+
+
+    if (!view) {
+
+      return;
+    }
+
+
+    groupOrderObserver =
+      new MutationObserver(
+        () => {
+
+          setTimeout(
+            placeGroupBottomCards,
+            0
+          );
+        }
+      );
+
+
+    groupOrderObserver.observe(
+      view,
+      {
+        childList:
+          true,
+      }
+    );
+  }
+
+
+  /* ==========================================================
      グループページ 投票カード
      ========================================================== */
 
@@ -1068,11 +1185,6 @@
     `;
 
 
-    /*
-     * グループページの下部へ配置。
-     * このあと投票カードをappendするので
-     * 表示順は「WEB → 投票」になる。
-     */
     view.appendChild(
       card
     );
@@ -1491,6 +1603,8 @@
       );
 
 
+      placeGroupBottomCards();
+
       return;
     }
 
@@ -1501,6 +1615,9 @@
 
     card.hidden =
       false;
+
+
+    placeGroupBottomCards();
   }
 
 
@@ -1659,6 +1776,9 @@
     renderExternalWeb(
       data
     );
+
+
+    placeGroupBottomCards();
   }
 
 
@@ -2097,15 +2217,20 @@
 
 
     /*
-     * グループページ下部の並び
-     *
-     * WEBリンク
-     * ↓
-     * 投票
+     * WEB → 投票 の順で作成。
      */
     buildExternalWebCard();
 
     buildVoteCard();
+
+
+    /*
+     * 他のUIが後から追加されても
+     * この2枚を最下部へ戻す。
+     */
+    placeGroupBottomCards();
+
+    observeGroupBottomCards();
 
 
     buildScoreCard();
@@ -2116,6 +2241,8 @@
      */
     setTimeout(
       () => {
+
+        placeGroupBottomCards();
 
         loadCurrent();
 
@@ -2128,6 +2255,8 @@
 
     setTimeout(
       () => {
+
+        placeGroupBottomCards();
 
         loadCurrent();
 
@@ -2163,7 +2292,13 @@
         ) {
 
           setTimeout(
-            loadCurrent,
+            () => {
+
+              placeGroupBottomCards();
+
+              loadCurrent();
+
+            },
             80
           );
         }

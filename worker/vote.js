@@ -23,7 +23,7 @@ import {
    ・管理画面から投票者と投票先を確認可能
    ・投票済みユーザーだけ投票割合を確認可能
    ・一般ユーザーには投票人数を返さない
-   ・対象5グループ所属者だけ外部WEBリンク表示対象
+   ・対象5グループ所属者だけ投票・外部WEBリンク利用可
    ============================================================ */
 
 
@@ -56,12 +56,12 @@ const TEAM_IDS =
 
 
 /*
- * 外部WEBへのリンクを表示するグループ。
+ * 投票・外部WEBの対象グループ。
  *
  * グループ名ではなく group_id 固定で判定する。
  * グループ名を後から変更しても影響しない。
  */
-const EXTERNAL_WEB_GROUP_IDS =
+const TARGET_GROUP_IDS =
   new Set([
     '84Q8CG58',
     'AJ6N7AFJ',
@@ -463,7 +463,7 @@ function teamName(
 
 
 /* ============================================================
-   外部WEBリンク対象判定
+   対象グループ判定
    ============================================================ */
 
 function normalizeGroupId(
@@ -482,7 +482,7 @@ function normalizeGroupId(
 }
 
 
-function canViewExternalWeb(
+function isTargetGroup(
   dev
 ) {
 
@@ -495,12 +495,22 @@ function canViewExternalWeb(
   }
 
 
-  return EXTERNAL_WEB_GROUP_IDS
+  return TARGET_GROUP_IDS
     .has(
       normalizeGroupId(
         dev.group_id
       )
     );
+}
+
+
+function canViewExternalWeb(
+  dev
+) {
+
+  return isTargetGroup(
+    dev
+  );
 }
 
 
@@ -1297,6 +1307,28 @@ export async function memberVoteRoute(
 
   const dev =
     auth.dev;
+
+
+  /*
+   * 投票・予想成績は
+   * つだつダイエット部の対象5グループだけ。
+   *
+   * フロントで隠すだけではなく、
+   * current GET / current POST / history GET
+   * すべてをサーバー側でも遮断する。
+   */
+  if (
+    !isTargetGroup(
+      dev
+    )
+  ) {
+
+    return bad(
+      req,
+      'vote_not_available',
+      403
+    );
+  }
 
 
   if (

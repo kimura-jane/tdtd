@@ -362,26 +362,22 @@
         margin:0;
       }
 
-      .vote-choice.is-selected,
-      .vote-choice:has(input:checked){
+      .vote-choice.is-selected{
         transform:translateY(-1px);
         box-shadow:0 5px 14px rgba(0,0,0,.06);
       }
 
-      .vote-choice.tsudamomo.is-selected,
-      .vote-choice.tsudamomo:has(input:checked){
+      .vote-choice.tsudamomo.is-selected{
         border-color:#d8a91d;
         background:#fffaf0;
       }
 
-      .vote-choice.sakomitsu.is-selected,
-      .vote-choice.sakomitsu:has(input:checked){
+      .vote-choice.sakomitsu.is-selected{
         border-color:#4f9ec5;
         background:#f3faff;
       }
 
-      .vote-choice.gotomei.is-selected,
-      .vote-choice.gotomei:has(input:checked){
+      .vote-choice.gotomei.is-selected{
         border-color:#58a76a;
         background:#f4fbf5;
       }

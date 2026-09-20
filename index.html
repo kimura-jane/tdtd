@@ -36,6 +36,73 @@
   href="./style.css?v=20260914a"
 >
 
+
+<!-- =========================================================
+     1.0.5 グループ画面レイアウト補正
+     ========================================================= -->
+
+<style>
+
+/*
+ * グループ画面を縦方向のflexにすることで、
+ * orderによる表示順を確実に効かせる。
+ */
+#view-group.is-on{
+  display:flex;
+  flex-direction:column;
+  align-items:stretch;
+}
+
+
+/*
+ * 外部WEBリンク → 投票
+ * をグループ画面の必ず最後にする。
+ *
+ * DOM上の追加タイミングには依存しない。
+ */
+#view-group.is-on > #voteExternalWebCard{
+  order:10000;
+}
+
+#view-group.is-on > #voteCard{
+  order:10001;
+}
+
+
+/*
+ * グラフ見出し左側は、
+ * 切替ボタンの幅を奪わない範囲で縮められるようにする。
+ */
+.club-section-head > div:first-child{
+  min-width:0;
+}
+
+
+/*
+ * 「月 / 全期間」を必ず横書きにする。
+ * 横幅が狭くても1文字ずつ縦に折り返さない。
+ */
+.club-chart-switch{
+  width:max-content;
+  max-width:100%;
+  flex:0 0 auto !important;
+  white-space:nowrap !important;
+  writing-mode:horizontal-tb !important;
+}
+
+.club-chart-switch button{
+  width:auto !important;
+  min-width:0;
+  flex:0 0 auto !important;
+  white-space:nowrap !important;
+  word-break:keep-all !important;
+  overflow-wrap:normal !important;
+  writing-mode:horizontal-tb !important;
+  text-orientation:mixed !important;
+}
+
+</style>
+
 </head>
 
 
@@ -467,6 +534,7 @@
       </button>
 
     </div>
+
 
     <div
       class="past-row"
@@ -1314,12 +1382,6 @@ window.MINYASE_API_BASE =
   }
 
 
-  /*
-   * Capacitor iOSアプリ内では
-   * Service Workerを登録しない。
-   *
-   * Cloudflare上のWeb/PWA/TWAだけ登録。
-   */
   if (
     !native &&
     'serviceWorker' in navigator &&
@@ -1350,7 +1412,8 @@ window.MINYASE_API_BASE =
       }
     );
   }
-  })();
+
+})();
 
 </script>
 

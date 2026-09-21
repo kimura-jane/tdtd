@@ -6,6 +6,7 @@
    ・非公開メンバーは本人を含めて詳細不可
    ・体重グラフ + 入力履歴
    ・自分のチーム / 閲覧中チームの総体重表示
+   ・同じチームで公開許可された目標体重を表示
    ============================================================ */
 
 (() => {
@@ -577,7 +578,7 @@
 .member-detail-summary{
   display:grid;
   grid-template-columns:
-    repeat(3,minmax(0,1fr));
+    repeat(2,minmax(0,1fr));
   gap:8px;
   margin:0 0 14px
 }
@@ -1315,12 +1316,17 @@
       </div>
 
       <div class="member-detail-summary-item">
+        <span>目標</span>
+        <b>${kg(summary.goal_kg)}</b>
+      </div>
+
+      <div class="member-detail-summary-item">
         <span>現在</span>
         <b>${kg(summary.latest_kg)}</b>
       </div>
 
       <div class="member-detail-summary-item">
-        <span>減量幅</span>
+        <span>減量値</span>
         <b>${lossText(summary.loss_kg)}</b>
       </div>
     `;
@@ -1784,7 +1790,6 @@
 
     low -=
       margin;
-
 
     high +=
       margin;

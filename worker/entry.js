@@ -39,6 +39,10 @@ import {
 } from './weight-privacy.js';
 
 import {
+  selfGoalPrivacyRoute
+} from './goal-privacy.js';
+
+import {
   memberWeightDetailRoute
 } from './member-detail.js';
 
@@ -49,7 +53,7 @@ import {
 
 /* ============================================================
    みんやせ / worker/entry.js
-   2026-09-08
+   2026-09-21
 
    root.js の内側で既存APIを処理する。
 
@@ -58,8 +62,11 @@ import {
    entry.js では参加前privacy変更を行わない。
 
    2026-09-08
-   利用停止中でも DELETE /api/me だけは許可する。
+   利用停止中でも DELETE /api/me のみ許可する。
    その他のAPIは従来どおり banned 403。
+
+   2026-09-21
+   ・本人の目標体重公開設定APIを追加
    ============================================================ */
 
 
@@ -545,6 +552,40 @@ export default {
 
 
       /* --------------------------------------------------------
+         本人の目標体重公開設定
+         -------------------------------------------------------- */
+
+      if (
+        p ===
+          '/api/me/goal-privacy'
+      ) {
+
+        const member =
+          await getMember(
+            req,
+            env
+          );
+
+
+        if (
+          member.error
+        ) {
+
+          return member.error;
+        }
+
+
+        return await selfGoalPrivacyRoute(
+          req,
+          env,
+          member.dev,
+          p,
+          m
+        );
+      }
+
+
+      /* --------------------------------------------------------
          オーナー / リーダー
          -------------------------------------------------------- */
 
@@ -839,6 +880,7 @@ export default {
               e
             );
           }
+
         }
 
 

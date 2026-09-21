@@ -198,10 +198,50 @@ async function hasBlockedRelation(
    対象メンバー
    ============================================================ */
 
-async function targetMember(
-  env,
-  memberId
+function isMissingGoalPublicColumn(
+  error
 ) {
+
+  const text =
+    String(
+      error &&
+      error.message ||
+      error ||
+      ''
+    )
+      .toLowerCase();
+
+
+  return (
+    text.includes(
+      'goal_public'
+    ) &&
+    (
+      text.includes(
+        'no such column'
+      ) ||
+      text.includes(
+        'does not exist'
+      ) ||
+      text.includes(
+        'unknown column'
+      )
+    )
+  );
+}
+
+
+async function targetMemberQuery(
+  env,
+  memberId,
+  includeGoalPublic
+) {
+
+  const goalPublicSelect =
+    includeGoalPublic
+      ? 'd.goal_public'
+      : '0 AS goal_public';
+
 
   return await env.DB
     .prepare(`
@@ -211,6 +251,8 @@ async function targetMember(
         d.nickname,
         d.icon_ver,
         d.group_id,
+        d.goal_weight,
+        ${goalPublicSelect},
 
         g.name AS group_name,
         g.start_ymd,
@@ -229,6 +271,45 @@ async function targetMember(
       memberId
     )
     .first();
+}
+
+
+async function targetMember(
+  env,
+  memberId
+) {
+
+  try {
+
+    return await targetMemberQuery(
+      env,
+      memberId,
+      true
+    );
+
+  } catch (error) {
+
+    /*
+     * D1へgoal_public列を追加する前に
+     * このコードだけ先行して反映されても、
+     * 既存のメンバー詳細を壊さない。
+     */
+    if (
+      isMissingGoalPublicColumn(
+        error
+      )
+    ) {
+
+      return await targetMemberQuery(
+        env,
+        memberId,
+        false
+      );
+    }
+
+
+    throw error;
+  }
 }
 
 
@@ -301,15 +382,24 @@ async function loadWeights(
 
    GET /api/member-weight-detail?member_id=XXXXXXXXXX
 
-   公開条件
+   体重詳細の公開条件
    ------------------------------------------------------------
    ・対象グループ自体が体重公開
    ・対象本人が体重公開
    ・自分のチーム、または閲覧登録した他チーム
    ・双方向ブロック関係ではない
 
+   目標体重の追加条件
+   ------------------------------------------------------------
+   ・閲覧者と対象者が同じ所属グループ
+   ・対象本人が目標体重の公開を明示的にON
+   ・目標体重が設定済み
+
+   「他のチームを見る」経由では、
+   体重詳細が見られても目標体重は返さない。
+
    非公開の場合は、
-   本人が自分自身を指定しても返さない。
+   本人が自分自身を指定しても体重詳細を返さない。
    ============================================================ */
 
 export async function memberWeightDetailRoute(
@@ -420,7 +510,7 @@ export async function memberWeightDetailRoute(
 
 
   /* ----------------------------------------------------------
-     公開状態
+     体重公開状態
 
      グループ非公開 または 個人非公開なら
      本人を含めて詳細そのものを返さない。
@@ -449,6 +539,54 @@ export async function memberWeightDetailRoute(
       403
     );
   }
+
+
+  /* ----------------------------------------------------------
+     目標体重公開状態
+
+     ・同じ所属グループだけ
+     ・本人が明示的にgoal_public=1にした場合だけ
+     ・他チーム閲覧では返さない
+     ・goal_public列がまだ無い場合は0扱い
+     ---------------------------------------------------------- */
+
+  const sameGroup =
+    !!(
+      dev &&
+      dev.group_id &&
+      target.group_id &&
+      dev.group_id ===
+        target.group_id
+    );
+
+
+  const goalVisible =
+    sameGroup &&
+    Number(
+      target.goal_public ||
+      0
+    ) === 1;
+
+
+  const rawGoal =
+    Number(
+      target.goal_weight
+    );
+
+
+  const goalKg =
+    goalVisible &&
+    target.goal_weight !==
+      null &&
+    target.goal_weight !==
+      undefined &&
+    Number.isFinite(
+      rawGoal
+    )
+      ? round1(
+          rawGoal
+        )
+      : null;
 
 
   /* ----------------------------------------------------------
@@ -571,6 +709,9 @@ export async function memberWeightDetailRoute(
           first
             ? first.kg
             : null,
+
+        goal_kg:
+          goalKg,
 
         latest_kg:
           latest

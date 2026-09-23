@@ -50,10 +50,14 @@ import {
   weeklySummaryRoute
 } from './weekly-summary.js';
 
+import {
+  memberGroupInviteRoute
+} from './group-invite.js';
+
 
 /* ============================================================
    みんやせ / worker/entry.js
-   2026-09-21
+   2026-09-23
 
    root.js の内側で既存APIを処理する。
 
@@ -67,6 +71,9 @@ import {
 
    2026-09-21
    ・本人の目標体重公開設定APIを追加
+
+   2026-09-23
+   ・本人向けチーム参加依頼APIを追加
    ============================================================ */
 
 
@@ -576,6 +583,43 @@ export default {
 
 
         return await selfGoalPrivacyRoute(
+          req,
+          env,
+          member.dev,
+          p,
+          m
+        );
+      }
+
+
+      /* --------------------------------------------------------
+         チーム参加依頼
+         -------------------------------------------------------- */
+
+      if (
+        p ===
+          '/api/group-invite' ||
+        p.startsWith(
+          '/api/group-invite/'
+        )
+      ) {
+
+        const member =
+          await getMember(
+            req,
+            env
+          );
+
+
+        if (
+          member.error
+        ) {
+
+          return member.error;
+        }
+
+
+        return await memberGroupInviteRoute(
           req,
           env,
           member.dev,

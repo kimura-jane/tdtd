@@ -148,7 +148,7 @@
         'この参加依頼はすでに処理されています。',
 
       invite_changed:
-        '参加依頼の内容が更新されました。もう一度確認してください。',
+        '参加依頼の内容が更新されました。参加先と設定をもう一度確認してください。',
 
       already_in_group:
         'すでにチームへ参加しています。',
@@ -1232,6 +1232,42 @@
   }
 
 
+  async function refreshAfterInviteStateError(
+    code
+  ) {
+    await loadInvite({
+      initial:
+        false,
+
+      forceOpen:
+        false,
+    }).catch(
+      () => {}
+    );
+
+    /*
+     * invite_changed の場合は、
+     * loadInvite() が新しい招待内容へ差し替えて
+     * 公開設定も安全側へ戻したあとに、
+     * 警告文を改めて表示する。
+     *
+     * applyInvite() / openModal() 内の
+     * setMessage('') で警告が消える問題を防ぐ。
+     */
+    if (
+      code ===
+        'invite_changed' &&
+      currentInvite
+    ) {
+      setMessage(
+        errorText(
+          code
+        )
+      );
+    }
+  }
+
+
   async function acceptCurrentInvite() {
     if (
       !currentInvite ||
@@ -1327,14 +1363,8 @@
         code ===
           'already_in_group'
       ) {
-        await loadInvite({
-          initial:
-            false,
-
-          forceOpen:
-            false,
-        }).catch(
-          () => {}
+        await refreshAfterInviteStateError(
+          code
         );
       }
 
@@ -1409,14 +1439,8 @@
         code ===
           'already_in_group'
       ) {
-        await loadInvite({
-          initial:
-            false,
-
-          forceOpen:
-            false,
-        }).catch(
-          () => {}
+        await refreshAfterInviteStateError(
+          code
         );
       }
 
@@ -1546,6 +1570,26 @@
   }
 
 
+  function refreshOnResume() {
+    if (
+      busy ||
+      !deviceId()
+    ) {
+      return;
+    }
+
+    loadInvite({
+      initial:
+        false,
+
+      forceOpen:
+        false,
+    }).catch(
+      () => {}
+    );
+  }
+
+
   function start() {
     ensureStyle();
     ensureCard();
@@ -1555,22 +1599,18 @@
 
     window.addEventListener(
       'focus',
+      refreshOnResume
+    );
+
+    document.addEventListener(
+      'visibilitychange',
       () => {
         if (
-          !deviceId()
+          document.visibilityState ===
+            'visible'
         ) {
-          return;
+          refreshOnResume();
         }
-
-        loadInvite({
-          initial:
-            false,
-
-          forceOpen:
-            false,
-        }).catch(
-          () => {}
-        );
       }
     );
   }

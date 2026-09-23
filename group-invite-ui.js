@@ -382,6 +382,12 @@
 
         max-height:
           calc(
+            100vh -
+            36px
+          );
+
+        max-height:
+          calc(
             100dvh -
             36px
           );
@@ -1123,6 +1129,61 @@
     }
 
     ensureModal();
+
+    /*
+     * モーダルを開くたびに安全側へ戻す。
+     *
+     * 「あとで確認」で一度閉じたあと、
+     * 前回選択した公開設定が残ったまま
+     * 次の確認へ持ち越されないようにする。
+     */
+    const privateRadio =
+      $(
+        IDS.privateRadio
+      );
+
+    const publicRadio =
+      $(
+        IDS.publicRadio
+      );
+
+    const goal =
+      $(
+        IDS.goal
+      );
+
+    const external =
+      $(
+        IDS.external
+      );
+
+    if (
+      privateRadio
+    ) {
+      privateRadio.checked =
+        true;
+    }
+
+    if (
+      publicRadio
+    ) {
+      publicRadio.checked =
+        false;
+    }
+
+    if (
+      goal
+    ) {
+      goal.checked =
+        false;
+    }
+
+    if (
+      external
+    ) {
+      external.checked =
+        false;
+    }
 
     setMessage('');
 

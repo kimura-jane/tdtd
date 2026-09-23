@@ -1492,6 +1492,53 @@ nav button.on{
       </div>
 
 
+      <div
+        class="detail-card full"
+        id="uInviteCard"
+        hidden
+      >
+
+        <h3>チーム参加依頼</h3>
+
+        <div class="row">
+
+          <div>
+
+            <label for="uInviteGroup">
+              参加先チーム
+            </label>
+
+            <select id="uInviteGroup"></select>
+
+          </div>
+
+          <button
+            class="pri"
+            id="btnSendGroupInvite"
+            type="button"
+          >
+            参加依頼を送る
+          </button>
+
+        </div>
+
+        <div
+          class="small-note"
+          id="uInviteStatus"
+        ></div>
+
+        <div
+          class="msg"
+          id="uInviteMsg"
+        ></div>
+
+        <div class="small-note">
+          この操作では所属は変更されません。本人がアプリ内で参加と公開設定を承認した場合だけ参加が確定します。
+        </div>
+
+      </div>
+
+
       <div class="detail-card full">
 
         <h3>体重履歴</h3>
@@ -1574,6 +1621,11 @@ const ERR = {
   new_device_not_empty: '新しい端末側に記録があります',
   nothing_to_update: '同じ端末IDです',
   banned: '対象は利用停止中です',
+  already_in_group: 'すでにチームへ参加しています',
+  banned_from_group: 'このチームには参加できません',
+  group_full: 'このチームは参加人数の上限に達しています',
+  group_invite_unavailable: '参加依頼機能を現在利用できません',
+  operator_not_allowed: '運営アカウントではこの操作を利用できません',
   bad_round: '対象月が不正です',
   bad_team: 'チームが不正です',
   result_too_early: '結果日の前なのでまだ正解を確定できません',
@@ -1812,9 +1864,6 @@ function parseCsvText(
   raw
 ) {
 
-  /*
-   * Excel向けUTF-8 BOMが付いていても除去する。
-   */
   const text =
     String(
       raw ||
@@ -1839,10 +1888,6 @@ function parseCsvText(
     false;
 
 
-  /*
-   * カンマ・改行・ダブルクォートを含む
-   * RFC4180形式のセルも読めるようにする。
-   */
   for (
     let i = 0;
     i < text.length;
@@ -1861,9 +1906,6 @@ function parseCsvText(
         ch === '"'
       ) {
 
-        /*
-         * "" はセル内の "。
-         */
         if (
           text[i + 1] ===
           '"'
@@ -1939,9 +1981,6 @@ function parseCsvText(
     }
 
 
-    /*
-     * CRLFの \r は捨てる。
-     */
     if (
       ch !== '\r'
     ) {
@@ -1952,10 +1991,6 @@ function parseCsvText(
   }
 
 
-  /*
-   * ファイル末尾に改行が無くても
-   * 最終セルを取り込む。
-   */
   if (
     cell ||
     row.length
@@ -1971,9 +2006,6 @@ function parseCsvText(
   }
 
 
-  /*
-   * 完全な空行は除外。
-   */
   return rows
     .filter(
       r =>
@@ -2149,10 +2181,6 @@ function userStatusNode(
       'span'
     );
 
-  /*
-   * admin-users.js の statusInfo() は
-   * status と label を返す。
-   */
   span.textContent =
     user.label ||
     '—';
@@ -2763,9 +2791,6 @@ function initUserColumns() {
               x => x.value
             );
 
-        /*
-         * 最低1列は残す。
-         */
         if (
           !USER_COLS.length
         ) {
@@ -2997,7 +3022,9 @@ function compareUserValues(
       }
     );
 }
-  function userSortHead(
+
+
+function userSortHead(
   key,
   label,
   numeric = false
@@ -3128,7 +3155,9 @@ function userNameNode(
 
   return wrap;
 }
-  function renderUsers() {
+
+
+function renderUsers() {
 
   const q =
     $('#uSearch')
@@ -3484,6 +3513,398 @@ function userNameNode(
 
 
 /* ============================================================
+   チーム参加依頼
+   ============================================================ */
+
+function resetUserInvitePanel() {
+
+  $('#uInviteCard').hidden =
+    true;
+
+  $('#uInviteGroup').innerHTML =
+    '';
+
+  $('#btnSendGroupInvite').disabled =
+    true;
+
+  $('#uInviteStatus').textContent =
+    '';
+
+  say(
+    $('#uInviteMsg'),
+    '',
+    true
+  );
+}
+
+
+function fillUserInviteGroups(
+  selectedGroupId = ''
+) {
+
+  const select =
+    $('#uInviteGroup');
+
+  select.innerHTML =
+    '';
+
+  for (
+    const group of
+    GROUPS
+  ) {
+
+    const option =
+      document.createElement(
+        'option'
+      );
+
+    option.value =
+      group.id;
+
+    option.textContent =
+      group.name +
+      '（' +
+      group.members +
+      '人' +
+      (
+        group.show_weight
+          ? ''
+          : '・体重非公開'
+      ) +
+      '）';
+
+    if (
+      selectedGroupId &&
+      group.id ===
+        selectedGroupId
+    ) {
+
+      option.selected =
+        true;
+    }
+
+    select.appendChild(
+      option
+    );
+  }
+}
+
+
+async function loadUserInvitePanel(
+  user
+) {
+
+  resetUserInvitePanel();
+
+
+  if (
+    !user ||
+    !user.member_id ||
+    user.group_id ||
+    user.banned
+  ) {
+
+    return;
+  }
+
+
+  const memberId =
+    user.member_id;
+
+
+  try {
+
+    const d =
+      await api(
+        '/api/admin/users/' +
+        encodeURIComponent(
+          memberId
+        ) +
+        '/group-invite'
+      );
+
+
+    if (
+      CURRENT_USER !==
+        memberId
+    ) {
+
+      return;
+    }
+
+
+    if (
+      d.available !==
+        true
+    ) {
+
+      resetUserInvitePanel();
+
+      return;
+    }
+
+
+    $('#uInviteCard').hidden =
+      false;
+
+
+    fillUserInviteGroups(
+      d.invite &&
+      d.invite.group_id
+        ? d.invite.group_id
+        : ''
+    );
+
+
+    $('#btnSendGroupInvite').disabled =
+      !GROUPS.length;
+
+
+    if (
+      d.invite
+    ) {
+
+      $('#uInviteStatus').textContent =
+        '現在「' +
+        (
+          d.invite.group_name ||
+          d.invite.group_id
+        ) +
+        '」への参加依頼が保留中です。送信すると参加先を変更します。';
+
+    } else {
+
+      $('#uInviteStatus').textContent =
+        '現在、保留中の参加依頼はありません。';
+    }
+
+
+    if (
+      !GROUPS.length
+    ) {
+
+      say(
+        $('#uInviteMsg'),
+        '参加先にできるチームがありません',
+        false
+      );
+    }
+
+
+  } catch (e) {
+
+    if (
+      e.message ===
+        'group_invite_unavailable'
+    ) {
+
+      resetUserInvitePanel();
+
+      return;
+    }
+
+
+    if (
+      CURRENT_USER !==
+        memberId
+    ) {
+
+      return;
+    }
+
+
+    $('#uInviteCard').hidden =
+      false;
+
+    $('#btnSendGroupInvite').disabled =
+      true;
+
+
+    say(
+      $('#uInviteMsg'),
+      emsg(e),
+      false
+    );
+  }
+}
+
+
+async function sendUserGroupInvite() {
+
+  const memberId =
+    CURRENT_USER;
+
+
+  if (
+    !memberId ||
+    !CURRENT_USER_DATA ||
+    CURRENT_USER_DATA.group_id ||
+    CURRENT_USER_DATA.banned
+  ) {
+
+    return;
+  }
+
+
+  const groupId =
+    $('#uInviteGroup').value;
+
+
+  if (
+    !groupId
+  ) {
+
+    say(
+      $('#uInviteMsg'),
+      '参加先チームを選んでください',
+      false
+    );
+
+    return;
+  }
+
+
+  const group =
+    GROUPS.find(
+      g =>
+        g.id ===
+        groupId
+    );
+
+
+  const groupName =
+    group
+      ? group.name
+      : groupId;
+
+
+  if (
+    !confirm(
+      '「' +
+      groupName +
+      '」への参加依頼を送ります。\n\n' +
+      'この操作だけでは所属は変更されません。\n' +
+      '本人がアプリ内で同意した場合だけ参加が確定します。\n\n' +
+      '送信しますか？'
+    )
+  ) {
+
+    return;
+  }
+
+
+  $('#btnSendGroupInvite').disabled =
+    true;
+
+
+  say(
+    $('#uInviteMsg'),
+    '送信中…',
+    true
+  );
+
+
+  try {
+
+    const d =
+      await api(
+        '/api/admin/users/' +
+        encodeURIComponent(
+          memberId
+        ) +
+        '/group-invite',
+        {
+          method:
+            'POST',
+
+          type:
+            'application/json',
+
+          body:
+            JSON.stringify({
+              group_id:
+                groupId,
+            }),
+        }
+      );
+
+
+    if (
+      CURRENT_USER !==
+        memberId
+    ) {
+
+      return;
+    }
+
+
+    $('#uInviteStatus').textContent =
+      '現在「' +
+      (
+        d.group_name ||
+        groupName
+      ) +
+      '」への参加依頼が保留中です。送信すると参加先を変更します。';
+
+
+    say(
+      $('#uInviteMsg'),
+      d.replaced
+        ? '参加依頼の送信先を変更しました'
+        : '参加依頼を送信しました',
+      true
+    );
+
+
+  } catch (e) {
+
+    if (
+      CURRENT_USER !==
+        memberId
+    ) {
+
+      return;
+    }
+
+
+    if (
+      e.message ===
+        'already_in_group' ||
+      e.message ===
+        'banned' ||
+      e.message ===
+        'operator_not_allowed'
+    ) {
+
+      resetUserInvitePanel();
+
+      return;
+    }
+
+
+    say(
+      $('#uInviteMsg'),
+      emsg(e),
+      false
+    );
+
+
+  } finally {
+
+    if (
+      CURRENT_USER ===
+        memberId &&
+      !$('#uInviteCard').hidden
+    ) {
+
+      $('#btnSendGroupInvite').disabled =
+        !GROUPS.length;
+    }
+  }
+}
+
+
+/* ============================================================
    ユーザー詳細
    ============================================================ */
 
@@ -3506,6 +3927,8 @@ function closeUserDetail() {
 
   $('#uDetailBody').hidden =
     true;
+
+  resetUserInvitePanel();
 
   say(
     $('#uDetailMsg'),
@@ -3530,6 +3953,8 @@ async function openUserDetail(
 
   CURRENT_USER_DATA =
     null;
+
+  resetUserInvitePanel();
 
   $('#userModal').hidden =
     false;
@@ -4173,6 +4598,11 @@ async function openUserDetail(
       ],
       d.reports ||
       []
+    );
+
+
+    await loadUserInvitePanel(
+      user
     );
 
 
@@ -4881,9 +5311,6 @@ async function openExportView() {
             b
           ) => {
 
-            /*
-             * 最新日を上にする。
-             */
             const byDate =
               String(
                 b.date
@@ -4903,9 +5330,6 @@ async function openExportView() {
             }
 
 
-            /*
-             * 同日の場合は名前順。
-             */
             return String(
               a.member_name ||
               ''
@@ -5087,18 +5511,11 @@ async function doImport(dry) {
     );
 
 
-    /*
-     * 体重データを変えた可能性があるので
-     * 次回ユーザータブ表示時に再読み込み。
-     */
     if (!dry) {
 
       USERS =
         [];
 
-      /*
-       * 表表示側も古い値になるので破棄。
-       */
       EXPORT_VIEW_ROWS =
         [];
 
@@ -5300,9 +5717,6 @@ async function swap() {
     );
 
 
-    /*
-     * 一覧のdevice_id等が変わったため破棄。
-     */
     USERS = [];
 
 
@@ -5616,10 +6030,6 @@ function voteActionNode(r) {
         );
 
 
-        /*
-         * 正解数が変わるので
-         * ユーザー一覧キャッシュを破棄。
-         */
         USERS = [];
 
 
@@ -6238,6 +6648,10 @@ $('#btnUserSwap').onclick =
   userToDeviceSwap;
 
 
+$('#btnSendGroupInvite').onclick =
+  sendUserGroupInvite;
+
+
 /* 日付 */
 
 $('#btnDay').onclick =
@@ -6430,9 +6844,6 @@ $('#btnLog').onclick =
 
 if (token()) {
 
-  /*
-   * 保存済みトークンで自動再接続。
-   */
   const saved =
     token();
 

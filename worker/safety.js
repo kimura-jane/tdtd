@@ -906,7 +906,10 @@ async function joinStatements(
 
 export async function joinGroupSafely(
   req,
-  env
+  env,
+  {
+    extraStatements = null
+  } = {}
 ) {
 
   await ensureSafetyTables(
@@ -1085,6 +1088,47 @@ export async function joinGroupSafely(
             true,
       }
     );
+
+  /*
+   * 通常参加では使わない。
+   *
+   * 招待承認時だけ、
+   * joinGroupSafely() の安全確認完了後に
+   * 追加statementを同じD1 batchへ入れる。
+   */
+  if (
+    typeof extraStatements ===
+      'function'
+  ) {
+
+    const extra =
+      await extraStatements({
+        dev,
+        group,
+        hidden,
+      });
+
+    if (
+      extra !== null &&
+      extra !== undefined
+    ) {
+
+      if (
+        !Array.isArray(
+          extra
+        )
+      ) {
+
+        throw new TypeError(
+          'extraStatements must return an array'
+        );
+      }
+
+      statements.push(
+        ...extra
+      );
+    }
+  }
 
   await env.DB.batch(
     statements
@@ -4305,6 +4349,15 @@ async function cleanupMemberArtifacts(
     env,
     `
       DELETE FROM weight_privacy_lock
+      WHERE member_id=?
+    `,
+    memberId
+  );
+
+  await optionalDelete(
+    env,
+    `
+      DELETE FROM group_invites
       WHERE member_id=?
     `,
     memberId

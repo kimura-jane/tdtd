@@ -4,7 +4,7 @@
 #
 # Bundle ID: com.minyase.app
 # Apple ID: 6808256800
-# App Store Version: 1.0.5
+# App Store Version: 1.0.6
 # iPhone専用
 # iOS 15.0以上
 #
@@ -16,6 +16,7 @@
 # ・lockfile未作成時は生成後npm ci
 # ・member-detail-ui.js をビルド対象として検証
 # ・goal-privacy-ui.js をビルド対象として検証
+# ・group-invite-ui.js をビルド対象として検証
 # ・weekly-summary-ui.js をビルド対象として検証
 # ・club-ui.js をビルド対象として検証
 # ・watch-switch-ui.js をビルド対象として検証
@@ -70,7 +71,7 @@ workflows:
 
         APP_STORE_APPLE_ID: 6808256800
 
-        APP_VERSION: "1.0.5"
+        APP_VERSION: "1.0.6"
 
         MIN_IOS_VERSION: "15.0"
 
@@ -368,6 +369,8 @@ workflows:
           member-detail-ui.js
 
           goal-privacy-ui.js
+
+          group-invite-ui.js
 
           weekly-summary-ui.js
 
@@ -685,6 +688,7 @@ workflows:
             app.js \
             member-detail-ui.js \
             goal-privacy-ui.js \
+            group-invite-ui.js \
             weekly-summary-ui.js \
             club-ui.js \
             watch-switch-ui.js \

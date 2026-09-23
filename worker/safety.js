@@ -787,6 +787,27 @@ async function joinStatements(
         dev.device_id,
         group.group_id
       ),
+
+    /*
+     * 未所属ユーザー向けの参加依頼は、
+     * 通常コード参加を含め「所属が確定した時点」で閉じる。
+     *
+     * 招待承認経路では group-invite.js 側にも
+     * 対象inviteを削除するstatementがあるが、
+     * 同一batch内の二重DELETEは安全。
+     *
+     * これにより、
+     * 招待Aを保留 → 通常参加でBへ参加 → Bを離脱
+     * のような場合に古い招待Aが復活しない。
+     */
+    env.DB
+      .prepare(`
+        DELETE FROM group_invites
+        WHERE member_id=?
+      `)
+      .bind(
+        dev.member_id
+      ),
   ];
 
   /*

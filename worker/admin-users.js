@@ -12,6 +12,10 @@ import {
 } from './operator.js';
 
 import {
+  adminGroupInviteRoute,
+} from './group-invite.js';
+
+import {
   INACTIVE_DAYS,
   json,
   bad,
@@ -37,6 +41,7 @@ import {
    ・Android用テスト通知
    ・管理者によるユーザー削除
    ・管理者によるグループ削除
+   ・管理者によるチーム参加依頼
 
    減量幅はアプリ本体ランキングと同じ定義：
    「所属グループのstart_ymd以降の最初の実測」
@@ -1748,6 +1753,15 @@ async function deleteGroupData(
     groupId
   );
 
+  await optionalRun(
+    env,
+    `
+      DELETE FROM group_invites
+      WHERE group_id=?
+    `,
+    groupId
+  );
+
   await env.DB.batch([
     env.DB
       .prepare(`
@@ -2523,6 +2537,43 @@ export async function adminUserRoute(
       req,
       env,
       groupId
+    );
+  }
+
+  /* ---------- チーム参加依頼 ---------- */
+
+  const inviteMatch =
+    /^\/api\/admin\/users\/([^/]+)\/group-invite$/
+      .exec(
+        p
+      );
+
+  if (
+    inviteMatch &&
+    (
+      m ===
+        'GET' ||
+      m ===
+        'POST'
+    )
+  ) {
+    const memberId =
+      normalizeMemberId(
+        inviteMatch[1]
+      );
+
+    if (!memberId) {
+      return bad(
+        req,
+        'bad_member_id'
+      );
+    }
+
+    return await adminGroupInviteRoute(
+      req,
+      env,
+      memberId,
+      m
     );
   }
 

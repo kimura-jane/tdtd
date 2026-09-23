@@ -3086,6 +3086,16 @@ async function dissolveGroup(
   );
 
 
+  await optionalRun(
+    env,
+    `
+      DELETE FROM group_invites
+      WHERE group_id=?
+    `,
+    groupId
+  );
+
+
   await env.DB.batch([
 
     env.DB

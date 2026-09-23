@@ -3111,6 +3111,15 @@ async function createGroup(
         now,
         dev.device_id
       ),
+
+    env.DB
+      .prepare(`
+        DELETE FROM group_invites
+        WHERE member_id=?
+      `)
+      .bind(
+        dev.member_id
+      ),
   ]);
 
 
@@ -3436,9 +3445,11 @@ async function requireOwnedGroup(
     group: g
   };
 }
+
+
 async function patchGroup(
   req,
-    env,
+  env,
   dev
 ) {
   const r =
@@ -4295,6 +4306,30 @@ async function doDissolve(
     env.DB
       .prepare(
         'DELETE FROM watching WHERE group_id=?'
+      )
+      .bind(gid),
+
+    env.DB
+      .prepare(
+        'DELETE FROM group_invites WHERE group_id=?'
+      )
+      .bind(gid),
+
+    env.DB
+      .prepare(
+        'DELETE FROM group_external WHERE group_id=?'
+      )
+      .bind(gid),
+
+    env.DB
+      .prepare(
+        'DELETE FROM external_consent WHERE group_id=?'
+      )
+      .bind(gid),
+
+    env.DB
+      .prepare(
+        'DELETE FROM external_queue WHERE group_id=?'
       )
       .bind(gid),
 

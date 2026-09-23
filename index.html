@@ -1413,6 +1413,8 @@ window.MINYASE_API_BASE =
 
 <script src="./goal-privacy-ui.js?v=20260922b"></script>
 
+<script src="./group-invite-ui.js?v=20260923a"></script>
+
 <script src="./member-detail-ui.js?v=20260922a"></script>
 
 <script src="./weekly-summary-ui.js?v=20260914a"></script>
@@ -1623,10 +1625,30 @@ window.MINYASE_API_BASE =
       'card';
 
 
-    view.insertBefore(
-      card,
-      view.firstElementChild
-    );
+    const inviteCard =
+      document.getElementById(
+        'groupInviteCard'
+      );
+
+
+    if (
+      inviteCard &&
+      inviteCard.parentElement ===
+        view
+    ) {
+
+      view.insertBefore(
+        card,
+        inviteCard.nextElementSibling
+      );
+
+    } else {
+
+      view.insertBefore(
+        card,
+        view.firstElementChild
+      );
+    }
 
 
     return card;

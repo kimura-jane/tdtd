@@ -483,6 +483,16 @@ async function activateOperator(
   await optionalRun(
     env,
     `
+      DELETE FROM group_invites
+      WHERE member_id=?
+    `,
+    dev.member_id
+  );
+
+
+  await optionalRun(
+    env,
+    `
       DELETE FROM watching
       WHERE device_id=?
     `,

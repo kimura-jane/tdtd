@@ -1,40 +1,19 @@
 'use strict';
 
-/* ============================================================
-   みんやせ / club-progress-ui.js
-
-   つだつダイエット部 追加表示
-   ------------------------------------------------------------
-   1. 通常ランキングを縦にコンパクト化
-   2. 大会グラフの終点を最新の公式記録日へ統一
-   3. グラフ下に
-      ・🏁 月間の仮順位
-      ・🏆 全期間の減量数
-      を見やすく表示
-
-   ※既存API /api/weekly-summary?club=1 のデータだけを使う。
-   ※D1変更なし。
-   ※既存 club-ui.js / weekly-summary.js は変更しない。
-   ============================================================ */
-
+/* みんやせ / club-progress-ui.js
+ * - 通常ランキングを縦にコンパクト化
+ * - 月グラフは月初を3チームとも0kgとして表示
+ * - 全期間グラフは9/1からの累計を表示
+ * - グラフ上の重複チーム凡例を非表示
+ * - グラフ下に月間の仮順位 / 全期間の減量数を色付き表示
+ */
 (() => {
-  const API =
-    (typeof window !== 'undefined' && window.MINYASE_API_BASE) || '';
-
-  const DEVICE_KEY =
-    'tsudatsu.device_id.v1';
-
-  const CAMPAIGN_START =
-    '2026-09-01';
-
-  const MEDALS = [
-    '🥇',
-    '🥈',
-    '🥉',
-  ];
-
-  const SVG_NS =
-    'http://www.w3.org/2000/svg';
+  const API = (typeof window !== 'undefined' && window.MINYASE_API_BASE) || '';
+  const DEVICE_KEY = 'tsudatsu.device_id.v1';
+  const CAMPAIGN_START = '2026-09-01';
+  const CAMPAIGN_END = '2026-12-31';
+  const MEDALS = ['🥇', '🥈', '🥉'];
+  const SVG_NS = 'http://www.w3.org/2000/svg';
 
   let clubData = null;
   let loading = false;
@@ -42,20 +21,13 @@
   let renderTimer = null;
   let rendering = false;
 
-
-  /* ==========================================================
-     共通
-     ========================================================== */
-
   function deviceId() {
     return localStorage.getItem(DEVICE_KEY) || '';
   }
 
-
-  function pad2(value) {
-    return String(value).padStart(2, '0');
+  function pad2(v) {
+    return String(v).padStart(2, '0');
   }
-
 
   function parseYmd(ymd) {
     const m =
@@ -71,7 +43,6 @@
     };
   }
 
-
   function ymdDay(ymd) {
     const p = parseYmd(ymd);
     if (!p) return null;
@@ -86,7 +57,6 @@
     );
   }
 
-
   function dayToYmd(day) {
     const d = new Date(day * 86400000);
 
@@ -99,22 +69,21 @@
     );
   }
 
-
   function dateText(ymd) {
     const p = parseYmd(ymd);
-    if (!p) return String(ymd || '—');
 
-    return p.month + '月' + p.day + '日';
+    return p
+      ? p.month + '月' + p.day + '日'
+      : String(ymd || '—');
   }
-
 
   function shortDateText(ymd) {
     const p = parseYmd(ymd);
-    if (!p) return String(ymd || '');
 
-    return p.month + '/' + p.day;
+    return p
+      ? p.month + '/' + p.day
+      : String(ymd || '');
   }
-
 
   function monthStartYmd(ymd) {
     const p = parseYmd(ymd);
@@ -128,88 +97,138 @@
     );
   }
 
+  function shiftMonthStart(
+    ymd,
+    amount
+  ) {
+    const p = parseYmd(ymd);
+    if (!p) return null;
+
+    const d =
+      new Date(
+        Date.UTC(
+          p.year,
+          p.month - 1,
+          1
+        )
+      );
+
+    d.setUTCMonth(
+      d.getUTCMonth() +
+      amount
+    );
+
+    return (
+      d.getUTCFullYear() +
+      '-' +
+      pad2(
+        d.getUTCMonth() +
+        1
+      ) +
+      '-01'
+    );
+  }
 
   function prevMonthStartYmd(ymd) {
-    const p = parseYmd(ymd);
-    if (!p) return null;
-
-    const base =
-      new Date(Date.UTC(p.year, p.month - 1, 1));
-
-    base.setUTCMonth(base.getUTCMonth() - 1);
-
-    return (
-      base.getUTCFullYear() +
-      '-' +
-      pad2(base.getUTCMonth() + 1) +
-      '-01'
+    return shiftMonthStart(
+      ymd,
+      -1
     );
   }
-
 
   function nextMonthStartYmd(ymd) {
-    const p = parseYmd(ymd);
-    if (!p) return null;
-
-    const base =
-      new Date(Date.UTC(p.year, p.month - 1, 1));
-
-    base.setUTCMonth(base.getUTCMonth() + 1);
-
-    return (
-      base.getUTCFullYear() +
-      '-' +
-      pad2(base.getUTCMonth() + 1) +
-      '-01'
+    return shiftMonthStart(
+      ymd,
+      1
     );
   }
 
+  function round1(v) {
+    return (
+      Math.round(
+        Number(v) *
+        10
+      ) /
+      10
+    );
+  }
 
   function progressKgText(lossKg) {
-    const loss = Number(lossKg);
-    if (!Number.isFinite(loss)) return '—';
+    const loss =
+      Number(lossKg);
+
+    if (!Number.isFinite(loss)) {
+      return '—';
+    }
 
     const change =
-      Math.round((-loss) * 10) / 10;
+      round1(
+        -loss
+      );
 
-    if (Object.is(change, -0) || change === 0) {
+    if (
+      Object.is(
+        change,
+        -0
+      ) ||
+      change === 0
+    ) {
       return '0.0kg';
     }
 
     return (
-      (change > 0 ? '+' : '') +
+      (
+        change >
+        0
+          ? '+'
+          : ''
+      ) +
       change.toFixed(1) +
       'kg'
     );
   }
 
-
   function detailLossText(lossKg) {
-    const n = Number(lossKg);
-    if (!Number.isFinite(n)) return '—';
+    const n =
+      Number(lossKg);
 
-    if (n < 0) {
-      return Math.abs(n).toFixed(1) + 'kg増量';
+    if (!Number.isFinite(n)) {
+      return '—';
     }
 
-    return n.toFixed(1) + 'kg減量';
+    return n < 0
+      ? (
+          Math.abs(n)
+            .toFixed(1) +
+          'kg増量'
+        )
+      : (
+          n.toFixed(1) +
+          'kg減量'
+        );
   }
 
-
-  /* ==========================================================
-     CSS
-     ========================================================== */
-
   function addStyle() {
-    if (document.getElementById('clubProgressUiStyle')) return;
+    if (
+      document.getElementById(
+        'clubProgressUiStyle'
+      )
+    ) {
+      return;
+    }
 
-    const style = document.createElement('style');
-    style.id = 'clubProgressUiStyle';
+    const style =
+      document.createElement(
+        'style'
+      );
+
+    style.id =
+      'clubProgressUiStyle';
 
     style.textContent = `
-/* ============================================================
-   通常ランキング
-   ============================================================ */
+.club-team-legend{
+  display:none !important
+}
 
 #rankList.rank > li:not(.empty){
   gap:8px;
@@ -266,10 +285,6 @@
   font-size:16px
 }
 
-/* ============================================================
-   グラフ下の見やすい結果表示
-   ============================================================ */
-
 .club-progress-rankings{
   display:grid;
   gap:10px;
@@ -320,12 +335,15 @@
 
 .club-progress-row{
   display:grid;
-  grid-template-columns:34px minmax(0,1fr) auto;
+  grid-template-columns:
+    44px minmax(0,1fr) auto;
   gap:8px;
   align-items:center;
   min-width:0;
   padding:8px 0;
-  border-top:1px solid var(--line2,#f4ede6)
+  border-top:
+    1px solid
+    var(--line2,#f4ede6)
 }
 
 .club-progress-row:first-child{
@@ -334,9 +352,29 @@
 
 .club-progress-rank{
   color:var(--ink,#181614);
-  font-size:15px;
+  font-size:14px;
   font-weight:900;
-  text-align:center
+  white-space:nowrap
+}
+
+.club-progress-team-wrap{
+  display:flex;
+  align-items:center;
+  gap:7px;
+  min-width:0
+}
+
+.club-progress-team-dot{
+  width:13px;
+  height:13px;
+  flex:0 0 13px;
+  border:
+    2px solid
+    rgba(255,255,255,.95);
+  border-radius:50%;
+  box-shadow:
+    0 1px 3px
+    rgba(60,45,35,.18)
 }
 
 .club-progress-team{
@@ -344,13 +382,15 @@
   color:var(--ink2,#4b433d);
   font-size:14px;
   font-weight:900;
-  line-height:1.35
+  line-height:1.35;
+  white-space:nowrap
 }
 
 .club-progress-loss{
   color:var(--ink,#181614);
   font-size:15px;
-  font-variant-numeric:tabular-nums;
+  font-variant-numeric:
+    tabular-nums;
   font-weight:900;
   white-space:nowrap
 }
@@ -365,6 +405,7 @@
 }
 
 @media(max-width:380px){
+
   #rankList.rank > li:not(.empty){
     gap:6px;
     padding:7px 0
@@ -391,7 +432,8 @@
   }
 
   .club-progress-row{
-    grid-template-columns:32px minmax(0,1fr) auto;
+    grid-template-columns:
+      42px minmax(0,1fr) auto;
     gap:6px
   }
 
@@ -405,19 +447,20 @@
 }
 `;
 
-    document.head.appendChild(style);
+    document.head
+      .appendChild(
+        style
+      );
   }
 
-
-  /* ==========================================================
-     API
-     ========================================================== */
-
   async function api(path) {
-    const did = deviceId();
+    const did =
+      deviceId();
 
     if (!did) {
-      throw new Error('not_registered');
+      throw new Error(
+        'not_registered'
+      );
     }
 
     let response;
@@ -425,203 +468,452 @@
     try {
       response =
         await fetch(
-          API + path,
+          API +
+          path,
           {
-            method: 'GET',
+            method:
+              'GET',
+
             headers: {
-              'x-device-id': did,
+              'x-device-id':
+                did,
             },
-            cache: 'no-store',
+
+            cache:
+              'no-store',
           }
         );
+
     } catch (_) {
-      throw new Error('network_error');
+      throw new Error(
+        'network_error'
+      );
     }
 
-    let data = {};
+    let data =
+      {};
 
     try {
-      data = await response.json();
+      data =
+        await response.json();
     } catch {}
 
-    if (!response.ok || data.ok === false) {
+    if (
+      !response.ok ||
+      data.ok ===
+        false
+    ) {
       const error =
         new Error(
           data.error ||
-          'http_' + response.status
+          (
+            'http_' +
+            response.status
+          )
         );
 
-      error.status = response.status;
+      error.status =
+        response.status;
+
       throw error;
     }
 
     return data;
   }
 
-
-  /* ==========================================================
-     公式記録日
-     ========================================================== */
-
   function allPointDates(data) {
-    const dates = new Set();
+    const dates =
+      new Set();
 
-    for (const team of (data && data.teams) || []) {
-      for (const point of team.points || []) {
-        if (point && point.ymd) {
-          dates.add(String(point.ymd));
+    for (
+      const team of
+      (
+        data &&
+        data.teams
+      ) ||
+      []
+    ) {
+      for (
+        const point of
+        team.points ||
+        []
+      ) {
+        if (
+          point &&
+          point.ymd
+        ) {
+          dates.add(
+            String(
+              point.ymd
+            )
+          );
         }
       }
     }
 
-    return [...dates].sort();
+    return [
+      ...dates
+    ]
+      .sort();
   }
 
-
-  /*
-   * 今回は「最新月曜日」ではなく
-   * グラフと同じ「最新の公式記録日」を基準にする。
-   *
-   * 例:
-   * 10/1 なら 10/1
-   * 10/12 なら 10/12
-   */
   function latestOfficialYmd(data) {
     const today =
-      String((data && data.today_ymd) || '');
+      String(
+        (
+          data &&
+          data.today_ymd
+        ) ||
+        ''
+      );
 
     const dates =
-      allPointDates(data)
+      allPointDates(
+        data
+      )
         .filter(
           ymd =>
-            ymd >= CAMPAIGN_START &&
-            (!today || ymd <= today)
+            ymd >=
+              CAMPAIGN_START &&
+            ymd <=
+              CAMPAIGN_END &&
+            (
+              !today ||
+              ymd <=
+                today
+            )
         )
         .sort();
 
     return dates.length
-      ? dates[dates.length - 1]
+      ? dates[
+          dates.length -
+          1
+        ]
       : null;
   }
 
-
+  /*
+   * 下の仮順位用。
+   *
+   * 10/2時点:
+   * 9/1〜10/1（仮）
+   *
+   * 10/5以降:
+   * 10/1〜11/1（仮）
+   */
   function progressContext(data) {
-    const end = latestOfficialYmd(data);
-    if (!end) return null;
+    const end =
+      latestOfficialYmd(
+        data
+      );
 
-    const endParts = parseYmd(end);
-    if (!endParts) return null;
+    if (!end) {
+      return null;
+    }
 
-    let provisionalStart;
-    let provisionalLabelEnd;
+    const p =
+      parseYmd(
+        end
+      );
 
-    /*
-     * 月初の公式記録日なら
-     * その前月大会の仮結果
-     * 例: 10/1 → 9/1〜10/1(仮)
-     *
-     * 月初以外なら
-     * 当月大会の途中経過
-     * 例: 10/12 → 10/1〜11/1(仮)
-     */
-    if (endParts.day === 1) {
-      provisionalStart = prevMonthStartYmd(end);
-      provisionalLabelEnd = end;
-    } else {
-      provisionalStart = monthStartYmd(end);
-      provisionalLabelEnd = nextMonthStartYmd(end);
+    if (!p) {
+      return null;
+    }
+
+    let provisionalStart =
+      p.day === 1
+        ? prevMonthStartYmd(
+            end
+          )
+        : monthStartYmd(
+            end
+          );
+
+    let provisionalLabelEnd =
+      p.day === 1
+        ? end
+        : nextMonthStartYmd(
+            end
+          );
+
+    if (
+      provisionalStart <
+      CAMPAIGN_START
+    ) {
+      provisionalStart =
+        CAMPAIGN_START;
+    }
+
+    if (
+      provisionalLabelEnd >
+      CAMPAIGN_END
+    ) {
+      provisionalLabelEnd =
+        CAMPAIGN_END;
     }
 
     return {
       end,
-      baseline: String((data && data.baseline_ymd) || CAMPAIGN_START),
-      provisional_start: provisionalStart,
-      provisional_label_end: provisionalLabelEnd,
+
+      baseline:
+        String(
+          (
+            data &&
+            data.baseline_ymd
+          ) ||
+          CAMPAIGN_START
+        ),
+
+      provisional_start:
+        provisionalStart,
+
+      provisional_label_end:
+        provisionalLabelEnd,
     };
   }
 
+  /*
+   * 「月」グラフ用。
+   *
+   * 10月:
+   * 10/1〜11/1
+   *
+   * 11月:
+   * 11/1〜12/1
+   *
+   * 12月:
+   * 12/1〜12/31
+   */
+  function currentMonthRange(data) {
+    let today =
+      String(
+        (
+          data &&
+          data.today_ymd
+        ) ||
+        latestOfficialYmd(
+          data
+        ) ||
+        CAMPAIGN_START
+      );
 
-  /* ==========================================================
-     チーム順位計算
-     ========================================================== */
+    if (
+      today <
+      CAMPAIGN_START
+    ) {
+      today =
+        CAMPAIGN_START;
+    }
 
-  function pointAt(team, ymd) {
+    if (
+      today >
+      CAMPAIGN_END
+    ) {
+      today =
+        CAMPAIGN_END;
+    }
+
+    const start =
+      monthStartYmd(
+        today
+      );
+
+    if (!start) {
+      return null;
+    }
+
+    let end =
+      nextMonthStartYmd(
+        start
+      );
+
+    if (
+      !end ||
+      end >
+      CAMPAIGN_END
+    ) {
+      end =
+        CAMPAIGN_END;
+    }
+
+    let dataEnd =
+      latestOfficialYmd(
+        data
+      ) ||
+      start;
+
+    if (
+      dataEnd <
+      start
+    ) {
+      dataEnd =
+        start;
+    }
+
+    if (
+      dataEnd >
+      end
+    ) {
+      dataEnd =
+        end;
+    }
+
+    return {
+      start,
+      end,
+      data_end:
+        dataEnd,
+    };
+  }
+
+  function pointAt(
+    team,
+    ymd
+  ) {
     const point =
-      (team && team.points || [])
+      (
+        team &&
+        team.points ||
+        []
+      )
         .find(
           row =>
             row &&
-            row.ymd === ymd
+            row.ymd ===
+              ymd
         );
 
-    if (!point) return null;
+    if (!point) {
+      return null;
+    }
 
-    const value = Number(point.loss_kg);
+    const value =
+      Number(
+        point.loss_kg
+      );
 
-    return Number.isFinite(value)
+    return Number.isFinite(
+      value
+    )
       ? value
       : null;
   }
 
+  function rankedRows(
+    data,
+    mode
+  ) {
+    const ctx =
+      progressContext(
+        data
+      );
 
-  function rankedRows(data, mode) {
-    const ctx = progressContext(data);
-    if (!ctx) return [];
+    if (!ctx) {
+      return [];
+    }
 
-    const rows = [];
+    const rows =
+      [];
 
-    for (const team of data.teams || []) {
-      const endLoss = pointAt(team, ctx.end);
+    for (
+      const team of
+      data.teams ||
+      []
+    ) {
+      const endLoss =
+        pointAt(
+          team,
+          ctx.end
+        );
 
-      if (!Number.isFinite(endLoss)) continue;
+      if (
+        !Number.isFinite(
+          endLoss
+        )
+      ) {
+        continue;
+      }
 
-      let lossKg = endLoss;
+      let lossKg =
+        endLoss;
 
-      if (mode === 'provisional') {
+      if (
+        mode ===
+        'provisional'
+      ) {
         const startLoss =
           pointAt(
             team,
             ctx.provisional_start
           );
 
-        if (!Number.isFinite(startLoss)) continue;
+        if (
+          !Number.isFinite(
+            startLoss
+          )
+        ) {
+          continue;
+        }
 
         lossKg =
-          Math.round(
-            (endLoss - startLoss) * 10
-          ) / 10;
+          round1(
+            endLoss -
+            startLoss
+          );
       }
 
       rows.push({
-        team_id: team.team_id,
+        team_id:
+          team.team_id,
+
         team_name:
           team.name ||
           team.team_id ||
           '—',
-        loss_kg: lossKg,
+
+        team_color:
+          team.color ||
+          '#999',
+
+        loss_kg:
+          lossKg,
       });
     }
 
     return rows.sort(
-      (a, b) => {
+      (
+        a,
+        b
+      ) => {
         const diff =
-          Number(b.loss_kg) -
-          Number(a.loss_kg);
+          Number(
+            b.loss_kg
+          ) -
+          Number(
+            a.loss_kg
+          );
 
-        if (diff !== 0) return diff;
+        if (
+          diff !==
+          0
+        ) {
+          return diff;
+        }
 
-        return String(a.team_id || '')
+        return String(
+          a.team_id ||
+          ''
+        )
           .localeCompare(
-            String(b.team_id || '')
+            String(
+              b.team_id ||
+              ''
+            )
           );
       }
     );
   }
-
-
-  /* ==========================================================
-     グラフ下のカード
-     ========================================================== */
 
   function buildRankingCard({
     title,
@@ -629,228 +921,526 @@
     note,
     rows,
   }) {
-    const card = document.createElement('section');
-    card.className = 'club-progress-card';
+    const card =
+      document.createElement(
+        'section'
+      );
 
-    const h = document.createElement('h4');
-    h.className = 'club-progress-title';
-    h.textContent = title;
+    card.className =
+      'club-progress-card';
 
-    const p = document.createElement('p');
-    p.className = 'club-progress-period';
-    p.textContent = period;
+    const h =
+      document.createElement(
+        'h4'
+      );
 
-    card.append(h, p);
+    h.className =
+      'club-progress-title';
+
+    h.textContent =
+      title;
+
+    const p =
+      document.createElement(
+        'p'
+      );
+
+    p.className =
+      'club-progress-period';
+
+    p.textContent =
+      period;
+
+    card.append(
+      h,
+      p
+    );
 
     if (note) {
-      const n = document.createElement('p');
-      n.className = 'club-progress-note';
-      n.textContent = note;
-      card.appendChild(n);
+      const n =
+        document.createElement(
+          'p'
+        );
+
+      n.className =
+        'club-progress-note';
+
+      n.textContent =
+        note;
+
+      card.appendChild(
+        n
+      );
     }
 
     if (!rows.length) {
-      const empty = document.createElement('p');
-      empty.className = 'club-progress-empty';
-      empty.textContent = '集計できるデータがまだありません';
-      card.appendChild(empty);
+      const empty =
+        document.createElement(
+          'p'
+        );
+
+      empty.className =
+        'club-progress-empty';
+
+      empty.textContent =
+        '集計できるデータがまだありません';
+
+      card.appendChild(
+        empty
+      );
+
       return card;
     }
 
-    const list = document.createElement('ol');
-    list.className = 'club-progress-list';
+    const list =
+      document.createElement(
+        'ol'
+      );
+
+    list.className =
+      'club-progress-list';
 
     rows
-      .slice(0, 3)
+      .slice(
+        0,
+        3
+      )
       .forEach(
-        (row, index) => {
-          const li = document.createElement('li');
-          li.className = 'club-progress-row';
+        (
+          row,
+          index
+        ) => {
+          const li =
+            document.createElement(
+              'li'
+            );
 
-          const rank = document.createElement('span');
-          rank.className = 'club-progress-rank';
+          li.className =
+            'club-progress-row';
+
+          const rank =
+            document.createElement(
+              'span'
+            );
+
+          rank.className =
+            'club-progress-rank';
+
           rank.textContent =
-            (MEDALS[index] || '') +
-            (index + 1) +
+            (
+              MEDALS[
+                index
+              ] ||
+              ''
+            ) +
+            (
+              index +
+              1
+            ) +
             '位';
 
-          const team = document.createElement('span');
-          team.className = 'club-progress-team';
-          team.textContent = row.team_name;
+          const teamWrap =
+            document.createElement(
+              'span'
+            );
 
-          const loss = document.createElement('strong');
-          loss.className = 'club-progress-loss';
-          loss.textContent = progressKgText(row.loss_kg);
+          teamWrap.className =
+            'club-progress-team-wrap';
 
-          li.append(rank, team, loss);
-          list.appendChild(li);
+          const dot =
+            document.createElement(
+              'span'
+            );
+
+          dot.className =
+            'club-progress-team-dot';
+
+          dot.style.background =
+            row.team_color ||
+            '#999';
+
+          const team =
+            document.createElement(
+              'span'
+            );
+
+          team.className =
+            'club-progress-team';
+
+          team.textContent =
+            row.team_name;
+
+          teamWrap.append(
+            dot,
+            team
+          );
+
+          const loss =
+            document.createElement(
+              'strong'
+            );
+
+          loss.className =
+            'club-progress-loss';
+
+          loss.textContent =
+            progressKgText(
+              row.loss_kg
+            );
+
+          li.append(
+            rank,
+            teamWrap,
+            loss
+          );
+
+          list.appendChild(
+            li
+          );
         }
       );
 
-    card.appendChild(list);
+    card.appendChild(
+      list
+    );
+
     return card;
   }
 
-
   function renderRankings() {
     const detail =
-      document.getElementById('clubChartDetail');
+      document.getElementById(
+        'clubChartDetail'
+      );
 
-    if (!detail || !clubData) return;
+    if (
+      !detail ||
+      !clubData
+    ) {
+      return;
+    }
 
     const old =
-      document.getElementById('clubProgressRankings');
+      document.getElementById(
+        'clubProgressRankings'
+      );
 
-    if (old) old.remove();
+    if (old) {
+      old.remove();
+    }
 
-    const wrap = document.createElement('div');
-    wrap.id = 'clubProgressRankings';
-    wrap.className = 'club-progress-rankings';
+    const wrap =
+      document.createElement(
+        'div'
+      );
 
-    const ctx = progressContext(clubData);
+    wrap.id =
+      'clubProgressRankings';
+
+    wrap.className =
+      'club-progress-rankings';
+
+    const ctx =
+      progressContext(
+        clubData
+      );
 
     if (!ctx) {
       wrap.append(
         buildRankingCard({
-          title: '🏁 月間の仮順位',
-          period: '次の公式記録日後に表示します',
-          note: '',
-          rows: [],
+          title:
+            '🏁 月間の仮順位',
+
+          period:
+            '次の公式記録日後に表示します',
+
+          note:
+            '',
+
+          rows:
+            [],
         }),
+
         buildRankingCard({
-          title: '🏆 全期間の減量数',
-          period: '次の公式記録日後に表示します',
-          note: '',
-          rows: [],
+          title:
+            '🏆 全期間の減量数',
+
+          period:
+            '次の公式記録日後に表示します',
+
+          note:
+            '',
+
+          rows:
+            [],
         })
       );
 
-      detail.insertAdjacentElement('afterend', wrap);
+      detail.insertAdjacentElement(
+        'afterend',
+        wrap
+      );
+
       return;
     }
-
-    const provisionalRows =
-      rankedRows(clubData, 'provisional');
-
-    const allRows =
-      rankedRows(clubData, 'all');
 
     wrap.append(
       buildRankingCard({
         title:
           '🏁 ' +
-          dateText(ctx.provisional_start) +
+          dateText(
+            ctx.provisional_start
+          ) +
           '〜' +
-          dateText(ctx.provisional_label_end) +
+          dateText(
+            ctx.provisional_label_end
+          ) +
           '（仮）',
+
         period:
           '現在の集計基準日：' +
-          dateText(ctx.end),
+          dateText(
+            ctx.end
+          ),
+
         note:
           '正式確定前の途中結果です',
-        rows: provisionalRows,
+
+        rows:
+          rankedRows(
+            clubData,
+            'provisional'
+          ),
       }),
+
       buildRankingCard({
-        title: '🏆 全期間の減量数',
+        title:
+          '🏆 全期間の減量数',
+
         period:
-          dateText(ctx.baseline) +
+          dateText(
+            ctx.baseline
+          ) +
           '〜' +
-          dateText(ctx.end) +
+          dateText(
+            ctx.end
+          ) +
           ' 時点',
+
         note:
           '大会開始から現在までの累計です',
-        rows: allRows,
+
+        rows:
+          rankedRows(
+            clubData,
+            'all'
+          ),
       })
     );
 
-    detail.insertAdjacentElement('afterend', wrap);
+    detail.insertAdjacentElement(
+      'afterend',
+      wrap
+    );
   }
 
-
-  /* ==========================================================
-     SVG
-     ========================================================== */
-
-  function svgEl(name, attrs = {}) {
+  function svgEl(
+    name,
+    attrs = {}
+  ) {
     const node =
       document.createElementNS(
         SVG_NS,
         name
       );
 
-    for (const [key, value] of Object.entries(attrs)) {
-      node.setAttribute(key, String(value));
+    for (
+      const [
+        key,
+        value
+      ] of
+      Object.entries(
+        attrs
+      )
+    ) {
+      node.setAttribute(
+        key,
+        String(
+          value
+        )
+      );
     }
 
     return node;
   }
 
-
   function niceStep(raw) {
-    if (!Number.isFinite(raw) || raw <= 0) return 1;
+    if (
+      !Number.isFinite(
+        raw
+      ) ||
+      raw <=
+        0
+    ) {
+      return 1;
+    }
 
     const power =
       Math.pow(
         10,
-        Math.floor(Math.log10(raw))
+        Math.floor(
+          Math.log10(
+            raw
+          )
+        )
       );
 
-    const scaled = raw / power;
+    const scaled =
+      raw /
+      power;
 
-    if (scaled <= 1) return 1 * power;
-    if (scaled <= 2) return 2 * power;
-    if (scaled <= 5) return 5 * power;
+    if (
+      scaled <=
+      1
+    ) {
+      return power;
+    }
 
-    return 10 * power;
-  }
+    if (
+      scaled <=
+      2
+    ) {
+      return (
+        2 *
+        power
+      );
+    }
 
-
-  function formatTick(value) {
-    const abs = Math.abs(value);
+    if (
+      scaled <=
+      5
+    ) {
+      return (
+        5 *
+        power
+      );
+    }
 
     return (
-      abs < 10 &&
-      Math.abs(value % 1) > 0.001
-    )
-      ? value.toFixed(1)
-      : String(Math.round(value));
+      10 *
+      power
+    );
   }
 
+  function formatTick(value) {
+    const abs =
+      Math.abs(
+        value
+      );
+
+    return (
+      abs <
+        10 &&
+      Math.abs(
+        value %
+        1
+      ) >
+        0.001
+    )
+      ? value.toFixed(
+          1
+        )
+      : String(
+          Math.round(
+            value
+          )
+        );
+  }
 
   function isOfficialTickYmd(ymd) {
-    const parts = parseYmd(ymd);
-    if (!parts) return false;
+    const p =
+      parseYmd(
+        ymd
+      );
 
-    const day = ymdDay(ymd);
-    if (day === null) return false;
+    const day =
+      ymdDay(
+        ymd
+      );
 
-    const dow =
-      new Date(day * 86400000)
-        .getUTCDay();
+    if (
+      !p ||
+      day ===
+        null
+    ) {
+      return false;
+    }
 
-    return parts.day === 1 || dow === 1;
+    return (
+      p.day ===
+        1 ||
+      new Date(
+        day *
+        86400000
+      )
+        .getUTCDay() ===
+        1 ||
+      ymd ===
+        CAMPAIGN_END
+    );
   }
 
+  function officialTicks(
+    startYmd,
+    endYmd
+  ) {
+    const start =
+      ymdDay(
+        startYmd
+      );
 
-  function officialTicks(startYmd, endYmd) {
-    const start = ymdDay(startYmd);
-    const end = ymdDay(endYmd);
+    const end =
+      ymdDay(
+        endYmd
+      );
 
-    if (start === null || end === null) return [];
+    if (
+      start ===
+        null ||
+      end ===
+        null
+    ) {
+      return [];
+    }
 
-    const result = [];
+    const result =
+      [];
 
-    for (let day = start; day <= end; day++) {
-      const ymd = dayToYmd(day);
+    for (
+      let day =
+        start;
+      day <=
+        end;
+      day++
+    ) {
+      const ymd =
+        dayToYmd(
+          day
+        );
 
-      if (isOfficialTickYmd(ymd)) {
-        result.push(ymd);
+      if (
+        isOfficialTickYmd(
+          ymd
+        )
+      ) {
+        result.push(
+          ymd
+        );
       }
     }
 
     return result;
   }
-
 
   function activeGraphMode() {
     const active =
@@ -860,34 +1450,86 @@
 
     return (
       active &&
-      active.dataset.clubChartMode === 'all'
+      active.dataset
+        .clubChartMode ===
+        'all'
     )
       ? 'all'
       : 'month';
   }
 
-
   function graphRange(data) {
-    const ctx = progressContext(data);
-    if (!ctx) return null;
+    const latest =
+      latestOfficialYmd(
+        data
+      );
 
-    if (activeGraphMode() === 'all') {
+    if (!latest) {
+      return null;
+    }
+
+    if (
+      activeGraphMode() ===
+      'all'
+    ) {
+      const start =
+        String(
+          (
+            data &&
+            data.baseline_ymd
+          ) ||
+          CAMPAIGN_START
+        );
+
       return {
-        mode: 'all',
-        start: ctx.baseline,
-        end: ctx.end,
-        ticks: officialTicks(ctx.baseline, ctx.end),
+        mode:
+          'all',
+
+        start,
+
+        end:
+          latest,
+
+        data_end:
+          latest,
+
+        ticks:
+          officialTicks(
+            start,
+            latest
+          ),
       };
     }
 
+    const month =
+      currentMonthRange(
+        data
+      );
+
+    if (!month) {
+      return null;
+    }
+
     return {
-      mode: 'month',
-      start: ctx.provisional_start,
-      end: ctx.end,
-      ticks: officialTicks(ctx.provisional_start, ctx.end),
+      mode:
+        'month',
+
+      start:
+        month.start,
+
+      end:
+        month.end,
+
+      data_end:
+        month.data_end,
+
+      ticks:
+        officialTicks(
+          month.start,
+          month.end
+        ),
     };
   }
-
 
   function graphSignature(range) {
     return range
@@ -895,91 +1537,232 @@
           range.mode,
           range.start,
           range.end,
-        ].join('|')
+          range.data_end,
+        ]
+          .join('|')
       : 'none';
   }
 
-
-  function appendGraphMarker(svg, range) {
+  function appendGraphMarker(
+    svg,
+    range
+  ) {
     const marker =
       svgEl(
         'g',
         {
-          id: 'clubProgressGraphMarker',
-          'data-signature': graphSignature(range),
-          'aria-hidden': 'true',
+          id:
+            'clubProgressGraphMarker',
+
+          'data-signature':
+            graphSignature(
+              range
+            ),
+
+          'aria-hidden':
+            'true',
         }
       );
 
-    svg.appendChild(marker);
-  }
-
-
-  function renderStateIsCurrent() {
-    if (!clubData) return true;
-
-    const svg =
-      document.getElementById('clubChart');
-
-    const rankings =
-      document.getElementById('clubProgressRankings');
-
-    if (!svg || !rankings) return false;
-
-    const marker =
-      svg.querySelector('#clubProgressGraphMarker');
-
-    if (!marker) return false;
-
-    const expected =
-      graphSignature(
-        graphRange(clubData)
-      );
-
-    return (
-      marker.getAttribute('data-signature') ===
-      expected
+    svg.appendChild(
+      marker
     );
   }
 
+  function renderStateIsCurrent() {
+    if (!clubData) {
+      return true;
+    }
 
-  /* ==========================================================
-     グラフ描画
-     ========================================================== */
+    const svg =
+      document.getElementById(
+        'clubChart'
+      );
+
+    const rankings =
+      document.getElementById(
+        'clubProgressRankings'
+      );
+
+    if (
+      !svg ||
+      !rankings
+    ) {
+      return false;
+    }
+
+    const marker =
+      svg.querySelector(
+        '#clubProgressGraphMarker'
+      );
+
+    if (!marker) {
+      return false;
+    }
+
+    return (
+      marker.getAttribute(
+        'data-signature'
+      ) ===
+      graphSignature(
+        graphRange(
+          clubData
+        )
+      )
+    );
+  }
+
+  /*
+   * 全期間は累計値そのまま。
+   *
+   * 月は月初累計を引いて、
+   * 月初=0kgに変換する。
+   */
+  function graphTeams(range) {
+    const teams =
+      Array.isArray(
+        clubData &&
+        clubData.teams
+      )
+        ? clubData.teams
+        : [];
+
+    return teams.map(
+      team => {
+        let baselineLoss =
+          0;
+
+        if (
+          range.mode ===
+          'month'
+        ) {
+          baselineLoss =
+            pointAt(
+              team,
+              range.start
+            );
+
+          if (
+            !Number.isFinite(
+              baselineLoss
+            )
+          ) {
+            return {
+              ...team,
+              visible_points:
+                [],
+            };
+          }
+        }
+
+        const points =
+          (
+            team.points ||
+            []
+          )
+            .filter(
+              point =>
+                point &&
+                point.ymd >=
+                  range.start &&
+                point.ymd <=
+                  range.data_end &&
+                Number.isFinite(
+                  Number(
+                    point.loss_kg
+                  )
+                )
+            )
+            .map(
+              point => ({
+                ...point,
+
+                loss_kg:
+                  range.mode ===
+                    'month'
+                    ? round1(
+                        Number(
+                          point.loss_kg
+                        ) -
+                        baselineLoss
+                      )
+                    : Number(
+                        point.loss_kg
+                      ),
+              })
+            );
+
+        return {
+          ...team,
+
+          visible_points:
+            points,
+        };
+      }
+    );
+  }
 
   function renderAlignedGraph() {
     const svg =
-      document.getElementById('clubChart');
+      document.getElementById(
+        'clubChart'
+      );
 
     const detail =
-      document.getElementById('clubChartDetail');
+      document.getElementById(
+        'clubChartDetail'
+      );
 
     const note =
-      document.getElementById('clubChartNote');
+      document.getElementById(
+        'clubChartNote'
+      );
 
-    if (!svg || !clubData) return;
+    if (
+      !svg ||
+      !clubData
+    ) {
+      return;
+    }
 
-    const range = graphRange(clubData);
+    const range =
+      graphRange(
+        clubData
+      );
 
-    svg.innerHTML = '';
+    svg.innerHTML =
+      '';
 
     if (!range) {
       const text =
         svgEl(
           'text',
           {
-            x: 180,
-            y: 135,
-            'text-anchor': 'middle',
-            class: 'club-chart-axis-text',
+            x:
+              180,
+
+            y:
+              135,
+
+            'text-anchor':
+              'middle',
+
+            class:
+              'club-chart-axis-text',
           }
         );
 
       text.textContent =
         '公式記録日がまだありません';
 
-      svg.appendChild(text);
-      appendGraphMarker(svg, null);
+      svg.appendChild(
+        text
+      );
+
+      appendGraphMarker(
+        svg,
+        null
+      );
 
       if (detail) {
         detail.textContent =
@@ -996,49 +1779,51 @@
 
     if (note) {
       note.textContent =
-        range.mode === 'month'
+        range.mode ===
+          'month'
           ? (
-              dateText(range.provisional_start || range.start) +
+              dateText(
+                range.start
+              ) +
               '〜' +
-              dateText(range.end) +
-              ' の推移'
+              dateText(
+                range.end
+              ) +
+              '・月初を0kgとして表示'
             )
           : (
-              dateText(range.start) +
+              dateText(
+                range.start
+              ) +
               '〜' +
-              dateText(range.end) +
-              ' の推移'
+              dateText(
+                range.data_end
+              ) +
+              '・大会開始からの累計'
             );
     }
 
-    const teams =
-      Array.isArray(clubData.teams)
-        ? clubData.teams
-        : [];
-
     const visibleTeams =
-      teams.map(
-        team => ({
-          ...team,
-          visible_points:
-            (team.points || [])
-              .filter(
-                point =>
-                  point &&
-                  point.ymd >= range.start &&
-                  point.ymd <= range.end &&
-                  Number.isFinite(
-                    Number(point.loss_kg)
-                  )
-              ),
-        })
+      graphTeams(
+        range
       );
 
-    const values = [];
+    const values =
+      [];
 
-    for (const team of visibleTeams) {
-      for (const point of team.visible_points) {
-        values.push(Number(point.loss_kg));
+    for (
+      const team of
+      visibleTeams
+    ) {
+      for (
+        const point of
+        team.visible_points
+      ) {
+        values.push(
+          Number(
+            point.loss_kg
+          )
+        );
       }
     }
 
@@ -1047,18 +1832,31 @@
         svgEl(
           'text',
           {
-            x: 180,
-            y: 135,
-            'text-anchor': 'middle',
-            class: 'club-chart-axis-text',
+            x:
+              180,
+
+            y:
+              135,
+
+            'text-anchor':
+              'middle',
+
+            class:
+              'club-chart-axis-text',
           }
         );
 
       text.textContent =
         '集計できる記録がまだありません';
 
-      svg.appendChild(text);
-      appendGraphMarker(svg, range);
+      svg.appendChild(
+        text
+      );
+
+      appendGraphMarker(
+        svg,
+        range
+      );
 
       if (detail) {
         detail.textContent =
@@ -1068,58 +1866,147 @@
       return;
     }
 
-    const W = 360;
-    const left = 43;
-    const right = 12;
-    const top = 22;
-    const bottom = 242;
+    const W =
+      360;
 
-    const plotW = W - left - right;
-    const plotH = bottom - top;
+    const left =
+      43;
 
-    const rawMin = Math.min(0, ...values);
-    const rawMax = Math.max(0, ...values);
+    const right =
+      12;
 
-    const baseSpan =
-      Math.max(
-        1,
-        rawMax - rawMin
+    const top =
+      22;
+
+    const bottom =
+      242;
+
+    const plotW =
+      W -
+      left -
+      right;
+
+    const plotH =
+      bottom -
+      top;
+
+    const rawMin =
+      Math.min(
+        0,
+        ...values
       );
 
-    const step =
-      niceStep(baseSpan / 4);
+    const rawMax =
+      Math.max(
+        0,
+        ...values
+      );
 
-    let yMin =
-      Math.floor(rawMin / step) * step;
+    let yMin;
+    let yMax;
 
-    let yMax =
-      Math.ceil(rawMax / step) * step;
+    /*
+     * 月初直後は全チーム0なので、
+     * 0線が中央に見えるようにする。
+     */
+    if (
+      rawMin ===
+        0 &&
+      rawMax ===
+        0
+    ) {
+      yMin =
+        -1;
 
-    if (yMin === yMax) {
-      yMax = yMin + step;
+      yMax =
+        1;
+
+    } else {
+      const baseSpan =
+        Math.max(
+          1,
+          rawMax -
+          rawMin
+        );
+
+      const step =
+        niceStep(
+          baseSpan /
+          4
+        );
+
+      yMin =
+        Math.floor(
+          rawMin /
+          step
+        ) *
+        step;
+
+      yMax =
+        Math.ceil(
+          rawMax /
+          step
+        ) *
+        step;
+
+      if (
+        yMin ===
+        yMax
+      ) {
+        yMax =
+          yMin +
+          step;
+      }
+
+      if (
+        yMax ===
+        0
+      ) {
+        yMax =
+          step;
+      }
     }
 
-    if (yMax === 0) {
-      yMax = step;
-    }
+    const startDay =
+      ymdDay(
+        range.start
+      );
 
-    const startDay = ymdDay(range.start);
-    const endDay = ymdDay(range.end);
+    const endDay =
+      ymdDay(
+        range.end
+      );
 
     const daySpan =
       Math.max(
         1,
-        endDay - startDay
+        endDay -
+        startDay
       );
 
     const xFor =
       ymd => {
-        const d = ymdDay(ymd);
-        if (d === null) return left;
+        const d =
+          ymdDay(
+            ymd
+          );
+
+        if (
+          d ===
+          null
+        ) {
+          return left;
+        }
 
         return (
           left +
-          ((d - startDay) / daySpan) *
+          (
+            (
+              d -
+              startDay
+            ) /
+            daySpan
+          ) *
           plotW
         );
       };
@@ -1127,42 +2014,88 @@
     const yFor =
       value =>
         top +
-        ((yMax - value) /
-          (yMax - yMin)) *
+        (
+          (
+            yMax -
+            value
+          ) /
+          (
+            yMax -
+            yMin
+          )
+        ) *
         plotH;
 
-    const title =
+    const axisTitle =
       svgEl(
         'text',
         {
-          x: 8,
-          y: 12,
-          class: 'club-chart-axis-title',
+          x:
+            8,
+
+          y:
+            12,
+
+          class:
+            'club-chart-axis-title',
         }
       );
 
-    title.textContent = '減量kg';
-    svg.appendChild(title);
+    axisTitle.textContent =
+      '減量kg';
 
-    const tickCount = 4;
+    svg.appendChild(
+      axisTitle
+    );
 
-    for (let i = 0; i <= tickCount; i++) {
+    const tickCount =
+      4;
+
+    for (
+      let i =
+        0;
+      i <=
+        tickCount;
+      i++
+    ) {
       const value =
         yMin +
-        ((yMax - yMin) * i / tickCount);
+        (
+          (
+            yMax -
+            yMin
+          ) *
+          i /
+          tickCount
+        );
 
-      const y = yFor(value);
+      const y =
+        yFor(
+          value
+        );
 
       const line =
         svgEl(
           'line',
           {
-            x1: left,
-            x2: W - right,
-            y1: y,
-            y2: y,
+            x1:
+              left,
+
+            x2:
+              W -
+              right,
+
+            y1:
+              y,
+
+            y2:
+              y,
+
             class:
-              Math.abs(value) < 0.0001
+              Math.abs(
+                value
+              ) <
+                0.0001
                 ? 'club-chart-zero'
                 : 'club-chart-grid',
           }
@@ -1172,31 +2105,70 @@
         svgEl(
           'text',
           {
-            x: left - 7,
-            y: y + 3,
-            'text-anchor': 'end',
-            class: 'club-chart-axis-text',
+            x:
+              left -
+              7,
+
+            y:
+              y +
+              3,
+
+            'text-anchor':
+              'end',
+
+            class:
+              'club-chart-axis-text',
           }
         );
 
-      label.textContent = formatTick(value);
-      svg.append(line, label);
+      label.textContent =
+        formatTick(
+          value
+        );
+
+      svg.append(
+        line,
+        label
+      );
     }
 
-    for (const ymd of range.ticks) {
-      if (ymd < range.start || ymd > range.end) continue;
+    for (
+      const ymd of
+      range.ticks
+    ) {
+      if (
+        ymd <
+          range.start ||
+        ymd >
+          range.end
+      ) {
+        continue;
+      }
 
-      const x = xFor(ymd);
+      const x =
+        xFor(
+          ymd
+        );
 
       const tick =
         svgEl(
           'line',
           {
-            x1: x,
-            x2: x,
-            y1: bottom,
-            y2: bottom + 4,
-            class: 'club-chart-grid',
+            x1:
+              x,
+
+            x2:
+              x,
+
+            y1:
+              bottom,
+
+            y2:
+              bottom +
+              4,
+
+            class:
+              'club-chart-grid',
           }
         );
 
@@ -1205,135 +2177,256 @@
           'text',
           {
             x,
-            y: bottom + 17,
-            'text-anchor': 'middle',
-            class: 'club-chart-axis-text',
+
+            y:
+              bottom +
+              17,
+
+            'text-anchor':
+              'middle',
+
+            class:
+              'club-chart-axis-text',
           }
         );
 
-      label.textContent = shortDateText(ymd);
-      svg.append(tick, label);
+      label.textContent =
+        shortDateText(
+          ymd
+        );
+
+      svg.append(
+        tick,
+        label
+      );
     }
 
-    visibleTeams.forEach(
-      (team, teamIndex) => {
-        const points = team.visible_points;
-        if (!points.length) return;
+    visibleTeams
+      .forEach(
+        (
+          team,
+          teamIndex
+        ) => {
+          const points =
+            team.visible_points;
 
-        const xOffset =
-          (teamIndex - 1) * 4;
+          if (
+            !points.length
+          ) {
+            return;
+          }
 
-        const pathData =
-          points
-            .map(
-              (point, index) => {
-                const x =
-                  xFor(point.ymd) + xOffset;
+          /*
+           * 月初0地点でも3色を確認できるよう
+           * 少し横にずらす。
+           */
+          const xOffset =
+            (
+              teamIndex -
+              1
+            ) *
+            4;
 
-                const y =
-                  yFor(Number(point.loss_kg));
+          const pathData =
+            points
+              .map(
+                (
+                  point,
+                  index
+                ) => {
+                  const x =
+                    xFor(
+                      point.ymd
+                    ) +
+                    xOffset;
 
-                return (
-                  (index === 0 ? 'M' : 'L') +
-                  x.toFixed(2) +
-                  ',' +
-                  y.toFixed(2)
-                );
+                  const y =
+                    yFor(
+                      Number(
+                        point.loss_kg
+                      )
+                    );
+
+                  return (
+                    (
+                      index ===
+                        0
+                        ? 'M'
+                        : 'L'
+                    ) +
+                    x.toFixed(
+                      2
+                    ) +
+                    ',' +
+                    y.toFixed(
+                      2
+                    )
+                  );
+                }
+              )
+              .join(
+                ' '
+              );
+
+          const path =
+            svgEl(
+              'path',
+              {
+                d:
+                  pathData,
+
+                stroke:
+                  team.color ||
+                  '#999',
+
+                class:
+                  'club-chart-line',
               }
-            )
-            .join(' ');
+            );
 
-        const path =
-          svgEl(
-            'path',
-            {
-              d: pathData,
-              stroke: team.color || '#999',
-              class: 'club-chart-line',
-            }
+          svg.appendChild(
+            path
           );
 
-        svg.appendChild(path);
+          for (
+            const point of
+            points
+          ) {
+            const x =
+              xFor(
+                point.ymd
+              ) +
+              xOffset;
 
-        for (const point of points) {
-          const x =
-            xFor(point.ymd) + xOffset;
+            const y =
+              yFor(
+                Number(
+                  point.loss_kg
+                )
+              );
 
-          const y =
-            yFor(Number(point.loss_kg));
+            const g =
+              svgEl(
+                'g',
+                {
+                  class:
+                    'club-chart-point',
 
-          const g =
-            svgEl(
-              'g',
-              {
-                class: 'club-chart-point',
-                tabindex: '0',
-                role: 'button',
-                'data-team-name': team.name || '',
-                'data-team-short': team.short || '',
-                'data-ymd': point.ymd || '',
-                'data-loss': Number(point.loss_kg),
-              }
+                  tabindex:
+                    '0',
+
+                  role:
+                    'button',
+
+                  'data-team-name':
+                    team.name ||
+                    '',
+
+                  'data-team-short':
+                    team.short ||
+                    '',
+
+                  'data-ymd':
+                    point.ymd ||
+                    '',
+
+                  'data-loss':
+                    Number(
+                      point.loss_kg
+                    ),
+                }
+              );
+
+            const circle =
+              svgEl(
+                'circle',
+                {
+                  cx:
+                    x,
+
+                  cy:
+                    y,
+
+                  r:
+                    8,
+
+                  fill:
+                    team.color ||
+                    '#999',
+                }
+              );
+
+            const text =
+              svgEl(
+                'text',
+                {
+                  x,
+                  y,
+                }
+              );
+
+            text.textContent =
+              team.short ||
+              '';
+
+            g.append(
+              circle,
+              text
             );
 
-          const circle =
-            svgEl(
-              'circle',
-              {
-                cx: x,
-                cy: y,
-                r: 8,
-                fill: team.color || '#999',
-              }
+            svg.appendChild(
+              g
             );
-
-          const text =
-            svgEl(
-              'text',
-              {
-                x,
-                y,
-              }
-            );
-
-          text.textContent = team.short || '';
-
-          g.append(circle, text);
-          svg.appendChild(g);
+          }
         }
-      }
-    );
+      );
 
     const pointHandler =
       node => {
-        if (!detail) return;
+        if (!detail) {
+          return;
+        }
 
         detail.textContent =
-          dateText(node.dataset.ymd) +
+          dateText(
+            node.dataset.ymd
+          ) +
           '　' +
           node.dataset.teamName +
           '　' +
-          detailLossText(node.dataset.loss);
+          detailLossText(
+            node.dataset.loss
+          );
       };
 
     svg
-      .querySelectorAll('.club-chart-point')
+      .querySelectorAll(
+        '.club-chart-point'
+      )
       .forEach(
         node => {
           node.addEventListener(
             'click',
-            () => pointHandler(node)
+            () =>
+              pointHandler(
+                node
+              )
           );
 
           node.addEventListener(
             'keydown',
             event => {
               if (
-                event.key === 'Enter' ||
-                event.key === ' '
+                event.key ===
+                  'Enter' ||
+                event.key ===
+                  ' '
               ) {
                 event.preventDefault();
-                pointHandler(node);
+
+                pointHandler(
+                  node
+                );
               }
             }
           );
@@ -1341,54 +2434,70 @@
       );
 
     if (detail) {
-      const parts = [];
+      const parts =
+        [];
 
-      for (const team of visibleTeams) {
+      for (
+        const team of
+        visibleTeams
+      ) {
         const point =
           team.visible_points
             .find(
               row =>
-                row.ymd === range.end
+                row.ymd ===
+                range.data_end
             );
 
         if (
           point &&
           Number.isFinite(
-            Number(point.loss_kg)
+            Number(
+              point.loss_kg
+            )
           )
         ) {
           parts.push(
             team.name +
             ' ' +
-            detailLossText(point.loss_kg)
+            detailLossText(
+              point.loss_kg
+            )
           );
         }
       }
 
       detail.textContent =
-        dateText(range.end) +
+        dateText(
+          range.data_end
+        ) +
         ' 時点　' +
-        parts.join(' ／ ');
+        parts.join(
+          ' ／ '
+        );
     }
 
-    appendGraphMarker(svg, range);
+    appendGraphMarker(
+      svg,
+      range
+    );
   }
-
-
-  /* ==========================================================
-     DOM監視
-     ========================================================== */
 
   function disconnectObserver() {
-    if (observer) observer.disconnect();
+    if (observer) {
+      observer.disconnect();
+    }
   }
-
 
   function connectObserver() {
     const rankBox =
-      document.getElementById('rankBox');
+      document.getElementById(
+        'rankBox'
+      );
 
-    if (!rankBox) return;
+    if (!rankBox) {
+      return;
+    }
 
     if (!observer) {
       observer =
@@ -1398,7 +2507,9 @@
               !rendering &&
               !renderStateIsCurrent()
             ) {
-              scheduleRender(0);
+              scheduleRender(
+                0
+              );
             }
           }
         );
@@ -1407,59 +2518,78 @@
     observer.observe(
       rankBox,
       {
-        childList: true,
-        subtree: true,
+        childList:
+          true,
+
+        subtree:
+          true,
       }
     );
   }
 
-
   function renderAll() {
-    if (!clubData) return;
+    if (!clubData) {
+      return;
+    }
 
     const panel =
-      document.getElementById('clubPanel');
+      document.getElementById(
+        'clubPanel'
+      );
 
-    if (!panel) return;
+    if (!panel) {
+      return;
+    }
 
-    rendering = true;
+    rendering =
+      true;
+
     disconnectObserver();
 
     try {
       renderAlignedGraph();
+
       renderRankings();
+
     } finally {
-      rendering = false;
+      rendering =
+        false;
+
       connectObserver();
     }
   }
 
-
-  function scheduleRender(delay = 0) {
+  function scheduleRender(
+    delay = 0
+  ) {
     if (renderTimer) {
-      clearTimeout(renderTimer);
+      clearTimeout(
+        renderTimer
+      );
     }
 
     renderTimer =
       setTimeout(
         () => {
-          renderTimer = null;
+          renderTimer =
+            null;
+
           renderAll();
         },
         delay
       );
   }
 
-
-  /* ==========================================================
-     データ取得
-     ========================================================== */
-
   async function refresh() {
-    if (loading) return;
-    if (!deviceId()) return;
+    if (
+      loading ||
+      !deviceId()
+    ) {
+      return;
+    }
 
-    loading = true;
+    loading =
+      true;
 
     try {
       const data =
@@ -1469,58 +2599,74 @@
 
       if (
         data &&
-        data.eligible === true &&
-        data.mode === 'club'
+        data.eligible ===
+          true &&
+        data.mode ===
+          'club'
       ) {
-        clubData = data;
+        clubData =
+          data;
+
         renderAll();
       }
+
     } catch (error) {
       if (
         error &&
         (
-          error.status === 403 ||
-          error.status === 404 ||
-          error.message === 'club_summary_not_enabled' ||
-          error.message === 'not_registered'
+          error.status ===
+            403 ||
+          error.status ===
+            404 ||
+          error.message ===
+            'club_summary_not_enabled' ||
+          error.message ===
+            'not_registered'
         )
       ) {
-        clubData = null;
+        clubData =
+          null;
 
         const old =
-          document.getElementById('clubProgressRankings');
+          document.getElementById(
+            'clubProgressRankings'
+          );
 
-        if (old) old.remove();
+        if (old) {
+          old.remove();
+        }
+
         return;
       }
 
       console.warn(
         'club_progress_load_error',
-        error && error.message
+        error &&
+        error.message
           ? error.message
           : error
       );
+
     } finally {
-      loading = false;
+      loading =
+        false;
     }
   }
 
-
-  /* ==========================================================
-     起動
-     ========================================================== */
-
   function start() {
     addStyle();
+
     connectObserver();
 
     setTimeout(
-      () => void refresh(),
+      () =>
+        void refresh(),
       1700
     );
 
     setTimeout(
-      () => void refresh(),
+      () =>
+        void refresh(),
       4600
     );
 
@@ -1534,15 +2680,20 @@
 
         if (
           mainTab &&
-          mainTab.dataset.v === 'group'
+          mainTab.dataset.v ===
+            'group'
         ) {
           setTimeout(
-            () => void refresh(),
+            () =>
+              void refresh(),
             130
           );
 
           setTimeout(
-            () => scheduleRender(0),
+            () =>
+              scheduleRender(
+                0
+              ),
             260
           );
 
@@ -1556,7 +2707,10 @@
 
         if (rankTab) {
           setTimeout(
-            () => scheduleRender(0),
+            () =>
+              scheduleRender(
+                0
+              ),
             260
           );
 
@@ -1570,7 +2724,10 @@
 
         if (graphButton) {
           setTimeout(
-            () => scheduleRender(0),
+            () =>
+              scheduleRender(
+                0
+              ),
             0
           );
         }
@@ -1581,10 +2738,12 @@
       'visibilitychange',
       () => {
         if (
-          document.visibilityState === 'visible'
+          document.visibilityState ===
+            'visible'
         ) {
           setTimeout(
-            () => void refresh(),
+            () =>
+              void refresh(),
             150
           );
         }
@@ -1592,15 +2751,19 @@
     );
   }
 
-
-  if (document.readyState === 'loading') {
+  if (
+    document.readyState ===
+      'loading'
+  ) {
     document.addEventListener(
       'DOMContentLoaded',
       start,
       {
-        once: true,
+        once:
+          true,
       }
     );
+
   } else {
     start();
   }

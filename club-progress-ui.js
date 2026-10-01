@@ -2,18 +2,34 @@
 
 /* みんやせ / club-progress-ui.js
  * - 通常ランキングを縦にコンパクト化
+ * - ランキング補助情報を体重 / 最終記録の2段表示へ
  * - 月グラフは月初を3チームとも0kgとして表示
  * - 全期間グラフは9/1からの累計を表示
  * - グラフ上の重複チーム凡例を非表示
+ * - グラフ直下の重複詳細表示を非表示
  * - グラフ下に月間の仮順位 / 全期間の減量数を色付き表示
  */
 (() => {
-  const API = (typeof window !== 'undefined' && window.MINYASE_API_BASE) || '';
-  const DEVICE_KEY = 'tsudatsu.device_id.v1';
-  const CAMPAIGN_START = '2026-09-01';
-  const CAMPAIGN_END = '2026-12-31';
-  const MEDALS = ['🥇', '🥈', '🥉'];
-  const SVG_NS = 'http://www.w3.org/2000/svg';
+  const API =
+    (typeof window !== 'undefined' && window.MINYASE_API_BASE) || '';
+
+  const DEVICE_KEY =
+    'tsudatsu.device_id.v1';
+
+  const CAMPAIGN_START =
+    '2026-09-01';
+
+  const CAMPAIGN_END =
+    '2026-12-31';
+
+  const MEDALS = [
+    '🥇',
+    '🥈',
+    '🥉',
+  ];
+
+  const SVG_NS =
+    'http://www.w3.org/2000/svg';
 
   let clubData = null;
   let loading = false;
@@ -21,13 +37,20 @@
   let renderTimer = null;
   let rendering = false;
 
+
+  /* ==========================================================
+     共通
+     ========================================================== */
+
   function deviceId() {
     return localStorage.getItem(DEVICE_KEY) || '';
   }
 
-  function pad2(v) {
-    return String(v).padStart(2, '0');
+
+  function pad2(value) {
+    return String(value).padStart(2, '0');
   }
+
 
   function parseYmd(ymd) {
     const m =
@@ -43,6 +66,7 @@
     };
   }
 
+
   function ymdDay(ymd) {
     const p = parseYmd(ymd);
     if (!p) return null;
@@ -57,6 +81,7 @@
     );
   }
 
+
   function dayToYmd(day) {
     const d = new Date(day * 86400000);
 
@@ -69,21 +94,22 @@
     );
   }
 
+
   function dateText(ymd) {
     const p = parseYmd(ymd);
+    if (!p) return String(ymd || '—');
 
-    return p
-      ? p.month + '月' + p.day + '日'
-      : String(ymd || '—');
+    return p.month + '月' + p.day + '日';
   }
+
 
   function shortDateText(ymd) {
     const p = parseYmd(ymd);
+    if (!p) return String(ymd || '');
 
-    return p
-      ? p.month + '/' + p.day
-      : String(ymd || '');
+    return p.month + '/' + p.day;
   }
+
 
   function monthStartYmd(ymd) {
     const p = parseYmd(ymd);
@@ -96,6 +122,7 @@
       '-01'
     );
   }
+
 
   function shiftMonthStart(
     ymd,
@@ -129,12 +156,14 @@
     );
   }
 
+
   function prevMonthStartYmd(ymd) {
     return shiftMonthStart(
       ymd,
       -1
     );
   }
+
 
   function nextMonthStartYmd(ymd) {
     return shiftMonthStart(
@@ -143,15 +172,17 @@
     );
   }
 
-  function round1(v) {
+
+  function round1(value) {
     return (
       Math.round(
-        Number(v) *
+        Number(value) *
         10
       ) /
       10
     );
   }
+
 
   function progressKgText(lossKg) {
     const loss =
@@ -167,26 +198,19 @@
       );
 
     if (
-      Object.is(
-        change,
-        -0
-      ) ||
+      Object.is(change, -0) ||
       change === 0
     ) {
       return '0.0kg';
     }
 
     return (
-      (
-        change >
-        0
-          ? '+'
-          : ''
-      ) +
+      (change > 0 ? '+' : '') +
       change.toFixed(1) +
       'kg'
     );
   }
+
 
   function detailLossText(lossKg) {
     const n =
@@ -197,16 +221,14 @@
     }
 
     return n < 0
-      ? (
-          Math.abs(n)
-            .toFixed(1) +
-          'kg増量'
-        )
-      : (
-          n.toFixed(1) +
-          'kg減量'
-        );
+      ? Math.abs(n).toFixed(1) + 'kg増量'
+      : n.toFixed(1) + 'kg減量';
   }
+
+
+  /* ==========================================================
+     CSS
+     ========================================================== */
 
   function addStyle() {
     if (
@@ -226,64 +248,147 @@
       'clubProgressUiStyle';
 
     style.textContent = `
+
+/* ============================================================
+   グラフの重複表示
+   ============================================================ */
+
 .club-team-legend{
   display:none !important
 }
 
+/*
+ * 下の月間仮順位 / 全期間ランキングと
+ * 内容が重複するため非表示。
+ *
+ * DOM自体は順位カードの挿入基準として残す。
+ */
+#clubChartDetail{
+  display:none !important;
+  width:0 !important;
+  height:0 !important;
+  min-height:0 !important;
+  margin:0 !important;
+  padding:0 !important;
+  border:0 !important;
+  overflow:hidden !important
+}
+
+
+/* ============================================================
+   通常ランキング
+   12人をできるだけ一覧できる高さへ
+   ============================================================ */
+
 #rankList.rank > li:not(.empty){
-  gap:8px;
-  padding:8px 0
+  gap:5px;
+  min-height:0;
+  padding:3px 0
 }
 
 #rankList.rank > li.self{
-  margin:4px -4px;
-  padding:9px 8px 9px 12px;
-  border-radius:16px
+  margin:2px -3px;
+  padding:4px 5px 4px 9px;
+  border-radius:13px
 }
 
 #rankList.rank > li.self::before{
-  top:8px;
-  bottom:8px;
-  width:4px
+  top:4px;
+  bottom:4px;
+  width:3px
 }
 
 #rankList.rank .no{
-  width:28px;
-  flex-basis:28px;
-  font-size:12px
+  width:24px;
+  flex:0 0 24px;
+  font-size:11px;
+  line-height:1
 }
 
 #rankList.rank .no.top{
-  height:28px;
-  line-height:28px
+  width:24px;
+  height:24px;
+  line-height:24px
+}
+
+/*
+ * app.js 側は38pxで生成するが、
+ * 大会用のランキング表示時だけ31pxへ圧縮。
+ */
+#rankList.rank .av{
+  width:31px !important;
+  height:31px !important;
+  flex:0 0 31px !important
+}
+
+#rankList.rank .who{
+  min-width:0
 }
 
 #rankList.rank .nm{
-  font-size:13.5px;
+  overflow:hidden;
+  font-size:12.5px;
+  line-height:1.12;
+  text-overflow:ellipsis;
+  white-space:nowrap
+}
+
+#rankList.rank .badge{
+  margin-left:4px;
+  padding:1px 5px;
+  font-size:8px;
   line-height:1.25
 }
 
+/*
+ * 体重変化と最終記録を明示的に2段表示。
+ */
 #rankList.rank .sb{
+  display:block;
+  min-width:0;
   margin-top:1px;
-  font-size:10px;
-  line-height:1.3
+  color:var(--sub,#7e756d);
+  font-size:9px;
+  line-height:1.12
+}
+
+#rankList.rank .rank-meta-line{
+  display:block;
+  overflow:hidden;
+  min-width:0;
+  text-overflow:ellipsis;
+  white-space:nowrap
+}
+
+#rankList.rank .rank-meta-last{
+  margin-top:1px;
+  color:var(--sub,#7e756d)
 }
 
 #rankList.rank .ls{
-  font-size:16px;
-  line-height:1.2
+  flex:0 0 auto;
+  font-size:14.5px;
+  line-height:1.05;
+  white-space:nowrap
 }
 
 #rankList.rank .ls.none{
-  font-size:12px
+  font-size:11px
 }
 
 #rankList.rank .kebab{
-  width:24px;
-  flex-basis:24px;
-  padding:2px;
-  font-size:16px
+  width:19px;
+  min-width:19px;
+  flex:0 0 19px;
+  padding:0;
+  font-size:14px;
+  line-height:1
 }
+
+
+/* ============================================================
+   グラフ下ランキング
+   ============================================================ */
 
 .club-progress-rankings{
   display:grid;
@@ -293,7 +398,9 @@
 
 .club-progress-card{
   padding:14px 14px 12px;
-  border:1px solid var(--line2,#f4ede6);
+  border:
+    1px solid
+    var(--line2,#f4ede6);
   border-radius:18px;
   background:
     linear-gradient(
@@ -389,8 +496,7 @@
 .club-progress-loss{
   color:var(--ink,#181614);
   font-size:15px;
-  font-variant-numeric:
-    tabular-nums;
+  font-variant-numeric:tabular-nums;
   font-weight:900;
   white-space:nowrap
 }
@@ -404,19 +510,53 @@
   line-height:1.55
 }
 
+
 @media(max-width:380px){
 
   #rankList.rank > li:not(.empty){
-    gap:6px;
-    padding:7px 0
+    gap:4px;
+    padding:2px 0
+  }
+
+  #rankList.rank > li.self{
+    padding-top:3px;
+    padding-bottom:3px
+  }
+
+  #rankList.rank .no{
+    width:22px;
+    flex-basis:22px;
+    font-size:10px
+  }
+
+  #rankList.rank .no.top{
+    width:22px;
+    height:22px;
+    line-height:22px
+  }
+
+  #rankList.rank .av{
+    width:29px !important;
+    height:29px !important;
+    flex-basis:29px !important
   }
 
   #rankList.rank .nm{
-    font-size:13px
+    font-size:12px
+  }
+
+  #rankList.rank .sb{
+    font-size:8.5px
   }
 
   #rankList.rank .ls{
-    font-size:15px
+    font-size:14px
+  }
+
+  #rankList.rank .kebab{
+    width:18px;
+    min-width:18px;
+    flex-basis:18px
   }
 
   .club-progress-card{
@@ -447,11 +587,168 @@
 }
 `;
 
-    document.head
-      .appendChild(
-        style
-      );
+    document.head.appendChild(
+      style
+    );
   }
+
+
+  /* ==========================================================
+     通常ランキング補助情報
+     ========================================================== */
+
+  function formatRankMeta() {
+    const subs =
+      document.querySelectorAll(
+        '#rankList.rank .sb'
+      );
+
+    for (const sub of subs) {
+      if (
+        sub.dataset.compactRankMeta ===
+        '1'
+      ) {
+        continue;
+      }
+
+      const text =
+        String(
+          sub.textContent ||
+          ''
+        ).trim();
+
+      /*
+       * 記録なし等はそのまま。
+       */
+      if (
+        !text ||
+        text === '記録なし'
+      ) {
+        sub.dataset.compactRankMeta =
+          '1';
+
+        continue;
+      }
+
+      /*
+       * app.js:
+       *
+       * 79.0 → 75.9kg ／ 最終 10月1日（1日前）
+       *
+       * ↓
+       *
+       * 79.0 → 75.9kg
+       * 最終 10月1日（1日前）
+       */
+      const marker =
+        ' ／ 最終 ';
+
+      const markerIndex =
+        text.lastIndexOf(
+          marker
+        );
+
+      /*
+       * 体重非公開などで
+       * 「最終 ...」しか無いケース。
+       */
+      if (
+        markerIndex <
+          0
+      ) {
+        if (
+          text.startsWith(
+            '最終 '
+          )
+        ) {
+          sub.textContent =
+            '';
+
+          const lastLine =
+            document.createElement(
+              'span'
+            );
+
+          lastLine.className =
+            'rank-meta-line rank-meta-last';
+
+          lastLine.textContent =
+            text;
+
+          sub.appendChild(
+            lastLine
+          );
+        }
+
+        sub.dataset.compactRankMeta =
+          '1';
+
+        continue;
+      }
+
+      const firstText =
+        text
+          .slice(
+            0,
+            markerIndex
+          )
+          .trim();
+
+      const lastText =
+        (
+          '最終 ' +
+          text
+            .slice(
+              markerIndex +
+              marker.length
+            )
+            .trim()
+        );
+
+      sub.textContent =
+        '';
+
+      if (firstText) {
+        const firstLine =
+          document.createElement(
+            'span'
+          );
+
+        firstLine.className =
+          'rank-meta-line rank-meta-weight';
+
+        firstLine.textContent =
+          firstText;
+
+        sub.appendChild(
+          firstLine
+        );
+      }
+
+      const lastLine =
+        document.createElement(
+          'span'
+        );
+
+      lastLine.className =
+        'rank-meta-line rank-meta-last';
+
+      lastLine.textContent =
+        lastText;
+
+      sub.appendChild(
+        lastLine
+      );
+
+      sub.dataset.compactRankMeta =
+        '1';
+    }
+  }
+
+
+  /* ==========================================================
+     API
+     ========================================================== */
 
   async function api(path) {
     const did =
@@ -468,8 +765,7 @@
     try {
       response =
         await fetch(
-          API +
-          path,
+          API + path,
           {
             method:
               'GET',
@@ -500,8 +796,7 @@
 
     if (
       !response.ok ||
-      data.ok ===
-        false
+      data.ok === false
     ) {
       const error =
         new Error(
@@ -520,6 +815,11 @@
 
     return data;
   }
+
+
+  /* ==========================================================
+     公式記録日
+     ========================================================== */
 
   function allPointDates(data) {
     const dates =
@@ -553,9 +853,9 @@
 
     return [
       ...dates
-    ]
-      .sort();
+    ].sort();
   }
+
 
   function latestOfficialYmd(data) {
     const today =
@@ -592,6 +892,7 @@
         ]
       : null;
   }
+
 
   /*
    * 下の仮順位用。
@@ -672,6 +973,7 @@
         provisionalLabelEnd,
     };
   }
+
 
   /*
    * 「月」グラフ用。
@@ -767,6 +1069,11 @@
     };
   }
 
+
+  /* ==========================================================
+     チーム順位計算
+     ========================================================== */
+
   function pointAt(
     team,
     ymd
@@ -799,6 +1106,7 @@
       ? value
       : null;
   }
+
 
   function rankedRows(
     data,
@@ -914,6 +1222,11 @@
       }
     );
   }
+
+
+  /* ==========================================================
+     グラフ下の順位カード
+     ========================================================== */
 
   function buildRankingCard({
     title,
@@ -1107,6 +1420,7 @@
     return card;
   }
 
+
   function renderRankings() {
     const detail =
       document.getElementById(
@@ -1244,6 +1558,11 @@
     );
   }
 
+
+  /* ==========================================================
+     SVG
+     ========================================================== */
+
   function svgEl(
     name,
     attrs = {}
@@ -1274,13 +1593,13 @@
     return node;
   }
 
+
   function niceStep(raw) {
     if (
       !Number.isFinite(
         raw
       ) ||
-      raw <=
-        0
+      raw <= 0
     ) {
       return 1;
     }
@@ -1300,37 +1619,26 @@
       power;
 
     if (
-      scaled <=
-      1
+      scaled <= 1
     ) {
       return power;
     }
 
     if (
-      scaled <=
-      2
+      scaled <= 2
     ) {
-      return (
-        2 *
-        power
-      );
+      return 2 * power;
     }
 
     if (
-      scaled <=
-      5
+      scaled <= 5
     ) {
-      return (
-        5 *
-        power
-      );
+      return 5 * power;
     }
 
-    return (
-      10 *
-      power
-    );
+    return 10 * power;
   }
+
 
   function formatTick(value) {
     const abs =
@@ -1339,23 +1647,19 @@
       );
 
     return (
-      abs <
-        10 &&
+      abs < 10 &&
       Math.abs(
-        value %
-        1
-      ) >
-        0.001
+        value % 1
+      ) > 0.001
     )
-      ? value.toFixed(
-          1
-        )
+      ? value.toFixed(1)
       : String(
           Math.round(
             value
           )
         );
   }
+
 
   function isOfficialTickYmd(ymd) {
     const p =
@@ -1370,25 +1674,22 @@
 
     if (
       !p ||
-      day ===
-        null
+      day === null
     ) {
       return false;
     }
 
     return (
-      p.day ===
-        1 ||
+      p.day === 1 ||
       new Date(
         day *
         86400000
       )
-        .getUTCDay() ===
-        1 ||
-      ymd ===
-        CAMPAIGN_END
+        .getUTCDay() === 1 ||
+      ymd === CAMPAIGN_END
     );
   }
+
 
   function officialTicks(
     startYmd,
@@ -1405,10 +1706,8 @@
       );
 
     if (
-      start ===
-        null ||
-      end ===
-        null
+      start === null ||
+      end === null
     ) {
       return [];
     }
@@ -1419,8 +1718,7 @@
     for (
       let day =
         start;
-      day <=
-        end;
+      day <= end;
       day++
     ) {
       const ymd =
@@ -1442,6 +1740,7 @@
     return result;
   }
 
+
   function activeGraphMode() {
     const active =
       document.querySelector(
@@ -1457,6 +1756,7 @@
       ? 'all'
       : 'month';
   }
+
 
   function graphRange(data) {
     const latest =
@@ -1531,6 +1831,7 @@
     };
   }
 
+
   function graphSignature(range) {
     return range
       ? [
@@ -1538,10 +1839,10 @@
           range.start,
           range.end,
           range.data_end,
-        ]
-          .join('|')
+        ].join('|')
       : 'none';
   }
+
 
   function appendGraphMarker(
     svg,
@@ -1568,6 +1869,7 @@
       marker
     );
   }
+
 
   function renderStateIsCurrent() {
     if (!clubData) {
@@ -1611,6 +1913,7 @@
       )
     );
   }
+
 
   /*
    * 全期間は累計値そのまま。
@@ -1702,6 +2005,11 @@
     );
   }
 
+
+  /* ==========================================================
+     グラフ描画
+     ========================================================== */
+
   function renderAlignedGraph() {
     const svg =
       document.getElementById(
@@ -1766,7 +2074,7 @@
 
       if (detail) {
         detail.textContent =
-          '最初の公式記録後に表示します。';
+          '';
       }
 
       if (note) {
@@ -1860,7 +2168,7 @@
 
       if (detail) {
         detail.textContent =
-          '集計できる記録がまだありません。';
+          '';
       }
 
       return;
@@ -1910,10 +2218,8 @@
      * 0線が中央に見えるようにする。
      */
     if (
-      rawMin ===
-        0 &&
-      rawMax ===
-        0
+      rawMin === 0 &&
+      rawMax === 0
     ) {
       yMin =
         -1;
@@ -2249,8 +2555,7 @@
 
                   return (
                     (
-                      index ===
-                        0
+                      index === 0
                         ? 'M'
                         : 'L'
                     ) +
@@ -2381,100 +2686,15 @@
         }
       );
 
-    const pointHandler =
-      node => {
-        if (!detail) {
-          return;
-        }
-
-        detail.textContent =
-          dateText(
-            node.dataset.ymd
-          ) +
-          '　' +
-          node.dataset.teamName +
-          '　' +
-          detailLossText(
-            node.dataset.loss
-          );
-      };
-
-    svg
-      .querySelectorAll(
-        '.club-chart-point'
-      )
-      .forEach(
-        node => {
-          node.addEventListener(
-            'click',
-            () =>
-              pointHandler(
-                node
-              )
-          );
-
-          node.addEventListener(
-            'keydown',
-            event => {
-              if (
-                event.key ===
-                  'Enter' ||
-                event.key ===
-                  ' '
-              ) {
-                event.preventDefault();
-
-                pointHandler(
-                  node
-                );
-              }
-            }
-          );
-        }
-      );
-
+    /*
+     * 以前はグラフの点を押した時に
+     * #clubChartDetailへ文字を表示していたが、
+     * 下のランキングカードと情報が重複するため
+     * 画面上では表示しない。
+     */
     if (detail) {
-      const parts =
-        [];
-
-      for (
-        const team of
-        visibleTeams
-      ) {
-        const point =
-          team.visible_points
-            .find(
-              row =>
-                row.ymd ===
-                range.data_end
-            );
-
-        if (
-          point &&
-          Number.isFinite(
-            Number(
-              point.loss_kg
-            )
-          )
-        ) {
-          parts.push(
-            team.name +
-            ' ' +
-            detailLossText(
-              point.loss_kg
-            )
-          );
-        }
-      }
-
       detail.textContent =
-        dateText(
-          range.data_end
-        ) +
-        ' 時点　' +
-        parts.join(
-          ' ／ '
-        );
+        '';
     }
 
     appendGraphMarker(
@@ -2483,11 +2703,17 @@
     );
   }
 
+
+  /* ==========================================================
+     DOM監視
+     ========================================================== */
+
   function disconnectObserver() {
     if (observer) {
       observer.disconnect();
     }
   }
+
 
   function connectObserver() {
     const rankBox =
@@ -2503,8 +2729,17 @@
       observer =
         new MutationObserver(
           () => {
+            if (rendering) {
+              return;
+            }
+
+            /*
+             * app.jsがランキングを再描画した時も
+             * 自動的に2段表示へ整形する。
+             */
+            formatRankMeta();
+
             if (
-              !rendering &&
               !renderStateIsCurrent()
             ) {
               scheduleRender(
@@ -2527,7 +2762,14 @@
     );
   }
 
+
   function renderAll() {
+    /*
+     * 通常ランキングの整形は
+     * 大会パネル表示状態に関係なく行う。
+     */
+    formatRankMeta();
+
     if (!clubData) {
       return;
     }
@@ -2551,6 +2793,8 @@
 
       renderRankings();
 
+      formatRankMeta();
+
     } finally {
       rendering =
         false;
@@ -2558,6 +2802,7 @@
       connectObserver();
     }
   }
+
 
   function scheduleRender(
     delay = 0
@@ -2580,6 +2825,11 @@
       );
   }
 
+
+  /* ==========================================================
+     データ取得
+     ========================================================== */
+
   async function refresh() {
     if (
       loading ||
@@ -2599,10 +2849,8 @@
 
       if (
         data &&
-        data.eligible ===
-          true &&
-        data.mode ===
-          'club'
+        data.eligible === true &&
+        data.mode === 'club'
       ) {
         clubData =
           data;
@@ -2614,10 +2862,8 @@
       if (
         error &&
         (
-          error.status ===
-            403 ||
-          error.status ===
-            404 ||
+          error.status === 403 ||
+          error.status === 404 ||
           error.message ===
             'club_summary_not_enabled' ||
           error.message ===
@@ -2653,8 +2899,19 @@
     }
   }
 
+
+  /* ==========================================================
+     起動
+     ========================================================== */
+
   function start() {
     addStyle();
+
+    /*
+     * app.js側の初回ランキング描画が
+     * すでに終わっているケースにも対応。
+     */
+    formatRankMeta();
 
     connectObserver();
 
@@ -2684,8 +2941,10 @@
             'group'
         ) {
           setTimeout(
-            () =>
-              void refresh(),
+            () => {
+              formatRankMeta();
+              void refresh();
+            },
             130
           );
 
@@ -2707,10 +2966,13 @@
 
         if (rankTab) {
           setTimeout(
-            () =>
+            () => {
+              formatRankMeta();
+
               scheduleRender(
                 0
-              ),
+              );
+            },
             260
           );
 
@@ -2742,14 +3004,17 @@
             'visible'
         ) {
           setTimeout(
-            () =>
-              void refresh(),
+            () => {
+              formatRankMeta();
+              void refresh();
+            },
             150
           );
         }
       }
     );
   }
+
 
   if (
     document.readyState ===

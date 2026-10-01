@@ -5,6 +5,15 @@ import {
   bad,
 } from './lib.js';
 
+import {
+  monthlyResultPeriod,
+  monthlyResultsTableExists,
+  calculateMonthlyResult,
+  getSavedMonthlyResult,
+  monthlyResultInsertStatement,
+  monthlyResultsPayload,
+} from './monthly-results.js';
+
 
 /* ============================================================
    みんやせ / worker/vote.js
@@ -24,6 +33,17 @@ import {
    ・投票済みユーザーだけ投票割合を確認可能
    ・一般ユーザーには投票人数を返さない
    ・対象5グループ所属者だけ投票・外部WEBリンク利用可
+
+   月間正式結果
+   ------------------------------------------------------------
+   ・9/1→10/1
+   ・10/1→11/1
+   ・11/1→12/1
+   ・12/1→12/31
+   ・期間開始日 / 終了日の実測体重が全員分必要
+   ・自動集計1位と管理画面選択チームを照合
+   ・一致した場合だけ正式結果を固定保存
+   ・正式結果保存後は変更不可
    ============================================================ */
 
 
@@ -462,6 +482,70 @@ function teamName(
 }
 
 
+function officialMissingMessage(
+  calculated
+) {
+
+  const missing =
+    calculated &&
+    Array.isArray(
+      calculated.missing
+    )
+      ? calculated.missing
+      : [];
+
+
+  if (!missing.length) {
+
+    return (
+      '全員分の体重が揃っていません。' +
+      '対象期間の公式体重を確認してください。'
+    );
+  }
+
+
+  const shown =
+    missing
+      .slice(
+        0,
+        6
+      )
+      .map(
+        row =>
+          (
+            row.nickname ||
+            row.member_id ||
+            '名前未設定'
+          ) +
+          '（' +
+          row.ymd +
+          '）'
+      );
+
+
+  const rest =
+    missing.length >
+      shown.length
+      ? (
+          '、ほか' +
+          (
+            missing.length -
+            shown.length
+          ) +
+          '件'
+        )
+      : '';
+
+
+  return (
+    '全員分の体重が揃っていません。不足：' +
+    shown.join('、') +
+    rest +
+    '。対象期間の公式体重を確認してください。'
+  );
+}
+
+
 /* ============================================================
    対象グループ判定
    ============================================================ */
@@ -895,6 +979,13 @@ async function getCurrent(
     Date.now();
 
 
+  const monthlyResults =
+    await monthlyResultsPayload(
+      env,
+      now
+    );
+
+
   return json(
     req,
     {
@@ -980,6 +1071,9 @@ async function getCurrent(
             ? EXTERNAL_WEB_URL
             : null,
       },
+
+      monthly_results:
+        monthlyResults,
     }
   );
 }
@@ -1568,6 +1662,43 @@ async function adminRounds(
   }
 
 
+  const officialLocked =
+    new Set();
+
+
+  if (
+    await monthlyResultsTableExists(
+      env
+    )
+  ) {
+
+    const lockedRows =
+      await env.DB
+        .prepare(`
+          SELECT round_key
+          FROM competition_monthly_results
+        `)
+        .all();
+
+
+    for (
+      const row of
+      (
+        lockedRows.results ||
+        []
+      )
+    ) {
+
+      officialLocked.add(
+        String(
+          row.round_key ||
+          ''
+        )
+      );
+    }
+  }
+
+
   const today =
     todayYmdJST();
 
@@ -1599,6 +1730,24 @@ async function adminRounds(
           counts.tsudamomo +
           counts.sakomitsu +
           counts.gotomei;
+
+
+        const officialPeriod =
+          monthlyResultPeriod(
+            r.round_key,
+            r.target_date
+          );
+
+
+        const officialFinalized =
+          !!(
+            officialPeriod &&
+            officialLocked.has(
+              String(
+                r.round_key
+              )
+            )
+          );
 
 
         return {
@@ -1636,7 +1785,25 @@ async function adminRounds(
 
           can_finalize:
             today >=
-            r.target_date,
+              r.target_date &&
+            !officialFinalized,
+
+          official_result:
+            officialPeriod
+              ? {
+                  required:
+                    true,
+
+                  finalized:
+                    officialFinalized,
+
+                  period_start:
+                    officialPeriod.start,
+
+                  period_end:
+                    officialPeriod.end,
+                }
+              : null,
 
           voters,
 
@@ -1931,28 +2098,263 @@ async function adminSetResult(
   }
 
 
+  const officialPeriod =
+    monthlyResultPeriod(
+      roundKey,
+      meta.targetDate
+    );
+
+
+  /*
+   * 大会正式結果の対象外なら、
+   * これまでどおり予想クイズの正解だけを更新する。
+   */
+  if (!officialPeriod) {
+
+    const now =
+      Date.now();
+
+
+    await env.DB
+      .prepare(`
+        UPDATE vote_rounds
+
+        SET
+          winner_team=?,
+          finalized_at=?,
+          updated_at=?
+
+        WHERE round_key=?
+      `)
+      .bind(
+        winnerTeam,
+        now,
+        now,
+        roundKey
+      )
+      .run();
+
+
+    return json(
+      req,
+      {
+        ok:
+          true,
+
+        round_key:
+          roundKey,
+
+        winner_team:
+          winnerTeam,
+
+        winner_name:
+          teamName(
+            winnerTeam
+          ),
+
+        finalized_at:
+          now,
+      }
+    );
+  }
+
+
+  /*
+   * 正式結果テーブルはコードから勝手に作らない。
+   * 未作成ならここで止める。
+   */
+  if (
+    !await monthlyResultsTableExists(
+      env
+    )
+  ) {
+
+    return bad(
+      req,
+      '正式結果保存用テーブルがまだ作成されていません',
+      503
+    );
+  }
+
+
+  /*
+   * 一度正式結果を保存した月は固定。
+   * 後から体重や予想クイズの正解を変更しても
+   * 公開済み正式結果は書き換えない。
+   */
+  const saved =
+    await getSavedMonthlyResult(
+      env,
+      roundKey
+    );
+
+
+  if (saved) {
+
+    return bad(
+      req,
+      'この月の正式結果はすでに確定済みです',
+      409
+    );
+  }
+
+
+  const calculated =
+    await calculateMonthlyResult(
+      env,
+      roundKey,
+      meta.targetDate
+    );
+
+
+  if (
+    !calculated ||
+    calculated.ok !==
+      true
+  ) {
+
+    if (
+      calculated &&
+      calculated.error ===
+        'official_result_incomplete'
+    ) {
+
+      return bad(
+        req,
+        officialMissingMessage(
+          calculated
+        ),
+        409
+      );
+    }
+
+
+    if (
+      calculated &&
+      calculated.error ===
+        'official_result_team_empty'
+    ) {
+
+      return bad(
+        req,
+        '3チームすべてを集計できません。所属メンバーを確認してください。',
+        409
+      );
+    }
+
+
+    return bad(
+      req,
+      '正式結果を集計できませんでした',
+      409
+    );
+  }
+
+
+  const first =
+    calculated.rankings &&
+    calculated.rankings[0]
+      ? calculated.rankings[0]
+      : null;
+
+
+  if (
+    !first
+  ) {
+
+    return bad(
+      req,
+      '正式結果の1位を判定できませんでした',
+      409
+    );
+  }
+
+
+  /*
+   * 管理者選択は順位を決めるためには使わない。
+   * 体重データから自動計算した1位と
+   * 選択した勝利チームが一致するかだけ確認する。
+   */
+  if (
+    first.team_id !==
+      winnerTeam
+  ) {
+
+    return bad(
+      req,
+      (
+        '選択した勝利チーム：' +
+        (
+          teamName(
+            winnerTeam
+          ) ||
+          winnerTeam
+        ) +
+        ' / 集計上の1位：' +
+        (
+          first.team_name ||
+          first.team_id ||
+          '不明'
+        ) +
+        ' / 結果が一致していません。体重入力を確認してください。'
+      ),
+      409
+    );
+  }
+
+
   const now =
     Date.now();
 
 
+  const resultInsert =
+    monthlyResultInsertStatement(
+      env,
+      calculated,
+      now
+    );
+
+
+  /*
+   * 予想クイズ側が既に確定済みだった場合は
+   * 元の finalized_at を維持する。
+   *
+   * 正式結果の公開日時は
+   * competition_monthly_results.published_at の now。
+   */
+  const roundUpdate =
+    env.DB
+      .prepare(`
+        UPDATE vote_rounds
+
+        SET
+          winner_team=?,
+          finalized_at=
+            COALESCE(
+              finalized_at,
+              ?
+            ),
+          updated_at=?
+
+        WHERE round_key=?
+      `)
+      .bind(
+        winnerTeam,
+        now,
+        now,
+        roundKey
+      );
+
+
+  /*
+   * 正式結果保存と予想クイズ正解更新を
+   * 同じD1 batchで実行する。
+   */
   await env.DB
-    .prepare(`
-      UPDATE vote_rounds
-
-      SET
-        winner_team=?,
-        finalized_at=?,
-        updated_at=?
-
-      WHERE round_key=?
-    `)
-    .bind(
-      winnerTeam,
-      now,
-      now,
-      roundKey
-    )
-    .run();
+    .batch([
+      resultInsert,
+      roundUpdate,
+    ]);
 
 
   return json(
@@ -1974,6 +2376,17 @@ async function adminSetResult(
 
       finalized_at:
         now,
+
+      official_result: {
+        period_start:
+          calculated.period_start,
+
+        period_end:
+          calculated.period_end,
+
+        rankings:
+          calculated.rankings,
+      },
     }
   );
 }

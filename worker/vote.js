@@ -75,12 +75,6 @@ const TEAM_IDS =
   );
 
 
-/*
- * 投票・外部WEBの対象グループ。
- *
- * グループ名ではなく group_id 固定で判定する。
- * グループ名を後から変更しても影響しない。
- */
 const TARGET_GROUP_IDS =
   new Set([
     '84Q8CG58',
@@ -218,9 +212,6 @@ function todayYmdJST() {
 }
 
 
-/*
- * JSTの年月日時をUTC epochへ変換
- */
 function jstEpoch(
   year,
   month,
@@ -243,21 +234,6 @@ function jstEpoch(
 }
 
 
-/*
- * 現在受付中の投票ラウンドを返す。
- *
- * 2026/09/01〜09/15
- *   → 2026-10
- *   → 10/1時点の1位を予想
- *
- * 2026/09/16〜10/15
- *   → 2026-11
- *   → 11/1時点の1位を予想
- *
- * 2026/10/16〜11/15
- *   → 2026-12
- *   → 12/1時点の1位を予想
- */
 function currentRoundKey(
   now = Date.now()
 ) {
@@ -1403,14 +1379,6 @@ export async function memberVoteRoute(
     auth.dev;
 
 
-  /*
-   * 投票・予想成績は
-   * つだつダイエット部の対象5グループだけ。
-   *
-   * フロントで隠すだけではなく、
-   * current GET / current POST / history GET
-   * すべてをサーバー側でも遮断する。
-   */
   if (
     !isTargetGroup(
       dev
@@ -1784,8 +1752,13 @@ async function adminRounds(
             !!r.finalized_at,
 
           can_finalize:
-            today >=
-              r.target_date &&
+            (
+              officialPeriod
+                ? today >=
+                    officialPeriod.end
+                : today >=
+                    r.target_date
+            ) &&
             !officialFinalized,
 
           official_result:
@@ -2085,10 +2058,34 @@ async function adminSetResult(
     );
 
 
-  if (
-    Date.now() <
-    meta.targetAt
-  ) {
+  const officialPeriod =
+    monthlyResultPeriod(
+      roundKey,
+      meta.targetDate
+    );
+
+
+  /*
+   * 通常ラウンド：
+   * target_date 以降に確定可能。
+   *
+   * 大会正式結果：
+   * 正式期間の終了日以降に確定可能。
+   *
+   * 最終結果は
+   * round_key=2027-01 を利用するが、
+   * 期間終了日は2026-12-31なので
+   * 12/31から確定できる。
+   */
+  const tooEarly =
+    officialPeriod
+      ? todayYmdJST() <
+          officialPeriod.end
+      : Date.now() <
+          meta.targetAt;
+
+
+  if (tooEarly) {
 
     return bad(
       req,
@@ -2098,16 +2095,9 @@ async function adminSetResult(
   }
 
 
-  const officialPeriod =
-    monthlyResultPeriod(
-      roundKey,
-      meta.targetDate
-    );
-
-
   /*
    * 大会正式結果の対象外なら、
-   * これまでどおり予想クイズの正解だけを更新する。
+   * これまでどおり予想クイズの正解だけ更新。
    */
   if (!officialPeriod) {
 
@@ -2160,8 +2150,7 @@ async function adminSetResult(
 
 
   /*
-   * 正式結果テーブルはコードから勝手に作らない。
-   * 未作成ならここで止める。
+   * 正式結果テーブルはコードから作らない。
    */
   if (
     !await monthlyResultsTableExists(
@@ -2178,9 +2167,7 @@ async function adminSetResult(
 
 
   /*
-   * 一度正式結果を保存した月は固定。
-   * 後から体重や予想クイズの正解を変更しても
-   * 公開済み正式結果は書き換えない。
+   * 一度確定した正式結果は固定。
    */
   const saved =
     await getSavedMonthlyResult(
@@ -2258,9 +2245,7 @@ async function adminSetResult(
       : null;
 
 
-  if (
-    !first
-  ) {
+  if (!first) {
 
     return bad(
       req,
@@ -2271,9 +2256,10 @@ async function adminSetResult(
 
 
   /*
-   * 管理者選択は順位を決めるためには使わない。
-   * 体重データから自動計算した1位と
-   * 選択した勝利チームが一致するかだけ確認する。
+   * 管理画面で選んだチームは
+   * 順位決定には使用しない。
+   *
+   * 自動集計1位との一致確認だけに使う。
    */
   if (
     first.team_id !==
@@ -2315,13 +2301,6 @@ async function adminSetResult(
     );
 
 
-  /*
-   * 予想クイズ側が既に確定済みだった場合は
-   * 元の finalized_at を維持する。
-   *
-   * 正式結果の公開日時は
-   * competition_monthly_results.published_at の now。
-   */
   const roundUpdate =
     env.DB
       .prepare(`
@@ -2346,10 +2325,6 @@ async function adminSetResult(
       );
 
 
-  /*
-   * 正式結果保存と予想クイズ正解更新を
-   * 同じD1 batchで実行する。
-   */
   await env.DB
     .batch([
       resultInsert,

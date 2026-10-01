@@ -6,11 +6,11 @@
    つだつダイエット部 追加表示
    ------------------------------------------------------------
    1. 通常ランキングを縦にコンパクト化
-   2. 大会グラフの終点を直近月曜日に統一
+   2. 大会グラフの終点を最新の公式記録日へ統一
    3. グラフ下に
-      ・全期間ランキング
-      ・当月途中経過ランキング
-      を表示
+      ・🏁 月間の仮順位
+      ・🏆 全期間の減量数
+      を見やすく表示
 
    ※既存API /api/weekly-summary?club=1 のデータだけを使う。
    ※D1変更なし。
@@ -100,15 +100,6 @@
   }
 
 
-  function isMondayYmd(ymd) {
-    const day = ymdDay(ymd);
-    if (day === null) return false;
-
-    return new Date(day * 86400000)
-      .getUTCDay() === 1;
-  }
-
-
   function dateText(ymd) {
     const p = parseYmd(ymd);
     if (!p) return String(ymd || '—');
@@ -138,12 +129,39 @@
   }
 
 
-  function monthLabel(ymd) {
+  function prevMonthStartYmd(ymd) {
     const p = parseYmd(ymd);
+    if (!p) return null;
 
-    return p
-      ? p.month + '月途中経過'
-      : '今月途中経過';
+    const base =
+      new Date(Date.UTC(p.year, p.month - 1, 1));
+
+    base.setUTCMonth(base.getUTCMonth() - 1);
+
+    return (
+      base.getUTCFullYear() +
+      '-' +
+      pad2(base.getUTCMonth() + 1) +
+      '-01'
+    );
+  }
+
+
+  function nextMonthStartYmd(ymd) {
+    const p = parseYmd(ymd);
+    if (!p) return null;
+
+    const base =
+      new Date(Date.UTC(p.year, p.month - 1, 1));
+
+    base.setUTCMonth(base.getUTCMonth() + 1);
+
+    return (
+      base.getUTCFullYear() +
+      '-' +
+      pad2(base.getUTCMonth() + 1) +
+      '-01'
+    );
   }
 
 
@@ -189,6 +207,10 @@
     style.id = 'clubProgressUiStyle';
 
     style.textContent = `
+/* ============================================================
+   通常ランキング
+   ============================================================ */
+
 #rankList.rank > li:not(.empty){
   gap:8px;
   padding:8px 0
@@ -244,35 +266,50 @@
   font-size:16px
 }
 
+/* ============================================================
+   グラフ下の見やすい結果表示
+   ============================================================ */
+
 .club-progress-rankings{
   display:grid;
-  grid-template-columns:repeat(2,minmax(0,1fr));
-  gap:8px;
-  margin-top:10px
+  gap:10px;
+  margin-top:12px
 }
 
 .club-progress-card{
-  min-width:0;
-  padding:11px 10px;
+  padding:14px 14px 12px;
   border:1px solid var(--line2,#f4ede6);
-  border-radius:15px;
-  background:#fff
+  border-radius:18px;
+  background:
+    linear-gradient(
+      180deg,
+      rgba(255,255,255,.98) 0%,
+      rgba(255,251,248,.98) 100%
+    )
 }
 
 .club-progress-title{
   margin:0;
   color:var(--ink,#181614);
-  font-size:12px;
+  font-size:16px;
   font-weight:900;
-  line-height:1.35
+  line-height:1.4
 }
 
 .club-progress-period{
-  margin:2px 0 7px;
+  margin:3px 0 8px;
   color:var(--sub,#7e756d);
-  font-size:9px;
+  font-size:12px;
+  font-weight:800;
+  line-height:1.5
+}
+
+.club-progress-note{
+  margin:0 0 8px;
+  color:#9a7461;
+  font-size:11px;
   font-weight:700;
-  line-height:1.35
+  line-height:1.5
 }
 
 .club-progress-list{
@@ -283,11 +320,11 @@
 
 .club-progress-row{
   display:grid;
-  grid-template-columns:20px minmax(0,1fr) auto;
-  gap:5px;
+  grid-template-columns:34px minmax(0,1fr) auto;
+  gap:8px;
   align-items:center;
   min-width:0;
-  padding:5px 0;
+  padding:8px 0;
   border-top:1px solid var(--line2,#f4ede6)
 }
 
@@ -295,25 +332,24 @@
   border-top:0
 }
 
-.club-progress-medal{
-  font-size:13px;
-  line-height:1;
+.club-progress-rank{
+  color:var(--ink,#181614);
+  font-size:15px;
+  font-weight:900;
   text-align:center
 }
 
 .club-progress-team{
-  overflow:hidden;
   min-width:0;
   color:var(--ink2,#4b433d);
-  font-size:10px;
+  font-size:14px;
   font-weight:900;
-  text-overflow:ellipsis;
-  white-space:nowrap
+  line-height:1.35
 }
 
 .club-progress-loss{
   color:var(--ink,#181614);
-  font-size:10px;
+  font-size:15px;
   font-variant-numeric:tabular-nums;
   font-weight:900;
   white-space:nowrap
@@ -323,9 +359,9 @@
   margin:0;
   padding:5px 0 1px;
   color:var(--sub,#7e756d);
-  font-size:10px;
+  font-size:12px;
   font-weight:700;
-  line-height:1.45
+  line-height:1.55
 }
 
 @media(max-width:380px){
@@ -342,22 +378,29 @@
     font-size:15px
   }
 
-  .club-progress-rankings{
-    gap:6px
+  .club-progress-card{
+    padding:12px 12px 10px
   }
 
-  .club-progress-card{
-    padding:10px 8px
+  .club-progress-title{
+    font-size:15px
+  }
+
+  .club-progress-period{
+    font-size:11px
   }
 
   .club-progress-row{
-    grid-template-columns:18px minmax(0,1fr) auto;
-    gap:4px
+    grid-template-columns:32px minmax(0,1fr) auto;
+    gap:6px
   }
 
-  .club-progress-team,
+  .club-progress-team{
+    font-size:13px
+  }
+
   .club-progress-loss{
-    font-size:9px
+    font-size:14px
   }
 }
 `;
@@ -417,7 +460,7 @@
 
 
   /* ==========================================================
-     直近月曜日
+     公式記録日
      ========================================================== */
 
   function allPointDates(data) {
@@ -435,41 +478,65 @@
   }
 
 
-  function latestMondayYmd(data) {
+  /*
+   * 今回は「最新月曜日」ではなく
+   * グラフと同じ「最新の公式記録日」を基準にする。
+   *
+   * 例:
+   * 10/1 なら 10/1
+   * 10/12 なら 10/12
+   */
+  function latestOfficialYmd(data) {
     const today =
       String((data && data.today_ymd) || '');
 
-    const mondays =
+    const dates =
       allPointDates(data)
         .filter(
           ymd =>
             ymd >= CAMPAIGN_START &&
-            (!today || ymd <= today) &&
-            isMondayYmd(ymd)
+            (!today || ymd <= today)
         )
         .sort();
 
-    return mondays.length
-      ? mondays[mondays.length - 1]
+    return dates.length
+      ? dates[dates.length - 1]
       : null;
   }
 
 
   function progressContext(data) {
-    const end = latestMondayYmd(data);
+    const end = latestOfficialYmd(data);
     if (!end) return null;
 
-    const monthStart = monthStartYmd(end);
-    if (!monthStart) return null;
+    const endParts = parseYmd(end);
+    if (!endParts) return null;
+
+    let provisionalStart;
+    let provisionalLabelEnd;
+
+    /*
+     * 月初の公式記録日なら
+     * その前月大会の仮結果
+     * 例: 10/1 → 9/1〜10/1(仮)
+     *
+     * 月初以外なら
+     * 当月大会の途中経過
+     * 例: 10/12 → 10/1〜11/1(仮)
+     */
+    if (endParts.day === 1) {
+      provisionalStart = prevMonthStartYmd(end);
+      provisionalLabelEnd = end;
+    } else {
+      provisionalStart = monthStartYmd(end);
+      provisionalLabelEnd = nextMonthStartYmd(end);
+    }
 
     return {
       end,
-      month_start: monthStart,
-      baseline:
-        String(
-          (data && data.baseline_ymd) ||
-          CAMPAIGN_START
-        ),
+      baseline: String((data && data.baseline_ymd) || CAMPAIGN_START),
+      provisional_start: provisionalStart,
+      provisional_label_end: provisionalLabelEnd,
     };
   }
 
@@ -510,11 +577,11 @@
 
       let lossKg = endLoss;
 
-      if (mode === 'month') {
+      if (mode === 'provisional') {
         const startLoss =
           pointAt(
             team,
-            ctx.month_start
+            ctx.provisional_start
           );
 
         if (!Number.isFinite(startLoss)) continue;
@@ -553,10 +620,15 @@
 
 
   /* ==========================================================
-     数字ランキング表示
+     グラフ下のカード
      ========================================================== */
 
-  function buildRankingCard(title, period, rows) {
+  function buildRankingCard({
+    title,
+    period,
+    note,
+    rows,
+  }) {
     const card = document.createElement('section');
     card.className = 'club-progress-card';
 
@@ -570,10 +642,17 @@
 
     card.append(h, p);
 
+    if (note) {
+      const n = document.createElement('p');
+      n.className = 'club-progress-note';
+      n.textContent = note;
+      card.appendChild(n);
+    }
+
     if (!rows.length) {
       const empty = document.createElement('p');
       empty.className = 'club-progress-empty';
-      empty.textContent = '月曜集計後に表示します';
+      empty.textContent = '集計できるデータがまだありません';
       card.appendChild(empty);
       return card;
     }
@@ -588,9 +667,12 @@
           const li = document.createElement('li');
           li.className = 'club-progress-row';
 
-          const medal = document.createElement('span');
-          medal.className = 'club-progress-medal';
-          medal.textContent = MEDALS[index] || String(index + 1);
+          const rank = document.createElement('span');
+          rank.className = 'club-progress-rank';
+          rank.textContent =
+            (MEDALS[index] || '') +
+            (index + 1) +
+            '位';
 
           const team = document.createElement('span');
           team.className = 'club-progress-team';
@@ -600,7 +682,7 @@
           loss.className = 'club-progress-loss';
           loss.textContent = progressKgText(row.loss_kg);
 
-          li.append(medal, team, loss);
+          li.append(rank, team, loss);
           list.appendChild(li);
         }
       );
@@ -629,40 +711,56 @@
 
     if (!ctx) {
       wrap.append(
-        buildRankingCard(
-          '🏆 全期間',
-          '次の月曜集計後に更新',
-          []
-        ),
-        buildRankingCard(
-          '🔥 今月途中経過',
-          '次の月曜集計後に更新',
-          []
-        )
+        buildRankingCard({
+          title: '🏁 月間の仮順位',
+          period: '次の公式記録日後に表示します',
+          note: '',
+          rows: [],
+        }),
+        buildRankingCard({
+          title: '🏆 全期間の減量数',
+          period: '次の公式記録日後に表示します',
+          note: '',
+          rows: [],
+        })
       );
 
       detail.insertAdjacentElement('afterend', wrap);
       return;
     }
 
-    const allRows = rankedRows(clubData, 'all');
-    const monthRows = rankedRows(clubData, 'month');
+    const provisionalRows =
+      rankedRows(clubData, 'provisional');
+
+    const allRows =
+      rankedRows(clubData, 'all');
 
     wrap.append(
-      buildRankingCard(
-        '🏆 全期間',
-        shortDateText(ctx.baseline) +
+      buildRankingCard({
+        title:
+          '🏁 ' +
+          dateText(ctx.provisional_start) +
           '〜' +
-          shortDateText(ctx.end),
-        allRows
-      ),
-      buildRankingCard(
-        '🔥 ' + monthLabel(ctx.end),
-        shortDateText(ctx.month_start) +
+          dateText(ctx.provisional_label_end) +
+          '（仮）',
+        period:
+          '現在の集計基準日：' +
+          dateText(ctx.end),
+        note:
+          '正式確定前の途中結果です',
+        rows: provisionalRows,
+      }),
+      buildRankingCard({
+        title: '🏆 全期間の減量数',
+        period:
+          dateText(ctx.baseline) +
           '〜' +
-          shortDateText(ctx.end),
-        monthRows
-      )
+          dateText(ctx.end) +
+          ' 時点',
+        note:
+          '大会開始から現在までの累計です',
+        rows: allRows,
+      })
     );
 
     detail.insertAdjacentElement('afterend', wrap);
@@ -719,27 +817,22 @@
   }
 
 
-  function mondayTicks(startYmd, endYmd) {
-    const start = ymdDay(startYmd);
-    const end = ymdDay(endYmd);
+  function isOfficialTickYmd(ymd) {
+    const parts = parseYmd(ymd);
+    if (!parts) return false;
 
-    if (start === null || end === null) return [];
+    const day = ymdDay(ymd);
+    if (day === null) return false;
 
-    const result = [];
+    const dow =
+      new Date(day * 86400000)
+        .getUTCDay();
 
-    for (let day = start; day <= end; day++) {
-      const d = new Date(day * 86400000);
-
-      if (d.getUTCDay() === 1) {
-        result.push(dayToYmd(day));
-      }
-    }
-
-    return result;
+    return parts.day === 1 || dow === 1;
   }
 
 
-  function monthStartTicks(startYmd, endYmd) {
+  function officialTicks(startYmd, endYmd) {
     const start = ymdDay(startYmd);
     const end = ymdDay(endYmd);
 
@@ -750,20 +843,12 @@
     for (let day = start; day <= end; day++) {
       const ymd = dayToYmd(day);
 
-      if (/^\d{4}-\d{2}-01$/.test(ymd)) {
+      if (isOfficialTickYmd(ymd)) {
         result.push(ymd);
       }
     }
 
-    if (
-      endYmd &&
-      !result.includes(endYmd) &&
-      endYmd !== startYmd
-    ) {
-      result.push(endYmd);
-    }
-
-    return [...new Set(result)].sort();
+    return result;
   }
 
 
@@ -791,36 +876,19 @@
         mode: 'all',
         start: ctx.baseline,
         end: ctx.end,
-        ticks:
-          monthStartTicks(
-            ctx.baseline,
-            ctx.end
-          ),
+        ticks: officialTicks(ctx.baseline, ctx.end),
       };
     }
 
     return {
       mode: 'month',
-      start: ctx.month_start,
+      start: ctx.provisional_start,
       end: ctx.end,
-      ticks:
-        mondayTicks(
-          ctx.month_start,
-          ctx.end
-        ),
+      ticks: officialTicks(ctx.provisional_start, ctx.end),
     };
   }
 
 
-  /*
-   * monthly-results-ui.js との再描画ループ防止用。
-   *
-   * 既存 club-ui.js がグラフを描き直すと
-   * SVG内部のこのマーカーが消える。
-   *
-   * 一方、正式結果カードを追加・削除しただけなら
-   * マーカーは残るため、不要な再描画を行わない。
-   */
   function graphSignature(range) {
     return range
       ? [
@@ -908,19 +976,19 @@
         );
 
       text.textContent =
-        '月曜集計がまだありません';
+        '公式記録日がまだありません';
 
       svg.appendChild(text);
       appendGraphMarker(svg, null);
 
       if (detail) {
         detail.textContent =
-          '最初の月曜集計後に推移を表示します。';
+          '最初の公式記録後に表示します。';
       }
 
       if (note) {
         note.textContent =
-          'グラフと順位は毎週月曜日に更新します';
+          'グラフと順位は公式記録日に更新します';
       }
 
       return;
@@ -930,17 +998,16 @@
       note.textContent =
         range.mode === 'month'
           ? (
-              monthLabel(range.end) +
-              '・' +
-              shortDateText(range.start) +
+              dateText(range.provisional_start || range.start) +
               '〜' +
-              shortDateText(range.end)
+              dateText(range.end) +
+              ' の推移'
             )
           : (
-              '全期間・' +
-              shortDateText(range.start) +
+              dateText(range.start) +
               '〜' +
-              shortDateText(range.end)
+              dateText(range.end) +
+              ' の推移'
             );
     }
 
@@ -1291,7 +1358,7 @@
           )
         ) {
           parts.push(
-            (team.short || team.name) +
+            team.name +
             ' ' +
             detailLossText(point.loss_kg)
           );
@@ -1300,11 +1367,8 @@
 
       detail.textContent =
         dateText(range.end) +
-        (
-          parts.length
-            ? '　' + parts.join(' ／ ')
-            : ''
-        );
+        ' 時点　' +
+        parts.join(' ／ ');
     }
 
     appendGraphMarker(svg, range);
@@ -1321,11 +1385,6 @@
 
 
   function connectObserver() {
-    /*
-     * rankBox は index.html に最初から存在する。
-     * clubPanelそのものではなく親を監視することで、
-     * club-ui.js が初めて clubPanel を作るケースにも対応。
-     */
     const rankBox =
       document.getElementById('rankBox');
 
@@ -1335,16 +1394,6 @@
       observer =
         new MutationObserver(
           () => {
-            /*
-             * monthly-results-ui.js が
-             * 正式結果カードを差し込んだだけなら、
-             * グラフマーカーと数字ランキングは残っている。
-             *
-             * その場合は再描画しない。
-             *
-             * club-ui.js がpanelやグラフを描き直した場合だけ
-             * マーカーまたはランキングが消えるため再描画する。
-             */
             if (
               !rendering &&
               !renderStateIsCurrent()

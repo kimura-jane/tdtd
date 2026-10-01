@@ -10,7 +10,7 @@
 
    ・7日経過後
      → 上部から消える
-     → 既存「過去の月曜日履歴」の直下へ
+     → 既存の月曜速報の下へ
         「月間結果履歴」として表示
 
    ・正式結果はAPIの保存済みスナップショットを表示
@@ -1053,24 +1053,55 @@
     }
 
 
-    const weekly =
+    /*
+     * 月間結果履歴は、
+     * 実際に月曜速報が表示されている画面だけに出す。
+     *
+     * ・過去の月曜日履歴がある
+     *   → その直後
+     *
+     * ・まだ過去履歴がなく、現在の月曜速報だけある
+     *   → 現在の月曜速報の直後
+     *
+     * 月曜速報自体が無い画面では表示しない。
+     * これにより大会対象外の「他チーム」へ
+     * 月間結果が出ることを防ぐ。
+     */
+    const weeklyHistory =
       document.querySelector(
         '.weekly-summary-history'
       );
 
 
-    const rankList =
-      document.getElementById(
-        'rankList'
+    const weeklyCurrent =
+      document.querySelector(
+        '.weekly-summary-current'
       );
 
 
     const anchor =
-      weekly ||
-      rankList;
+      weeklyHistory ||
+      weeklyCurrent;
 
 
     if (!anchor) {
+
+      removeHistory();
+
+      return;
+    }
+
+
+    const scope =
+      activeRankScope();
+
+
+    if (
+      scope !==
+        'mine' &&
+      scope !==
+        'watch'
+    ) {
 
       removeHistory();
 
@@ -1097,27 +1128,6 @@
       'afterend',
       section
     );
-
-
-    /*
-     * 月間履歴は
-     * 「過去の月曜日履歴」の下で見るもの。
-     *
-     * つだつダイエット部タブでは
-     * clubPanelだけを表示するため、
-     * 月間履歴側も隠す。
-     */
-    const scope =
-      activeRankScope();
-
-
-    section.hidden =
-      !(
-        scope ===
-          'mine' ||
-        scope ===
-          'watch'
-      );
   }
 
 
@@ -1139,12 +1149,30 @@
       activeRankScope();
 
 
+    const weeklyHistory =
+      document.querySelector(
+        '.weekly-summary-history'
+      );
+
+
+    const weeklyCurrent =
+      document.querySelector(
+        '.weekly-summary-current'
+      );
+
+
     history.hidden =
       !(
-        scope ===
-          'mine' ||
-        scope ===
-          'watch'
+        (
+          scope ===
+            'mine' ||
+          scope ===
+            'watch'
+        ) &&
+        (
+          weeklyHistory ||
+          weeklyCurrent
+        )
       );
   }
 
